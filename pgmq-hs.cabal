@@ -28,6 +28,11 @@ library
   import:             warnings
   exposed-modules:
     Pgmq
+    Pgmq.Db.Decoders
+    Pgmq.Db.Encoders
+    Pgmq.Db.Statements
+    Pgmq.Db.Statements.QueueManagement
+    Pgmq.Db.Transactions
     Pgmq.Prelude
     Pgmq.Types
 
@@ -44,6 +49,7 @@ library
   build-depends:
     , aeson              ^>=2.2
     , base               >=4.18  && <5.0
+    , generic-lens       ^>=2.2
     , hasql              ^>=1.9
     , hasql-transaction  ^>=1.2
     , lens               ^>=5.3

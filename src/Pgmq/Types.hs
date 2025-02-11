@@ -4,6 +4,7 @@ module Pgmq.Types
     Message (..),
     QueueName,
     parseQueueName,
+    queueNameToText,
   )
 where
 
@@ -20,11 +21,12 @@ newtype MessageId = MessageId {unMessageId :: Int64}
   deriving newtype (Eq, Ord, FromJSON, ToJSON)
   deriving stock (Show, Generic)
 
+-- | https://tembo.io/pgmq/api/sql/types/
 data Message = Message
   { messageId :: !MessageId,
     visibilityTime :: !UTCTime,
     enqueuedAt :: !UTCTime,
-    readCount :: !Int32,
+    readCount :: !Int64,
     body :: !MessageBody
   }
   deriving stock (Eq, Generic, Show)
@@ -32,6 +34,9 @@ data Message = Message
 newtype QueueName = QueueName Text
   deriving newtype (Eq, Ord, FromJSON, ToJSON)
   deriving stock (Show, Generic)
+
+queueNameToText :: QueueName -> Text
+queueNameToText (QueueName t) = t
 
 newtype PgmqError = InvalidQueueName Text
   deriving stock (Show, Generic)
