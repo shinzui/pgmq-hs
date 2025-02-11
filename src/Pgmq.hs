@@ -1,4 +1,26 @@
-module Pgmq (someFunc) where
+module Pgmq
+  ( -- * Queue Management
+    createQueue,
+    dropQueue,
 
-someFunc :: IO ()
-someFunc = putStrLn "someFunc"
+    -- * Types
+    MessageBody (..),
+    MessageId (..),
+    Message (..),
+    QueueName,
+
+    -- * Queue Name Utilities
+    parseQueueName,
+    queueNameToText,
+  )
+where
+
+import Pgmq.Db.Transactions (createQueue, dropQueue)
+import Pgmq.Types
+  ( Message (..),
+    MessageBody (..),
+    MessageId (..),
+    QueueName,
+    parseQueueName,
+    queueNameToText,
+  )
