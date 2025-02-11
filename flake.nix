@@ -16,7 +16,6 @@
         treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
         formatter = treefmtEval.config.build.wrapper;
 
-        # haskellPackages = pkgs.haskell.packages."${ghcVersion}";
       in
       {
         checks = {
@@ -30,18 +29,21 @@
             };
           };
         };
-        devShell = nixpkgs.legacyPackages.${system}.mkShell {
+        devShell = pkgs.mkShell {
           inherit (self.checks.${system}.pre-commit-check) shellHook;
           buildInputs = [
             frameworks.Cocoa
           ];
-          nativeBuildInputs = [
-            pkgs.zlib
-            pkgs.xz
-            pkgs.just
-            pkgs.cabal-install
-            pkgs.haskell.packages."${ghcVersion}".haskell-language-server
-            pkgs.haskell.compiler."${ghcVersion}"
+          nativeBuildInputs = with pkgs; [
+            zlib
+            xz
+            just
+            postgresql
+            cabal-install
+            (haskell.packages.${ghcVersion}.ghcWithPackages (ps: with ps; [
+              haskell-language-server
+              cabal-plan-bounds
+            ]))
           ];
         };
       }
