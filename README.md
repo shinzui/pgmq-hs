@@ -1,17 +1,35 @@
-### Add to registry
+### pgmq-hs
 
-```
-nix registry add shinzui-templates github:shinzui/nix-flake-templates
-```
+Haskell client for [pgmq](https://github.com/tembo-io/pgmq)
 
-### Init haskell project using template
 
-```
-nix flake init -t shinzui-templates#haskell
-```
+## Supported API
 
-### Update flake lock from haskell template
-
-```
-nix flake update --inputs-from "github:shinzui/nix-flake-templates?dir=haskell"
-```
+- [] [Sending Messages](https://tembo-io.github.io/pgmq/api/sql/functions/#sending-messages)
+  - [] [send](https://tembo-io.github.io/pgmq/api/sql/functions/#send)
+  - [] [send_batch](https://tembo-io.github.io/pgmq/api/sql/functions/#send_batch)
+- [] [Reading Messages](https://tembo-io.github.io/pgmq/api/sql/functions/#reading-messages)
+  - [] [read](https://tembo-io.github.io/pgmq/api/sql/functions/#read)
+  - [] [read_with_poll](https://tembo-io.github.io/pgmq/api/sql/functions/#read_with_poll)
+  - [] [pop](https://tembo-io.github.io/pgmq/api/sql/functions/#pop)
+- [] [Deleting/Archiving Messages](https://tembo-io.github.io/pgmq/api/sql/functions/#deletingarchiving-messages)
+  - [] [delete (single)](https://tembo-io.github.io/pgmq/api/sql/functions/#delete-single)
+  - [] [delete (batch)](https://tembo-io.github.io/pgmq/api/sql/functions/#delete-batch)
+  - [] [purge_queue](https://tembo-io.github.io/pgmq/api/sql/functions/#purge_queue)
+  - [] [archive (single)](https://tembo-io.github.io/pgmq/api/sql/functions/#archive-single)
+  - [] [archive (batch)](https://tembo-io.github.io/pgmq/api/sql/functions/#archive-batch)
+- [] [Queue Management](https://tembo-io.github.io/pgmq/api/sql/functions/#queue-management)
+  - [x] [create](https://tembo-io.github.io/pgmq/api/sql/functions/#create)
+  - [] [create_partitioned](https://tembo-io.github.io/pgmq/api/sql/functions/#create_partitioned) see `Partition` 
+  - [] [create_unlogged](https://tembo-io.github.io/pgmq/api/sql/functions/#create_unlogged)
+  - [] [detach_archive](https://tembo-io.github.io/pgmq/api/sql/functions/#detach_archive)
+  - [x] [drop_queue](https://tembo-io.github.io/pgmq/api/sql/functions/#drop_queue)
+- [] [Utilities](https://tembo-io.github.io/pgmq/api/sql/functions/#utilities)
+  - [] [set_vt](https://tembo-io.github.io/pgmq/api/sql/functions/#set_vt)
+  - [] [list_queues](https://tembo-io.github.io/pgmq/api/sql/functions/#list_queues)
+  - [] [metrics](https://tembo-io.github.io/pgmq/api/sql/functions/#metrics)
+  - [] [metrics_all](https://tembo-io.github.io/pgmq/api/sql/functions/#metrics_all)
+- Partition
+  - [] [create_partitioned](https://tembo-io.github.io/pgmq/api/sql/functions/#create_partitioned)
+  - [] [show_partitions](https://github.com/pgpartman/pg_partman/blob/development/doc/pg_partman.md#show_partitions)
+  - [] [run_maintenance](https://github.com/pgpartman/pg_partman/blob/development/doc/pg_partman.md#run_maintenance)
