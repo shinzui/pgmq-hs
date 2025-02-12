@@ -2,10 +2,13 @@ module Pgmq.Db.Encoders
   ( queueNameValue,
     sendMessageEncoder,
     sendMessageForLaterEncoder,
+    batchSendMessageEncoder,
+    batchSendMessageForLaterEncoder,
     messageIdValue,
   )
 where
 
+import Data.Foldable (foldl')
 import Data.Generics.Product (HasField')
 import Hasql.Encoders qualified as E
 import Pgmq.Db.Statements.Types
@@ -40,4 +43,20 @@ sendMessageEncoder =
 sendMessageForLaterEncoder :: E.Params SendMessageForLater
 sendMessageForLaterEncoder =
   commonSendMessageFields
+    <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))
+
+-- | Common encoder for batch message fields
+commonBatchSendMessageFields :: (HasField' "queueName" a QueueName, HasField' "messageBodies" a [MessageBody]) => E.Params a
+commonBatchSendMessageFields =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #messageBodies >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageBodyValue))))))
+
+batchSendMessageEncoder :: E.Params BatchSendMessage
+batchSendMessageEncoder =
+  commonBatchSendMessageFields
+    <> (view #delay >$< E.param (E.nullable E.int4))
+
+batchSendMessageForLaterEncoder :: E.Params BatchSendMessageForLater
+batchSendMessageForLaterEncoder =
+  commonBatchSendMessageFields
     <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))

@@ -3,6 +3,8 @@ module Pgmq.Db.Transactions
     dropQueue,
     sendMessage,
     sendMessageForLater,
+    batchSendMessage,
+    batchSendMessageForLater,
   )
 where
 
@@ -11,7 +13,12 @@ import Hasql.Transaction
 import Hasql.Transaction.Sessions
 import Pgmq.Db.Statements qualified as Db
 import Pgmq.Db.Statements.Message qualified as Msg
-import Pgmq.Db.Statements.Types (SendMessage, SendMessageForLater)
+import Pgmq.Db.Statements.Types
+  ( BatchSendMessage,
+    BatchSendMessageForLater,
+    SendMessage,
+    SendMessageForLater,
+  )
 import Pgmq.Types (MessageId, QueueName)
 
 createQueue :: QueueName -> S.Session ()
@@ -33,3 +40,13 @@ sendMessageForLater :: SendMessageForLater -> S.Session MessageId
 sendMessageForLater msg =
   transaction Serializable Write $
     statement msg Msg.sendMessageForLater
+
+batchSendMessage :: BatchSendMessage -> S.Session [MessageId]
+batchSendMessage msgs =
+  transaction Serializable Write $
+    statement msgs Msg.batchSendMessage
+
+batchSendMessageForLater :: BatchSendMessageForLater -> S.Session [MessageId]
+batchSendMessageForLater msgs =
+  transaction Serializable Write $
+    statement msgs Msg.batchSendMessageForLater

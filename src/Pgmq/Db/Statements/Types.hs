@@ -1,6 +1,8 @@
 module Pgmq.Db.Statements.Types
   ( SendMessage (..),
     SendMessageForLater (..),
+    BatchSendMessage (..),
+    BatchSendMessageForLater (..),
   )
 where
 
@@ -19,6 +21,20 @@ data SendMessage = SendMessage
 data SendMessageForLater = SendMessageForLater
   { queueName :: !QueueName,
     messageBody :: !MessageBody,
+    scheduledAt :: !UTCTime
+  }
+  deriving stock (Generic)
+
+data BatchSendMessage = BatchSendMessage
+  { queueName :: !QueueName,
+    messageBodies :: ![MessageBody],
+    delay :: !(Maybe Delay)
+  }
+  deriving stock (Generic)
+
+data BatchSendMessageForLater = BatchSendMessageForLater
+  { queueName :: !QueueName,
+    messageBodies :: ![MessageBody],
     scheduledAt :: !UTCTime
   }
   deriving stock (Generic)
