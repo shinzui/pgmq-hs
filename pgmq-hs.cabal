@@ -31,17 +31,21 @@ library
     Pgmq.Db.Decoders
     Pgmq.Db.Encoders
     Pgmq.Db.Statements
+    Pgmq.Db.Statements.Message
     Pgmq.Db.Statements.QueueManagement
+    Pgmq.Db.Statements.Types
     Pgmq.Db.Transactions
     Pgmq.Prelude
     Pgmq.Types
 
   default-extensions:
+    DataKinds
     DeriveGeneric
     DerivingStrategies
     DuplicateRecordFields
     GeneralisedNewtypeDeriving
     ImportQualifiedPost
+    LambdaCase
     NamedFieldPuns
     OverloadedLabels
     OverloadedStrings

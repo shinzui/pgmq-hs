@@ -56,6 +56,7 @@ import "base" Data.Maybe (fromMaybe, isJust, isNothing)
 import "base" Data.Proxy (Proxy (..))
 import "base" GHC.Exception (CallStack, prettyCallStack)
 import "base" GHC.Generics (Generic)
+import "generic-lens" Data.Generics.Labels ()
 import "lens" Control.Lens
 import "text" Data.Text (Text)
 import "time" Data.Time (Day, LocalTime, UTCTime, getCurrentTime)
