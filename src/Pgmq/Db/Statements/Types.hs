@@ -1,18 +1,22 @@
-module Pgmq.Db.Statements.Types where
+module Pgmq.Db.Statements.Types
+  ( SendMessage (..),
+    SendMessageForLater (..),
+  )
+where
 
 import Pgmq.Prelude
 import Pgmq.Types (MessageBody, QueueName)
 
 type Delay = Int32
 
-data QueueMessage = QueueMessage
+data SendMessage = SendMessage
   { queueName :: !QueueName,
     messageBody :: !MessageBody,
     delay :: !(Maybe Delay)
   }
   deriving stock (Generic)
 
-data QueueMessageForLater = QueueMessageForLater
+data SendMessageForLater = SendMessageForLater
   { queueName :: !QueueName,
     messageBody :: !MessageBody,
     scheduledAt :: !UTCTime

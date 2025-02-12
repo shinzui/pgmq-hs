@@ -6,8 +6,11 @@ import Pgmq.Types (Message (..), MessageBody (..), MessageId (..))
 messageDecoder :: D.Row Message
 messageDecoder =
   Message
-    <$> (MessageId <$> D.column (D.nonNullable D.int8))
+    <$> messageIdRow
     <*> D.column (D.nonNullable D.timestamptz)
     <*> D.column (D.nonNullable D.timestamptz)
     <*> D.column (D.nonNullable D.int8)
     <*> (MessageBody <$> D.column (D.nonNullable D.jsonb))
+
+messageIdRow :: D.Row MessageId
+messageIdRow = MessageId <$> D.column (D.nonNullable D.int8)

@@ -6,7 +6,6 @@ module Pgmq.Db.Encoders
   )
 where
 
-import Data.Coerce (coerce)
 import Data.Generics.Product (HasField')
 import Hasql.Encoders qualified as E
 import Pgmq.Db.Statements.Types
@@ -28,17 +27,17 @@ messageIdValue :: E.Value MessageId
 messageIdValue = unMessageId >$< E.int8
 
 -- | Common encoder for queue message fields
-commonQueueMessageFields :: (HasField' "queueName" a QueueName, HasField' "messageBody" a MessageBody) => E.Params a
-commonQueueMessageFields =
+commonSendMessageFields :: (HasField' "queueName" a QueueName, HasField' "messageBody" a MessageBody) => E.Params a
+commonSendMessageFields =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #messageBody >$< E.param (E.nonNullable messageBodyValue))
 
-queueMessageEncoder :: E.Params QueueMessage
+queueMessageEncoder :: E.Params SendMessage
 queueMessageEncoder =
-  commonQueueMessageFields
+  commonSendMessageFields
     <> (view #delay >$< E.param (E.nullable E.int4))
 
-queueMessageForLaterEncoder :: E.Params QueueMessageForLater
+queueMessageForLaterEncoder :: E.Params SendMessageForLater
 queueMessageForLaterEncoder =
-  commonQueueMessageFields
+  commonSendMessageFields
     <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))
