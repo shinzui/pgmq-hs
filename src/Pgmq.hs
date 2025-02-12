@@ -3,11 +3,17 @@ module Pgmq
     createQueue,
     dropQueue,
 
+    -- * Message Operations
+    sendMessage,
+    sendMessageForLater,
+
     -- * Types
     MessageBody (..),
     MessageId (..),
     Message (..),
     QueueName,
+    SendMessage (..),
+    SendMessageForLater (..),
 
     -- * Queue Name Utilities
     parseQueueName,
@@ -15,7 +21,8 @@ module Pgmq
   )
 where
 
-import Pgmq.Db.Transactions (createQueue, dropQueue)
+import Pgmq.Db.Statements.Types (SendMessage (..), SendMessageForLater (..))
+import Pgmq.Db.Transactions (createQueue, dropQueue, sendMessage, sendMessageForLater)
 import Pgmq.Types
   ( Message (..),
     MessageBody (..),
