@@ -6,6 +6,8 @@ module Pgmq
     -- * Message Operations
     sendMessage,
     sendMessageForLater,
+    batchSendMessage,
+    batchSendMessageForLater,
 
     -- * Types
     MessageBody (..),
@@ -14,6 +16,8 @@ module Pgmq
     QueueName,
     SendMessage (..),
     SendMessageForLater (..),
+    BatchSendMessage (..),
+    BatchSendMessageForLater (..),
 
     -- * Queue Name Utilities
     parseQueueName,
@@ -21,8 +25,20 @@ module Pgmq
   )
 where
 
-import Pgmq.Db.Statements.Types (SendMessage (..), SendMessageForLater (..))
-import Pgmq.Db.Transactions (createQueue, dropQueue, sendMessage, sendMessageForLater)
+import Pgmq.Db.Statements.Types
+  ( BatchSendMessage (..),
+    BatchSendMessageForLater (..),
+    SendMessage (..),
+    SendMessageForLater (..),
+  )
+import Pgmq.Db.Transactions
+  ( batchSendMessage,
+    batchSendMessageForLater,
+    createQueue,
+    dropQueue,
+    sendMessage,
+    sendMessageForLater,
+  )
 import Pgmq.Types
   ( Message (..),
     MessageBody (..),
