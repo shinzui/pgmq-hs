@@ -2,6 +2,7 @@ module Pgmq.Db.Encoders
   ( queueNameValue,
     queueMessageEncoder,
     queueMessageForLaterEncoder,
+    messageIdValue,
   )
 where
 
@@ -11,8 +12,7 @@ import Hasql.Encoders qualified as E
 import Pgmq.Db.Statements.Types
 import Pgmq.Prelude
 import Pgmq.Types
-  ( Message (..),
-    MessageBody (..),
+  ( MessageBody (..),
     MessageId (..),
     QueueName,
     queueNameToText,
@@ -22,7 +22,10 @@ queueNameValue :: E.Value QueueName
 queueNameValue = queueNameToText >$< E.text
 
 messageBodyValue :: E.Value MessageBody
-messageBodyValue = (coerce <$> unMessageBody) >$< E.jsonb
+messageBodyValue = unMessageBody >$< E.jsonb
+
+messageIdValue :: E.Value MessageId
+messageIdValue = unMessageId >$< E.int8
 
 -- | Common encoder for queue message fields
 commonQueueMessageFields :: (HasField' "queueName" a QueueName, HasField' "messageBody" a MessageBody) => E.Params a
