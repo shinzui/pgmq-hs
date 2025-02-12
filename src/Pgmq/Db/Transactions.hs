@@ -1,10 +1,18 @@
-module Pgmq.Db.Transactions (createQueue, dropQueue) where
+module Pgmq.Db.Transactions
+  ( createQueue,
+    dropQueue,
+    sendMessage,
+    sendMessageForLater,
+  )
+where
 
 import Hasql.Session qualified as S
 import Hasql.Transaction
 import Hasql.Transaction.Sessions
 import Pgmq.Db.Statements qualified as Db
-import Pgmq.Types (QueueName)
+import Pgmq.Db.Statements.Message qualified as Msg
+import Pgmq.Db.Statements.Types (SendMessage, SendMessageForLater)
+import Pgmq.Types (MessageId, QueueName)
 
 createQueue :: QueueName -> S.Session ()
 createQueue q =
@@ -15,3 +23,13 @@ dropQueue :: QueueName -> S.Session Bool
 dropQueue q =
   transaction Serializable Write $
     statement q Db.dropQueue
+
+sendMessage :: SendMessage -> S.Session MessageId
+sendMessage msg =
+  transaction Serializable Write $
+    statement msg Msg.sendMessage
+
+sendMessageForLater :: SendMessageForLater -> S.Session MessageId
+sendMessageForLater msg =
+  transaction Serializable Write $
+    statement msg Msg.sendMessageForLater

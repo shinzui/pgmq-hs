@@ -1,7 +1,7 @@
 module Pgmq.Db.Encoders
   ( queueNameValue,
-    queueMessageEncoder,
-    queueMessageForLaterEncoder,
+    sendMessageEncoder,
+    sendMessageForLaterEncoder,
     messageIdValue,
   )
 where
@@ -32,12 +32,12 @@ commonSendMessageFields =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #messageBody >$< E.param (E.nonNullable messageBodyValue))
 
-queueMessageEncoder :: E.Params SendMessage
-queueMessageEncoder =
+sendMessageEncoder :: E.Params SendMessage
+sendMessageEncoder =
   commonSendMessageFields
     <> (view #delay >$< E.param (E.nullable E.int4))
 
-queueMessageForLaterEncoder :: E.Params SendMessageForLater
-queueMessageForLaterEncoder =
+sendMessageForLaterEncoder :: E.Params SendMessageForLater
+sendMessageForLaterEncoder =
   commonSendMessageFields
     <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))

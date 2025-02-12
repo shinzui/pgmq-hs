@@ -6,7 +6,7 @@ Haskell client for [pgmq](https://github.com/tembo-io/pgmq)
 ## Supported API
 
 - [] [Sending Messages](https://tembo.io/pgmq/api/sql/functions/#sending-messages)
-  - [] [send](https://tembo.io/pgmq/api/sql/functions/#send)
+  - [x] [send](https://tembo.io/pgmq/api/sql/functions/#send)
   - [] [send_batch](https://tembo.io/pgmq/api/sql/functions/#send_batch)
 - [] [Reading Messages](https://tembo.io/pgmq/api/sql/functions/#reading-messages)
   - [] [read](https://tembo.io/pgmq/api/sql/functions/#read)
