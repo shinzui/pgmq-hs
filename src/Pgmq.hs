@@ -1,3 +1,5 @@
+{-# LANGUAGE QuasiQuotes #-}
+
 module Pgmq
   ( -- * Queue Management
     createQueue,

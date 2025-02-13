@@ -38,6 +38,7 @@ library
     Pgmq.Db.Statements.Types
     Pgmq.Db.Transactions
     Pgmq.Prelude
+    Pgmq.Quasi
     Pgmq.Types
 
   default-extensions:
@@ -59,6 +60,7 @@ library
     , hasql              ^>=1.9
     , hasql-transaction  ^>=1.2
     , lens               ^>=5.3
+    , template-haskell   >=2.20  && <3
     , text               ^>=2.1
     , time               ^>=1.14
     , vector             ^>=0.13

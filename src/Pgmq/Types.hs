@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Pgmq.Types
   ( MessageBody (..),
     MessageId (..),
@@ -12,6 +14,7 @@ where
 import Data.Aeson (Value)
 import Data.Char (isAlphaNum, isAscii)
 import Data.Text qualified as T
+import Language.Haskell.TH.Syntax (Lift (..))
 import Pgmq.Prelude
 
 newtype MessageBody = MessageBody {unMessageBody :: Value}
@@ -43,6 +46,10 @@ data Message = Message
 newtype QueueName = QueueName Text
   deriving newtype (Eq, Ord, FromJSON, ToJSON)
   deriving stock (Show, Generic)
+
+instance Lift QueueName where
+  lift (QueueName t) = [|QueueName t|]
+  liftTyped (QueueName t) = [||QueueName t||]
 
 queueNameToText :: QueueName -> Text
 queueNameToText (QueueName t) = t
