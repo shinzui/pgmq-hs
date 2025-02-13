@@ -63,12 +63,19 @@ readMessage = Statement sql readMessageEncoder decoder True
 deleteMessage :: Statement MessageQuery Bool
 deleteMessage = Statement sql messageQueryEncoder decoder True
   where
-    sql = "select pgmq.delete($1,$2)"
+    sql = "select * from pgmq.delete($1,$2)"
     decoder = D.singleRow (D.column (D.nonNullable D.bool))
 
 -- | https://tembo.io/pgmq/api/sql/functions/#delete-batch
 batchDeleteMessages :: Statement BatchMessageQuery [MessageId]
 batchDeleteMessages = Statement sql batchMessageQueryEncoder decoder True
   where
-    sql = "select pgmq.delete($1,$2)"
+    sql = "select * from pgmq.delete($1,$2)"
     decoder = D.rowList messageIdDecoder
+
+-- | https://tembo.io/pgmq/api/sql/functions/#archive-single
+archiveMessage :: Statement MessageQuery Bool
+archiveMessage = Statement sql messageQueryEncoder decoder True
+  where
+    sql = "select * from pgmq.archive($1,$2)"
+    decoder = D.singleRow (D.column (D.nonNullable D.bool))

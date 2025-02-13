@@ -11,6 +11,7 @@ module Pgmq
     readMessage,
     deleteMessage,
     batchDeleteMessages,
+    archiveMessage,
 
     -- * Types
     MessageBody (..),
@@ -42,7 +43,8 @@ import Pgmq.Db.Statements.Types
     SendMessageForLater (..),
   )
 import Pgmq.Db.Transactions
-  ( batchDeleteMessages,
+  ( archiveMessage,
+    batchDeleteMessages,
     batchSendMessage,
     batchSendMessageForLater,
     createQueue,
