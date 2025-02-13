@@ -79,3 +79,10 @@ archiveMessage = Statement sql messageQueryEncoder decoder True
   where
     sql = "select * from pgmq.archive($1,$2)"
     decoder = D.singleRow (D.column (D.nonNullable D.bool))
+
+-- | https://tembo.io/pgmq/api/sql/functions/#archive-batch
+batchArchiveMessages :: Statement BatchMessageQuery [MessageId]
+batchArchiveMessages = Statement sql batchMessageQueryEncoder decoder True
+  where
+    sql = "select * from pgmq.archive($1,$2)"
+    decoder = D.rowList messageIdDecoder

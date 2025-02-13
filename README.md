@@ -17,7 +17,7 @@ Haskell client for [pgmq](https://github.com/tembo-io/pgmq)
   - [x] [delete (batch)](https://tembo.io/pgmq/api/sql/functions/#delete-batch)
   - [] [purge_queue](https://tembo.io/pgmq/api/sql/functions/#purge_queue)
   - [x] [archive (single)](https://tembo.io/pgmq/api/sql/functions/#archive-single)
-  - [] [archive (batch)](https://tembo.io/pgmq/api/sql/functions/#archive-batch)
+  - [x] [archive (batch)](https://tembo.io/pgmq/api/sql/functions/#archive-batch)
 - [] [Queue Management](https://tembo.io/pgmq/api/sql/functions/#queue-management)
   - [x] [create](https://tembo.io/pgmq/api/sql/functions/#create)
   - [] [create_partitioned](https://tembo.io/pgmq/api/sql/functions/#create_partitioned) see `Partition` 

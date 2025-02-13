@@ -8,6 +8,7 @@ module Pgmq.Db.Transactions
     deleteMessage,
     batchDeleteMessages,
     archiveMessage,
+    batchArchiveMessages,
   )
 where
 
@@ -70,3 +71,8 @@ archiveMessage :: MessageQuery -> S.Session Bool
 archiveMessage msg =
   transaction Serializable Write $
     statement msg Msg.archiveMessage
+
+batchArchiveMessages :: BatchMessageQuery -> S.Session [MessageId]
+batchArchiveMessages msgs =
+  transaction Serializable Write $
+    statement msgs Msg.batchArchiveMessages
