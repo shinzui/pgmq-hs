@@ -23,7 +23,7 @@ module Pgmq
     BatchSendMessageForLater (..),
     ReadMessage (..),
     MessageQuery (..),
-    BatchDeleteMessages (..),
+    BatchMessageQuery (..),
 
     -- * Queue Name Utilities
     parseQueueName,
@@ -33,7 +33,7 @@ where
 
 import Pgmq.Db.Sessions (readMessage)
 import Pgmq.Db.Statements.Types
-  ( BatchDeleteMessages (..),
+  ( BatchMessageQuery (..),
     BatchSendMessage (..),
     BatchSendMessageForLater (..),
     MessageQuery (..),
