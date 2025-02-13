@@ -2,10 +2,17 @@ module Pgmq.Db.Statements.Message where
 
 import Hasql.Decoders qualified as D
 import Hasql.Statement (Statement (..))
-import Pgmq.Db.Decoders (messageIdDecoder)
-import Pgmq.Db.Encoders (batchSendMessageEncoder, batchSendMessageForLaterEncoder, sendMessageEncoder, sendMessageForLaterEncoder)
-import Pgmq.Db.Statements.Types (BatchSendMessage, BatchSendMessageForLater, SendMessage, SendMessageForLater)
-import Pgmq.Types (MessageId)
+import Pgmq.Db.Decoders (messageDecoder, messageIdDecoder)
+import Pgmq.Db.Encoders
+  ( batchSendMessageEncoder,
+    batchSendMessageForLaterEncoder,
+    readMessageEncoder,
+    sendMessageEncoder,
+    sendMessageForLaterEncoder,
+  )
+import Pgmq.Db.Statements.Types (BatchSendMessage, BatchSendMessageForLater, ReadMessage, SendMessage, SendMessageForLater)
+import Pgmq.Prelude
+import Pgmq.Types (Message, MessageId)
 
 -- https://tembo.io/pgmq/api/sql/functions/#send
 sendMessage :: Statement SendMessage MessageId
@@ -34,3 +41,10 @@ batchSendMessageForLater = Statement sql batchSendMessageForLaterEncoder decoder
   where
     sql = "select * from pgmq.send_batch($1, $2, $3)"
     decoder = D.rowList messageIdDecoder
+
+-- | https://tembo.io/pgmq/api/sql/functions/#read
+readMessage :: Statement ReadMessage (Vector Message)
+readMessage = Statement sql readMessageEncoder decoder True
+  where
+    sql = "select * from pgmq.read($1,$2,$3)"
+    decoder = D.rowVector messageDecoder

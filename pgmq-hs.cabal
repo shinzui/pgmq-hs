@@ -30,6 +30,7 @@ library
     Pgmq
     Pgmq.Db.Decoders
     Pgmq.Db.Encoders
+    Pgmq.Db.Sessions
     Pgmq.Db.Statements
     Pgmq.Db.Statements.Message
     Pgmq.Db.Statements.QueueManagement

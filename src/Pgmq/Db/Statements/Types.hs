@@ -3,6 +3,7 @@ module Pgmq.Db.Statements.Types
     SendMessageForLater (..),
     BatchSendMessage (..),
     BatchSendMessageForLater (..),
+    ReadMessage (..),
   )
 where
 
@@ -36,5 +37,12 @@ data BatchSendMessageForLater = BatchSendMessageForLater
   { queueName :: !QueueName,
     messageBodies :: ![MessageBody],
     scheduledAt :: !UTCTime
+  }
+  deriving stock (Generic)
+
+data ReadMessage = ReadMessage
+  { queueName :: !QueueName,
+    delay :: !Delay,
+    batchSize :: !(Maybe Int32)
   }
   deriving stock (Generic)

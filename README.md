@@ -9,7 +9,7 @@ Haskell client for [pgmq](https://github.com/tembo-io/pgmq)
   - [x] [send](https://tembo.io/pgmq/api/sql/functions/#send)
   - [x] [send_batch](https://tembo.io/pgmq/api/sql/functions/#send_batch)
 - [] [Reading Messages](https://tembo.io/pgmq/api/sql/functions/#reading-messages)
-  - [] [read](https://tembo.io/pgmq/api/sql/functions/#read)
+  - [x] [read](https://tembo.io/pgmq/api/sql/functions/#read) _does not implement experimental filtering_ 
   - [] [read_with_poll](https://tembo.io/pgmq/api/sql/functions/#read_with_poll)
   - [] [pop](https://tembo.io/pgmq/api/sql/functions/#pop)
 - [] [Deleting/Archiving Messages](https://tembo.io/pgmq/api/sql/functions/#deletingarchiving-messages)

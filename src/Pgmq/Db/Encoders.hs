@@ -5,6 +5,7 @@ module Pgmq.Db.Encoders
     batchSendMessageEncoder,
     batchSendMessageForLaterEncoder,
     messageIdValue,
+    readMessageEncoder,
   )
 where
 
@@ -60,3 +61,9 @@ batchSendMessageForLaterEncoder :: E.Params BatchSendMessageForLater
 batchSendMessageForLaterEncoder =
   commonBatchSendMessageFields
     <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))
+
+readMessageEncoder :: E.Params ReadMessage
+readMessageEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #delay >$< E.param (E.nonNullable E.int4))
+    <> (view #batchSize >$< E.param (E.nullable E.int4))
