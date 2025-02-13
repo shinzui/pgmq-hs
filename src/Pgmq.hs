@@ -10,6 +10,7 @@ module Pgmq
     batchSendMessageForLater,
     readMessage,
     deleteMessage,
+    batchDeleteMessages,
 
     -- * Types
     MessageBody (..),
@@ -22,6 +23,7 @@ module Pgmq
     BatchSendMessageForLater (..),
     ReadMessage (..),
     DeleteMessage (..),
+    BatchDeleteMessages (..),
 
     -- * Queue Name Utilities
     parseQueueName,
@@ -31,7 +33,8 @@ where
 
 import Pgmq.Db.Sessions (readMessage)
 import Pgmq.Db.Statements.Types
-  ( BatchSendMessage (..),
+  ( BatchDeleteMessages (..),
+    BatchSendMessage (..),
     BatchSendMessageForLater (..),
     DeleteMessage (..),
     ReadMessage (..),
@@ -39,7 +42,8 @@ import Pgmq.Db.Statements.Types
     SendMessageForLater (..),
   )
 import Pgmq.Db.Transactions
-  ( batchSendMessage,
+  ( batchDeleteMessages,
+    batchSendMessage,
     batchSendMessageForLater,
     createQueue,
     deleteMessage,

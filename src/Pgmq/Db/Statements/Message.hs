@@ -4,14 +4,23 @@ import Hasql.Decoders qualified as D
 import Hasql.Statement (Statement (..))
 import Pgmq.Db.Decoders (messageDecoder, messageIdDecoder)
 import Pgmq.Db.Encoders
-  ( batchSendMessageEncoder,
+  ( batchDeleteMessagesEncoder,
+    batchSendMessageEncoder,
     batchSendMessageForLaterEncoder,
     deleteMessageEncoder,
     readMessageEncoder,
     sendMessageEncoder,
     sendMessageForLaterEncoder,
   )
-import Pgmq.Db.Statements.Types (BatchSendMessage, BatchSendMessageForLater, DeleteMessage, ReadMessage, SendMessage, SendMessageForLater)
+import Pgmq.Db.Statements.Types
+  ( BatchDeleteMessages,
+    BatchSendMessage,
+    BatchSendMessageForLater,
+    DeleteMessage,
+    ReadMessage,
+    SendMessage,
+    SendMessageForLater,
+  )
 import Pgmq.Prelude
 import Pgmq.Types (Message, MessageId)
 
@@ -56,3 +65,10 @@ deleteMessage = Statement sql deleteMessageEncoder decoder True
   where
     sql = "select pgmq.delete($1,$2)"
     decoder = D.singleRow (D.column (D.nonNullable D.bool))
+
+-- | https://tembo.io/pgmq/api/sql/functions/#delete-batch
+batchDeleteMessages :: Statement BatchDeleteMessages [MessageId]
+batchDeleteMessages = Statement sql batchDeleteMessagesEncoder decoder True
+  where
+    sql = "select pgmq.delete($1,$2)"
+    decoder = D.rowList messageIdDecoder

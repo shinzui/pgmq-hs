@@ -6,6 +6,7 @@ module Pgmq.Db.Transactions
     batchSendMessage,
     batchSendMessageForLater,
     deleteMessage,
+    batchDeleteMessages,
   )
 where
 
@@ -15,7 +16,8 @@ import Hasql.Transaction.Sessions
 import Pgmq.Db.Statements qualified as Db
 import Pgmq.Db.Statements.Message qualified as Msg
 import Pgmq.Db.Statements.Types
-  ( BatchSendMessage,
+  ( BatchDeleteMessages,
+    BatchSendMessage,
     BatchSendMessageForLater,
     DeleteMessage,
     SendMessage,
@@ -57,3 +59,8 @@ deleteMessage :: DeleteMessage -> S.Session Bool
 deleteMessage msg =
   transaction Serializable Write $
     statement msg Msg.deleteMessage
+
+batchDeleteMessages :: BatchDeleteMessages -> S.Session [MessageId]
+batchDeleteMessages msgs =
+  transaction Serializable Write $
+    statement msgs Msg.batchDeleteMessages

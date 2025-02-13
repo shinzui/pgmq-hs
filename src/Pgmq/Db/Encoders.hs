@@ -7,6 +7,7 @@ module Pgmq.Db.Encoders
     messageIdValue,
     readMessageEncoder,
     deleteMessageEncoder,
+    batchDeleteMessagesEncoder,
   )
 where
 
@@ -73,3 +74,8 @@ deleteMessageEncoder :: E.Params DeleteMessage
 deleteMessageEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #messageId >$< E.param (E.nonNullable messageIdValue))
+
+batchDeleteMessagesEncoder :: E.Params BatchDeleteMessages
+batchDeleteMessagesEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #messageIds >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageIdValue))))))
