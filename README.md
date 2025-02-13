@@ -26,7 +26,7 @@ Haskell client for [pgmq](https://github.com/tembo-io/pgmq)
   - [x] [drop_queue](https://tembo.io/pgmq/api/sql/functions/#drop_queue)
 - [] [Utilities](https://tembo.io/pgmq/api/sql/functions/#utilities)
   - [x] [set_vt](https://tembo.io/pgmq/api/sql/functions/#set_vt)
-  - [] [list_queues](https://tembo.io/pgmq/api/sql/functions/#list_queues)
+  - [x] [list_queues](https://tembo.io/pgmq/api/sql/functions/#list_queues)
   - [] [metrics](https://tembo.io/pgmq/api/sql/functions/#metrics)
   - [] [metrics_all](https://tembo.io/pgmq/api/sql/functions/#metrics_all)
 - Partition

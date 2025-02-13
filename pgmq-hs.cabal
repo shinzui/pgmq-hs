@@ -34,6 +34,7 @@ library
     Pgmq.Db.Statements
     Pgmq.Db.Statements.Message
     Pgmq.Db.Statements.QueueManagement
+    Pgmq.Db.Statements.QueueObservability
     Pgmq.Db.Statements.Types
     Pgmq.Db.Transactions
     Pgmq.Prelude

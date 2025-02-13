@@ -2,6 +2,7 @@ module Pgmq.Types
   ( MessageBody (..),
     MessageId (..),
     Message (..),
+    Queue (..),
     QueueName,
     parseQueueName,
     queueNameToText,
@@ -20,6 +21,14 @@ newtype MessageBody = MessageBody {unMessageBody :: Value}
 newtype MessageId = MessageId {unMessageId :: Int64}
   deriving newtype (Eq, Ord, FromJSON, ToJSON)
   deriving stock (Show, Generic)
+
+data Queue = Queue
+  { name :: !QueueName,
+    createdAt :: !UTCTime,
+    isPartitioned :: !Bool,
+    isUnlogged :: !Bool
+  }
+  deriving stock (Eq, Generic, Show)
 
 -- | https://tembo.io/pgmq/api/sql/types/
 data Message = Message

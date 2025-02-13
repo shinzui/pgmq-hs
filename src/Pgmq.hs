@@ -15,11 +15,13 @@ module Pgmq
     batchArchiveMessages,
     deleteAllMessagesFromQueue,
     changeVisibilityTimeout,
+    listQueues,
 
     -- * Types
     MessageBody (..),
     MessageId (..),
     Message (..),
+    Queue (..),
     QueueName,
     SendMessage (..),
     SendMessageForLater (..),
@@ -58,6 +60,7 @@ import Pgmq.Db.Transactions
     deleteAllMessagesFromQueue,
     deleteMessage,
     dropQueue,
+    listQueues,
     sendMessage,
     sendMessageForLater,
   )
@@ -65,6 +68,7 @@ import Pgmq.Types
   ( Message (..),
     MessageBody (..),
     MessageId (..),
+    Queue (..),
     QueueName,
     parseQueueName,
     queueNameToText,
