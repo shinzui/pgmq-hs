@@ -10,6 +10,7 @@ module Pgmq.Db.Transactions
     archiveMessage,
     batchArchiveMessages,
     deleteAllMessagesFromQueue,
+    changeVisibilityTimeout,
   )
 where
 
@@ -25,9 +26,10 @@ import Pgmq.Db.Statements.Types
     MessageQuery,
     SendMessage,
     SendMessageForLater,
+    VisibilityTimeoutQuery,
   )
 import Pgmq.Prelude
-import Pgmq.Types (MessageId, QueueName)
+import Pgmq.Types (Message, MessageId, QueueName)
 
 createQueue :: QueueName -> S.Session ()
 createQueue q =
@@ -83,3 +85,8 @@ deleteAllMessagesFromQueue :: QueueName -> S.Session Int64
 deleteAllMessagesFromQueue qname =
   transaction Serializable Write $
     statement qname Msg.deleteAllMessagesFromQueue
+
+changeVisibilityTimeout :: VisibilityTimeoutQuery -> S.Session Message
+changeVisibilityTimeout query =
+  transaction Serializable Write $
+    statement query Msg.changeVisibilityTimeout

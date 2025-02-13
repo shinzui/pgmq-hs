@@ -12,6 +12,7 @@ import Pgmq.Db.Encoders
     readMessageEncoder,
     sendMessageEncoder,
     sendMessageForLaterEncoder,
+    visibilityTimeoutQueryEncoder,
   )
 import Pgmq.Db.Statements.Types
   ( BatchMessageQuery,
@@ -21,6 +22,7 @@ import Pgmq.Db.Statements.Types
     ReadMessage,
     SendMessage,
     SendMessageForLater,
+    VisibilityTimeoutQuery,
   )
 import Pgmq.Prelude
 import Pgmq.Types (Message, MessageId, QueueName)
@@ -95,3 +97,11 @@ deleteAllMessagesFromQueue = Statement sql queueNameEncoder decoder True
   where
     sql = "select * from pgmq.purge_queue($1)"
     decoder = D.singleRow $ D.column $ D.nonNullable D.int8
+
+-- | Sets the visibility timeout of a message to a specified time duration in the future. Returns the record of the message that was updated.
+-- | https://tembo.io/pgmq/api/sql/functions/#set_vt
+changeVisibilityTimeout :: Statement VisibilityTimeoutQuery Message
+changeVisibilityTimeout = Statement sql visibilityTimeoutQueryEncoder decoder True
+  where
+    sql = "select * from pgmq.set_vt($1,$2,$3)"
+    decoder = D.singleRow messageDecoder

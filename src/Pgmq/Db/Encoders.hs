@@ -9,6 +9,7 @@ module Pgmq.Db.Encoders
     messageQueryEncoder,
     batchMessageQueryEncoder,
     queueNameEncoder,
+    visibilityTimeoutQueryEncoder,
   )
 where
 
@@ -83,3 +84,9 @@ batchMessageQueryEncoder :: E.Params BatchMessageQuery
 batchMessageQueryEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #messageIds >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageIdValue))))))
+
+visibilityTimeoutQueryEncoder :: E.Params VisibilityTimeoutQuery
+visibilityTimeoutQueryEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #messageId >$< E.param (E.nonNullable messageIdValue))
+    <> (view #visibilityTimeoutOffset >$< E.param (E.nonNullable E.int4))

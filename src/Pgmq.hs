@@ -14,6 +14,7 @@ module Pgmq
     archiveMessage,
     batchArchiveMessages,
     deleteAllMessagesFromQueue,
+    changeVisibilityTimeout,
 
     -- * Types
     MessageBody (..),
@@ -27,6 +28,7 @@ module Pgmq
     ReadMessage (..),
     MessageQuery (..),
     BatchMessageQuery (..),
+    VisibilityTimeoutQuery (..),
 
     -- * Queue Name Utilities
     parseQueueName,
@@ -43,6 +45,7 @@ import Pgmq.Db.Statements.Types
     ReadMessage (..),
     SendMessage (..),
     SendMessageForLater (..),
+    VisibilityTimeoutQuery (..),
   )
 import Pgmq.Db.Transactions
   ( archiveMessage,
@@ -50,6 +53,7 @@ import Pgmq.Db.Transactions
     batchDeleteMessages,
     batchSendMessage,
     batchSendMessageForLater,
+    changeVisibilityTimeout,
     createQueue,
     deleteAllMessagesFromQueue,
     deleteMessage,

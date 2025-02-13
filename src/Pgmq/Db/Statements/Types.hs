@@ -6,6 +6,7 @@ module Pgmq.Db.Statements.Types
     ReadMessage (..),
     MessageQuery (..),
     BatchMessageQuery (..),
+    VisibilityTimeoutQuery (..),
   )
 where
 
@@ -18,6 +19,13 @@ data SendMessage = SendMessage
   { queueName :: !QueueName,
     messageBody :: !MessageBody,
     delay :: !(Maybe Delay)
+  }
+  deriving stock (Generic)
+
+data VisibilityTimeoutQuery = VisibilityTimeoutQuery
+  { queueName :: !QueueName,
+    messageId :: !MessageId,
+    visibilityTimeoutOffset :: !Int32
   }
   deriving stock (Generic)
 
