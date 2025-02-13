@@ -5,6 +5,7 @@ module Pgmq.Db.Transactions
     sendMessageForLater,
     batchSendMessage,
     batchSendMessageForLater,
+    deleteMessage,
   )
 where
 
@@ -16,6 +17,7 @@ import Pgmq.Db.Statements.Message qualified as Msg
 import Pgmq.Db.Statements.Types
   ( BatchSendMessage,
     BatchSendMessageForLater,
+    DeleteMessage,
     SendMessage,
     SendMessageForLater,
   )
@@ -50,3 +52,8 @@ batchSendMessageForLater :: BatchSendMessageForLater -> S.Session [MessageId]
 batchSendMessageForLater msgs =
   transaction Serializable Write $
     statement msgs Msg.batchSendMessageForLater
+
+deleteMessage :: DeleteMessage -> S.Session Bool
+deleteMessage msg =
+  transaction Serializable Write $
+    statement msg Msg.deleteMessage
