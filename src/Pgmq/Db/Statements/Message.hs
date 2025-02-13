@@ -8,6 +8,7 @@ import Pgmq.Db.Encoders
     batchSendMessageEncoder,
     batchSendMessageForLaterEncoder,
     messageQueryEncoder,
+    queueNameEncoder,
     readMessageEncoder,
     sendMessageEncoder,
     sendMessageForLaterEncoder,
@@ -22,7 +23,7 @@ import Pgmq.Db.Statements.Types
     SendMessageForLater,
   )
 import Pgmq.Prelude
-import Pgmq.Types (Message, MessageId)
+import Pgmq.Types (Message, MessageId, QueueName)
 
 -- https://tembo.io/pgmq/api/sql/functions/#send
 sendMessage :: Statement SendMessage MessageId
@@ -86,3 +87,11 @@ batchArchiveMessages = Statement sql batchMessageQueryEncoder decoder True
   where
     sql = "select * from pgmq.archive($1,$2)"
     decoder = D.rowList messageIdDecoder
+
+-- | Permanently deletes all messages in a queue. Returns the number of messages that were deleted.
+-- | https://tembo.io/pgmq/api/sql/functions/#purge_queue
+deleteAllMessagesFromQueue :: Statement QueueName Int64
+deleteAllMessagesFromQueue = Statement sql queueNameEncoder decoder True
+  where
+    sql = "select * from pgmq.purge_queue($1)"
+    decoder = D.singleRow $ D.column $ D.nonNullable D.int8

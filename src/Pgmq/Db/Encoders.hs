@@ -8,6 +8,7 @@ module Pgmq.Db.Encoders
     readMessageEncoder,
     messageQueryEncoder,
     batchMessageQueryEncoder,
+    queueNameEncoder,
   )
 where
 
@@ -22,6 +23,9 @@ import Pgmq.Types
     QueueName,
     queueNameToText,
   )
+
+queueNameEncoder :: E.Params QueueName
+queueNameEncoder = E.param (E.nonNullable queueNameValue)
 
 queueNameValue :: E.Value QueueName
 queueNameValue = queueNameToText >$< E.text

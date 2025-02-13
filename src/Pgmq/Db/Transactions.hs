@@ -9,6 +9,7 @@ module Pgmq.Db.Transactions
     batchDeleteMessages,
     archiveMessage,
     batchArchiveMessages,
+    deleteAllMessagesFromQueue,
   )
 where
 
@@ -25,6 +26,7 @@ import Pgmq.Db.Statements.Types
     SendMessage,
     SendMessageForLater,
   )
+import Pgmq.Prelude
 import Pgmq.Types (MessageId, QueueName)
 
 createQueue :: QueueName -> S.Session ()
@@ -76,3 +78,8 @@ batchArchiveMessages :: BatchMessageQuery -> S.Session [MessageId]
 batchArchiveMessages msgs =
   transaction Serializable Write $
     statement msgs Msg.batchArchiveMessages
+
+deleteAllMessagesFromQueue :: QueueName -> S.Session Int64
+deleteAllMessagesFromQueue qname =
+  transaction Serializable Write $
+    statement qname Msg.deleteAllMessagesFromQueue

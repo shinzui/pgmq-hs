@@ -1,13 +1,9 @@
 module Pgmq.Db.Statements.QueueManagement (createQueue, dropQueue) where
 
 import Hasql.Decoders qualified as D
-import Hasql.Encoders qualified as E
 import Hasql.Statement (Statement (..))
-import Pgmq.Db.Encoders (queueNameValue)
+import Pgmq.Db.Encoders (queueNameEncoder)
 import Pgmq.Types (QueueName)
-
-queueNameEncoder :: E.Params QueueName
-queueNameEncoder = E.param (E.nonNullable queueNameValue)
 
 -- https://tembo.io/pgmq/api/sql/functions/#create
 createQueue :: Statement QueueName ()
