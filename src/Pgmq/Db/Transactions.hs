@@ -19,7 +19,7 @@ import Pgmq.Db.Statements.Types
   ( BatchDeleteMessages,
     BatchSendMessage,
     BatchSendMessageForLater,
-    DeleteMessage,
+    MessageQuery,
     SendMessage,
     SendMessageForLater,
   )
@@ -55,7 +55,7 @@ batchSendMessageForLater msgs =
   transaction Serializable Write $
     statement msgs Msg.batchSendMessageForLater
 
-deleteMessage :: DeleteMessage -> S.Session Bool
+deleteMessage :: MessageQuery -> S.Session Bool
 deleteMessage msg =
   transaction Serializable Write $
     statement msg Msg.deleteMessage

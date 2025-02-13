@@ -7,7 +7,7 @@ import Pgmq.Db.Encoders
   ( batchDeleteMessagesEncoder,
     batchSendMessageEncoder,
     batchSendMessageForLaterEncoder,
-    deleteMessageEncoder,
+    messageQueryEncoder,
     readMessageEncoder,
     sendMessageEncoder,
     sendMessageForLaterEncoder,
@@ -16,7 +16,7 @@ import Pgmq.Db.Statements.Types
   ( BatchDeleteMessages,
     BatchSendMessage,
     BatchSendMessageForLater,
-    DeleteMessage,
+    MessageQuery,
     ReadMessage,
     SendMessage,
     SendMessageForLater,
@@ -60,8 +60,8 @@ readMessage = Statement sql readMessageEncoder decoder True
     decoder = D.rowVector messageDecoder
 
 -- | https://tembo.io/pgmq/api/sql/functions/#delete-single
-deleteMessage :: Statement DeleteMessage Bool
-deleteMessage = Statement sql deleteMessageEncoder decoder True
+deleteMessage :: Statement MessageQuery Bool
+deleteMessage = Statement sql messageQueryEncoder decoder True
   where
     sql = "select pgmq.delete($1,$2)"
     decoder = D.singleRow (D.column (D.nonNullable D.bool))

@@ -6,7 +6,7 @@ module Pgmq.Db.Encoders
     batchSendMessageForLaterEncoder,
     messageIdValue,
     readMessageEncoder,
-    deleteMessageEncoder,
+    messageQueryEncoder,
     batchDeleteMessagesEncoder,
   )
 where
@@ -70,8 +70,8 @@ readMessageEncoder =
     <> (view #delay >$< E.param (E.nonNullable E.int4))
     <> (view #batchSize >$< E.param (E.nullable E.int4))
 
-deleteMessageEncoder :: E.Params DeleteMessage
-deleteMessageEncoder =
+messageQueryEncoder :: E.Params MessageQuery
+messageQueryEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #messageId >$< E.param (E.nonNullable messageIdValue))
 

@@ -4,7 +4,7 @@ module Pgmq.Db.Statements.Types
     BatchSendMessage (..),
     BatchSendMessageForLater (..),
     ReadMessage (..),
-    DeleteMessage (..),
+    MessageQuery (..),
     BatchDeleteMessages (..),
   )
 where
@@ -27,7 +27,7 @@ data BatchDeleteMessages = BatchDeleteMessages
   }
   deriving stock (Generic)
 
-data DeleteMessage = DeleteMessage
+data MessageQuery = MessageQuery
   { queueName :: !QueueName,
     messageId :: !MessageId
   }
