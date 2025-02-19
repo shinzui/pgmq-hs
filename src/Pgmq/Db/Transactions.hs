@@ -1,6 +1,9 @@
 module Pgmq.Db.Transactions
   ( createQueue,
     dropQueue,
+    createPartitionedQueue,
+    createUnloggedQueue,
+    detachArchive,
     sendMessage,
     sendMessageForLater,
     batchSendMessage,
@@ -12,6 +15,9 @@ module Pgmq.Db.Transactions
     deleteAllMessagesFromQueue,
     changeVisibilityTimeout,
     listQueues,
+    pop,
+    queueMetrics,
+    allQueueMetrics,
   )
 where
 
@@ -24,7 +30,9 @@ import Pgmq.Db.Statements.Types
   ( BatchMessageQuery,
     BatchSendMessage,
     BatchSendMessageForLater,
+    CreatePartitionedQueue,
     MessageQuery,
+    QueueMetrics,
     SendMessage,
     SendMessageForLater,
     VisibilityTimeoutQuery,
@@ -96,3 +104,33 @@ listQueues :: S.Session [Queue]
 listQueues =
   transaction Serializable Read $
     statement () Db.listQueues
+
+createPartitionedQueue :: CreatePartitionedQueue -> S.Session ()
+createPartitionedQueue q =
+  transaction Serializable Write $
+    statement q Db.createPartitionedQueue
+
+createUnloggedQueue :: QueueName -> S.Session ()
+createUnloggedQueue q =
+  transaction Serializable Write $
+    statement q Db.createUnloggedQueue
+
+detachArchive :: QueueName -> S.Session ()
+detachArchive q =
+  transaction Serializable Write $
+    statement q Db.detachArchive
+
+pop :: QueueName -> S.Session Message
+pop q =
+  transaction Serializable Write $
+    statement q Msg.pop
+
+queueMetrics :: QueueName -> S.Session QueueMetrics
+queueMetrics q =
+  transaction Serializable Read $
+    statement q Db.queueMetrics
+
+allQueueMetrics :: S.Session [QueueMetrics]
+allQueueMetrics =
+  transaction Serializable Read $
+    statement () Db.allQueueMetrics

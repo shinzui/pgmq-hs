@@ -10,6 +10,8 @@ module Pgmq.Db.Encoders
     batchMessageQueryEncoder,
     queueNameEncoder,
     visibilityTimeoutQueryEncoder,
+    readWithPollEncoder,
+    createPartitionedQueueEncoder,
   )
 where
 
@@ -90,3 +92,18 @@ visibilityTimeoutQueryEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #messageId >$< E.param (E.nonNullable messageIdValue))
     <> (view #visibilityTimeoutOffset >$< E.param (E.nonNullable E.int4))
+
+readWithPollEncoder :: E.Params ReadWithPollMessage
+readWithPollEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #delay >$< E.param (E.nonNullable E.int4))
+    <> (view #batchSize >$< E.param (E.nullable E.int4))
+    <> (view #maxPollSeconds >$< E.param (E.nonNullable E.int4))
+    <> (view #pollIntervalMs >$< E.param (E.nonNullable E.int4))
+    <> (view #conditional >$< E.param (E.nullable E.jsonb))
+
+createPartitionedQueueEncoder :: E.Params CreatePartitionedQueue
+createPartitionedQueueEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #partitionInterval >$< E.param (E.nonNullable E.text))
+    <> (view #retentionInterval >$< E.param (E.nonNullable E.text))

@@ -1,11 +1,10 @@
 module Pgmq.Db.Statements
-  ( createQueue,
-    dropQueue,
-    readMessage,
-    listQueues,
+  ( module Pgmq.Db.Statements.Message,
+    module Pgmq.Db.Statements.QueueManagement,
+    module Pgmq.Db.Statements.QueueObservability,
   )
 where
 
-import Pgmq.Db.Statements.Message (readMessage)
-import Pgmq.Db.Statements.QueueManagement (createQueue, dropQueue)
-import Pgmq.Db.Statements.QueueObservability (listQueues)
+import Pgmq.Db.Statements.Message
+import Pgmq.Db.Statements.QueueManagement
+import Pgmq.Db.Statements.QueueObservability

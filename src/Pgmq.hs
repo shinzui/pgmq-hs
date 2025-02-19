@@ -4,6 +4,9 @@ module Pgmq
   ( -- * Queue Management
     createQueue,
     dropQueue,
+    createPartitionedQueue,
+    createUnloggedQueue,
+    detachArchive,
 
     -- * Message Operations
     sendMessage,
@@ -18,6 +21,10 @@ module Pgmq
     deleteAllMessagesFromQueue,
     changeVisibilityTimeout,
     listQueues,
+    readWithPoll,
+    pop,
+    queueMetrics,
+    allQueueMetrics,
 
     -- * Types
     MessageBody (..),
@@ -33,6 +40,9 @@ module Pgmq
     MessageQuery (..),
     BatchMessageQuery (..),
     VisibilityTimeoutQuery (..),
+    ReadWithPollMessage (..),
+    CreatePartitionedQueue (..),
+    QueueMetrics (..),
 
     -- * Queue Name Utilities
     parseQueueName,
@@ -40,29 +50,38 @@ module Pgmq
   )
 where
 
-import Pgmq.Db.Sessions (readMessage)
+import Pgmq.Db.Sessions (readMessage, readWithPoll)
 import Pgmq.Db.Statements.Types
   ( BatchMessageQuery (..),
     BatchSendMessage (..),
     BatchSendMessageForLater (..),
+    CreatePartitionedQueue (..),
     MessageQuery (..),
+    QueueMetrics (..),
     ReadMessage (..),
+    ReadWithPollMessage (..),
     SendMessage (..),
     SendMessageForLater (..),
     VisibilityTimeoutQuery (..),
   )
 import Pgmq.Db.Transactions
-  ( archiveMessage,
+  ( allQueueMetrics,
+    archiveMessage,
     batchArchiveMessages,
     batchDeleteMessages,
     batchSendMessage,
     batchSendMessageForLater,
     changeVisibilityTimeout,
+    createPartitionedQueue,
     createQueue,
+    createUnloggedQueue,
     deleteAllMessagesFromQueue,
     deleteMessage,
+    detachArchive,
     dropQueue,
     listQueues,
+    pop,
+    queueMetrics,
     sendMessage,
     sendMessageForLater,
   )

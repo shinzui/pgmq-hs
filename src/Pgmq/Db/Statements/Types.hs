@@ -7,9 +7,13 @@ module Pgmq.Db.Statements.Types
     MessageQuery (..),
     BatchMessageQuery (..),
     VisibilityTimeoutQuery (..),
+    ReadWithPollMessage (..),
+    CreatePartitionedQueue (..),
+    QueueMetrics (..),
   )
 where
 
+import Data.Aeson (Value)
 import Pgmq.Prelude
 import Pgmq.Types (MessageBody, MessageId, QueueName)
 
@@ -68,3 +72,30 @@ data ReadMessage = ReadMessage
     batchSize :: !(Maybe Int32)
   }
   deriving stock (Generic)
+
+data ReadWithPollMessage = ReadWithPollMessage
+  { queueName :: !QueueName,
+    delay :: !Delay,
+    batchSize :: !(Maybe Int32),
+    maxPollSeconds :: !Int32,
+    pollIntervalMs :: !Int32,
+    conditional :: !(Maybe Value)
+  }
+  deriving stock (Generic)
+
+data CreatePartitionedQueue = CreatePartitionedQueue
+  { queueName :: !QueueName,
+    partitionInterval :: !Text,
+    retentionInterval :: !Text
+  }
+  deriving stock (Generic)
+
+data QueueMetrics = QueueMetrics
+  { queueName :: !Text,
+    queueLength :: !Int64,
+    newestMsgAgeSec :: !(Maybe Int32),
+    oldestMsgAgeSec :: !(Maybe Int32),
+    totalMessages :: !Int64,
+    scrapeTime :: !UTCTime
+  }
+  deriving stock (Generic, Show)

@@ -1,4 +1,19 @@
-module Pgmq.Db.Statements.Message where
+module Pgmq.Db.Statements.Message
+  ( sendMessage,
+    sendMessageForLater,
+    batchSendMessage,
+    batchSendMessageForLater,
+    readMessage,
+    deleteMessage,
+    batchDeleteMessages,
+    archiveMessage,
+    batchArchiveMessages,
+    deleteAllMessagesFromQueue,
+    changeVisibilityTimeout,
+    readWithPoll,
+    pop,
+  )
+where
 
 import Hasql.Decoders qualified as D
 import Hasql.Statement (Statement (..))
@@ -10,6 +25,7 @@ import Pgmq.Db.Encoders
     messageQueryEncoder,
     queueNameEncoder,
     readMessageEncoder,
+    readWithPollEncoder,
     sendMessageEncoder,
     sendMessageForLaterEncoder,
     visibilityTimeoutQueryEncoder,
@@ -20,6 +36,7 @@ import Pgmq.Db.Statements.Types
     BatchSendMessageForLater,
     MessageQuery,
     ReadMessage,
+    ReadWithPollMessage,
     SendMessage,
     SendMessageForLater,
     VisibilityTimeoutQuery,
@@ -104,4 +121,18 @@ changeVisibilityTimeout :: Statement VisibilityTimeoutQuery Message
 changeVisibilityTimeout = Statement sql visibilityTimeoutQueryEncoder decoder True
   where
     sql = "select * from pgmq.set_vt($1,$2,$3)"
+    decoder = D.singleRow messageDecoder
+
+-- | https://tembo.io/pgmq/api/sql/functions/#read_with_poll
+readWithPoll :: Statement ReadWithPollMessage (Vector Message)
+readWithPoll = Statement sql readWithPollEncoder decoder True
+  where
+    sql = "select * from pgmq.read_with_poll($1,$2,$3,$4,$5,$6)"
+    decoder = D.rowVector messageDecoder
+
+-- | https://tembo.io/pgmq/api/sql/functions/#pop
+pop :: Statement QueueName Message
+pop = Statement sql queueNameEncoder decoder True
+  where
+    sql = "select * from pgmq.pop($1)"
     decoder = D.singleRow messageDecoder
