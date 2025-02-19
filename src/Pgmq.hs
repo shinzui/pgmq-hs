@@ -48,21 +48,7 @@ module Pgmq
   )
 where
 
-import Pgmq.Db.Sessions (readMessage, readWithPoll)
-import Pgmq.Db.Statements.Types
-  ( BatchMessageQuery (..),
-    BatchSendMessage (..),
-    BatchSendMessageForLater (..),
-    CreatePartitionedQueue (..),
-    MessageQuery (..),
-    QueueMetrics (..),
-    ReadMessage (..),
-    ReadWithPollMessage (..),
-    SendMessage (..),
-    SendMessageForLater (..),
-    VisibilityTimeoutQuery (..),
-  )
-import Pgmq.Db.Transactions
+import Pgmq.Db.Sessions
   ( allQueueMetrics,
     archiveMessage,
     batchArchiveMessages,
@@ -80,8 +66,23 @@ import Pgmq.Db.Transactions
     listQueues,
     pop,
     queueMetrics,
+    readMessage,
+    readWithPoll,
     sendMessage,
     sendMessageForLater,
+  )
+import Pgmq.Db.Statements.Types
+  ( BatchMessageQuery (..),
+    BatchSendMessage (..),
+    BatchSendMessageForLater (..),
+    CreatePartitionedQueue (..),
+    MessageQuery (..),
+    QueueMetrics (..),
+    ReadMessage (..),
+    ReadWithPollMessage (..),
+    SendMessage (..),
+    SendMessageForLater (..),
+    VisibilityTimeoutQuery (..),
   )
 import Pgmq.Types
   ( Message (..),
