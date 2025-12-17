@@ -11,8 +11,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        ghcVersion = "ghc966";
-        frameworks = pkgs.darwin.apple_sdk.frameworks;
+        ghcVersion = "ghc984";
         treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
         formatter = treefmtEval.config.build.wrapper;
 
@@ -31,14 +30,12 @@
         };
         devShell = pkgs.mkShell {
           inherit (self.checks.${system}.pre-commit-check) shellHook;
-          buildInputs = [
-            frameworks.Cocoa
-          ];
           nativeBuildInputs = with pkgs; [
             zlib
             xz
             just
             postgresql
+            pkg-config
             cabal-install
             (haskell.packages.${ghcVersion}.ghcWithPackages (ps: with ps; [
               haskell-language-server
