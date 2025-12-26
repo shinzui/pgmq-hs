@@ -106,10 +106,14 @@ data BatchSendMessageWithHeadersForLater = BatchSendMessageWithHeadersForLater
   }
   deriving stock (Generic)
 
+-- | Parameters for reading messages from a queue
+-- Note: conditional field added in pgmq 1.5.0
 data ReadMessage = ReadMessage
   { queueName :: !QueueName,
     delay :: !Delay,
-    batchSize :: !(Maybe Int32)
+    batchSize :: !(Maybe Int32),
+    -- | Optional JSONB filter (pgmq 1.5.0+)
+    conditional :: !(Maybe Value)
   }
   deriving stock (Generic)
 

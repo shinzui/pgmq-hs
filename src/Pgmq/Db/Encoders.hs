@@ -121,6 +121,7 @@ readMessageEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #delay >$< E.param (E.nonNullable E.int4))
     <> (view #batchSize >$< E.param (E.nullable E.int4))
+    <> (view #conditional >$< E.param (E.nullable E.jsonb)) -- pgmq 1.5.0+
 
 messageQueryEncoder :: E.Params MessageQuery
 messageQueryEncoder =
