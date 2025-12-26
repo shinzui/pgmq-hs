@@ -130,12 +130,16 @@ data CreatePartitionedQueue = CreatePartitionedQueue
   }
   deriving stock (Generic)
 
+-- | Queue metrics returned by pgmq.metrics() and pgmq.metrics_all()
+-- Note: queueVisibleLength added in pgmq 1.5.0
 data QueueMetrics = QueueMetrics
   { queueName :: !Text,
     queueLength :: !Int64,
     newestMsgAgeSec :: !(Maybe Int32),
     oldestMsgAgeSec :: !(Maybe Int32),
     totalMessages :: !Int64,
-    scrapeTime :: !UTCTime
+    scrapeTime :: !UTCTime,
+    -- | Count of messages available for reading (pgmq 1.5.0+)
+    queueVisibleLength :: !Int64
   }
   deriving stock (Generic, Show)

@@ -42,3 +42,4 @@ queueMetricsDecoder =
     <*> D.column (D.nullable D.int4)
     <*> D.column (D.nonNullable D.int8)
     <*> D.column (D.nonNullable D.timestamptz)
+    <*> D.column (D.nonNullable D.int8) -- queue_visible_length (pgmq 1.5.0+)
