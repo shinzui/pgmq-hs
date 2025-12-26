@@ -4,13 +4,15 @@ module Pgmq.Db.Statements.QueueManagement
     createPartitionedQueue,
     createUnloggedQueue,
     detachArchive,
+    enableNotifyInsert,
+    disableNotifyInsert,
   )
 where
 
 import Hasql.Decoders qualified as D
 import Hasql.Statement (Statement (..))
-import Pgmq.Db.Encoders (createPartitionedQueueEncoder, queueNameEncoder)
-import Pgmq.Db.Statements.Types (CreatePartitionedQueue)
+import Pgmq.Db.Encoders (createPartitionedQueueEncoder, enableNotifyInsertEncoder, queueNameEncoder)
+import Pgmq.Db.Statements.Types (CreatePartitionedQueue, EnableNotifyInsert)
 import Pgmq.Types (QueueName)
 
 -- https://tembo.io/pgmq/api/sql/functions/#create
@@ -38,8 +40,22 @@ createUnloggedQueue = Statement sql queueNameEncoder D.noResult True
   where
     sql = "select from pgmq.create_unlogged($1)"
 
--- | https://tembo.io/pgmq/api/sql/functions/#detach_archive
+-- | DEPRECATED: detach_archive is a no-op in pgmq and will be removed in pgmq 2.0
+-- https://tembo.io/pgmq/api/sql/functions/#detach_archive
 detachArchive :: Statement QueueName ()
 detachArchive = Statement sql queueNameEncoder D.noResult True
   where
     sql = "select from pgmq.detach_archive($1)"
+
+-- | Enable insert notifications for a queue (pgmq 1.7.0+)
+-- Notifications are sent via PostgreSQL LISTEN/NOTIFY to channel pgmq_<queue_name>
+enableNotifyInsert :: Statement EnableNotifyInsert ()
+enableNotifyInsert = Statement sql enableNotifyInsertEncoder D.noResult True
+  where
+    sql = "select from pgmq.enable_notify_insert($1, $2)"
+
+-- | Disable insert notifications for a queue
+disableNotifyInsert :: Statement QueueName ()
+disableNotifyInsert = Statement sql queueNameEncoder D.noResult True
+  where
+    sql = "select from pgmq.disable_notify_insert($1)"

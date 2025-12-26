@@ -12,7 +12,9 @@ module Pgmq.Db.Statements.Types
     MessageQuery (..),
     BatchMessageQuery (..),
     VisibilityTimeoutQuery (..),
+    BatchVisibilityTimeoutQuery (..),
     ReadWithPollMessage (..),
+    EnableNotifyInsert (..),
     CreatePartitionedQueue (..),
     QueueMetrics (..),
   )
@@ -34,6 +36,14 @@ data SendMessage = SendMessage
 data VisibilityTimeoutQuery = VisibilityTimeoutQuery
   { queueName :: !QueueName,
     messageId :: !MessageId,
+    visibilityTimeoutOffset :: !Int32
+  }
+  deriving stock (Generic)
+
+-- | Batch visibility timeout update (pgmq 1.8.0+)
+data BatchVisibilityTimeoutQuery = BatchVisibilityTimeoutQuery
+  { queueName :: !QueueName,
+    messageIds :: ![MessageId],
     visibilityTimeoutOffset :: !Int32
   }
   deriving stock (Generic)
@@ -133,6 +143,14 @@ data PopMessage = PopMessage
   { queueName :: !QueueName,
     -- | Number of messages to pop (Nothing = default 1)
     qty :: !(Maybe Int32)
+  }
+  deriving stock (Generic)
+
+-- | Enable queue notifications (pgmq 1.7.0+, throttling in 1.8.0+)
+data EnableNotifyInsert = EnableNotifyInsert
+  { queueName :: !QueueName,
+    -- | Minimum ms between notifications (Nothing = default 250ms)
+    throttleIntervalMs :: !(Maybe Int32)
   }
   deriving stock (Generic)
 

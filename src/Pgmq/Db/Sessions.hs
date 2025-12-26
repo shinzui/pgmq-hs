@@ -4,6 +4,8 @@ module Pgmq.Db.Sessions
     createPartitionedQueue,
     createUnloggedQueue,
     detachArchive,
+    enableNotifyInsert,
+    disableNotifyInsert,
     sendMessage,
     sendMessageForLater,
     batchSendMessage,
@@ -18,6 +20,7 @@ module Pgmq.Db.Sessions
     batchArchiveMessages,
     deleteAllMessagesFromQueue,
     changeVisibilityTimeout,
+    batchChangeVisibilityTimeout,
     listQueues,
     pop,
     queueMetrics,
@@ -36,7 +39,9 @@ import Pgmq.Db.Statements.Types
     BatchSendMessageForLater,
     BatchSendMessageWithHeaders,
     BatchSendMessageWithHeadersForLater,
+    BatchVisibilityTimeoutQuery,
     CreatePartitionedQueue,
+    EnableNotifyInsert,
     MessageQuery,
     PopMessage,
     QueueMetrics,
@@ -103,6 +108,10 @@ deleteAllMessagesFromQueue qname = statement qname Msg.deleteAllMessagesFromQueu
 changeVisibilityTimeout :: VisibilityTimeoutQuery -> Session Message
 changeVisibilityTimeout query = statement query Msg.changeVisibilityTimeout
 
+-- | Batch update visibility timeout (pgmq 1.8.0+)
+batchChangeVisibilityTimeout :: BatchVisibilityTimeoutQuery -> Session (Vector Message)
+batchChangeVisibilityTimeout query = statement query Msg.batchChangeVisibilityTimeout
+
 listQueues :: Session [Queue]
 listQueues = statement () Db.listQueues
 
@@ -112,8 +121,17 @@ createPartitionedQueue q = statement q Db.createPartitionedQueue
 createUnloggedQueue :: QueueName -> Session ()
 createUnloggedQueue q = statement q Db.createUnloggedQueue
 
+{-# DEPRECATED detachArchive "detach_archive is a no-op in pgmq and will be removed in pgmq 2.0" #-}
 detachArchive :: QueueName -> Session ()
 detachArchive q = statement q Db.detachArchive
+
+-- | Enable insert notifications for a queue (pgmq 1.7.0+)
+enableNotifyInsert :: EnableNotifyInsert -> Session ()
+enableNotifyInsert config = statement config Db.enableNotifyInsert
+
+-- | Disable insert notifications for a queue
+disableNotifyInsert :: QueueName -> Session ()
+disableNotifyInsert q = statement q Db.disableNotifyInsert
 
 -- | Pop messages from queue (pgmq 1.7.0+)
 pop :: PopMessage -> Session (Vector Message)

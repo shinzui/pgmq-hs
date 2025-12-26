@@ -4,7 +4,11 @@ module Pgmq
     dropQueue,
     createPartitionedQueue,
     createUnloggedQueue,
-    detachArchive,
+    detachArchive, -- DEPRECATED: no-op, will be removed in pgmq 2.0
+
+    -- ** Notifications (pgmq 1.7.0+)
+    enableNotifyInsert,
+    disableNotifyInsert,
 
     -- * Message Operations
     sendMessage,
@@ -24,6 +28,7 @@ module Pgmq
     batchArchiveMessages,
     deleteAllMessagesFromQueue,
     changeVisibilityTimeout,
+    batchChangeVisibilityTimeout, -- pgmq 1.8.0+
     listQueues,
     readWithPoll,
     pop,
@@ -49,9 +54,11 @@ module Pgmq
     BatchSendMessageWithHeadersForLater (..),
     ReadMessage (..),
     PopMessage (..),
+    EnableNotifyInsert (..), -- pgmq 1.7.0+
     MessageQuery (..),
     BatchMessageQuery (..),
     VisibilityTimeoutQuery (..),
+    BatchVisibilityTimeoutQuery (..), -- pgmq 1.8.0+
     ReadWithPollMessage (..),
     CreatePartitionedQueue (..),
     QueueMetrics (..),
@@ -66,6 +73,7 @@ import Pgmq.Db.Sessions
   ( allQueueMetrics,
     archiveMessage,
     batchArchiveMessages,
+    batchChangeVisibilityTimeout,
     batchDeleteMessages,
     batchSendMessage,
     batchSendMessageForLater,
@@ -78,7 +86,9 @@ import Pgmq.Db.Sessions
     deleteAllMessagesFromQueue,
     deleteMessage,
     detachArchive,
+    disableNotifyInsert,
     dropQueue,
+    enableNotifyInsert,
     listQueues,
     pop,
     queueMetrics,
@@ -95,7 +105,9 @@ import Pgmq.Db.Statements.Types
     BatchSendMessageForLater (..),
     BatchSendMessageWithHeaders (..),
     BatchSendMessageWithHeadersForLater (..),
+    BatchVisibilityTimeoutQuery (..),
     CreatePartitionedQueue (..),
+    EnableNotifyInsert (..),
     MessageQuery (..),
     PopMessage (..),
     QueueMetrics (..),

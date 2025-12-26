@@ -16,6 +16,8 @@ module Pgmq.Db.Encoders
     batchMessageQueryEncoder,
     queueNameEncoder,
     visibilityTimeoutQueryEncoder,
+    batchVisibilityTimeoutQueryEncoder,
+    enableNotifyInsertEncoder,
     readWithPollEncoder,
     createPartitionedQueueEncoder,
   )
@@ -145,6 +147,19 @@ visibilityTimeoutQueryEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #messageId >$< E.param (E.nonNullable messageIdValue))
     <> (view #visibilityTimeoutOffset >$< E.param (E.nonNullable E.int4))
+
+-- | Encoder for BatchVisibilityTimeoutQuery (pgmq 1.8.0+)
+batchVisibilityTimeoutQueryEncoder :: E.Params BatchVisibilityTimeoutQuery
+batchVisibilityTimeoutQueryEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #messageIds >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageIdValue))))))
+    <> (view #visibilityTimeoutOffset >$< E.param (E.nonNullable E.int4))
+
+-- | Encoder for EnableNotifyInsert (pgmq 1.7.0+)
+enableNotifyInsertEncoder :: E.Params EnableNotifyInsert
+enableNotifyInsertEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #throttleIntervalMs >$< E.param (E.nullable E.int4))
 
 readWithPollEncoder :: E.Params ReadWithPollMessage
 readWithPollEncoder =

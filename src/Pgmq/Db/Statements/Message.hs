@@ -14,6 +14,7 @@ module Pgmq.Db.Statements.Message
     batchArchiveMessages,
     deleteAllMessagesFromQueue,
     changeVisibilityTimeout,
+    batchChangeVisibilityTimeout,
     readWithPoll,
     pop,
   )
@@ -28,6 +29,7 @@ import Pgmq.Db.Encoders
     batchSendMessageForLaterEncoder,
     batchSendMessageWithHeadersEncoder,
     batchSendMessageWithHeadersForLaterEncoder,
+    batchVisibilityTimeoutQueryEncoder,
     messageQueryEncoder,
     popMessageEncoder,
     queueNameEncoder,
@@ -45,6 +47,7 @@ import Pgmq.Db.Statements.Types
     BatchSendMessageForLater,
     BatchSendMessageWithHeaders,
     BatchSendMessageWithHeadersForLater,
+    BatchVisibilityTimeoutQuery,
     MessageQuery,
     PopMessage,
     ReadMessage,
@@ -169,6 +172,14 @@ changeVisibilityTimeout = Statement sql visibilityTimeoutQueryEncoder decoder Tr
   where
     sql = "select * from pgmq.set_vt($1,$2,$3)"
     decoder = D.singleRow messageDecoder
+
+-- | Batch update visibility timeout for multiple messages (pgmq 1.8.0+)
+-- | https://tembo.io/pgmq/api/sql/functions/#set_vt
+batchChangeVisibilityTimeout :: Statement BatchVisibilityTimeoutQuery (Vector Message)
+batchChangeVisibilityTimeout = Statement sql batchVisibilityTimeoutQueryEncoder decoder True
+  where
+    sql = "select * from pgmq.set_vt($1,$2,$3)"
+    decoder = D.rowVector messageDecoder
 
 -- | https://tembo.io/pgmq/api/sql/functions/#read_with_poll
 readWithPoll :: Statement ReadWithPollMessage (Vector Message)
