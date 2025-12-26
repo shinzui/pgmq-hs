@@ -8,6 +8,10 @@ module Pgmq.Db.Sessions
     sendMessageForLater,
     batchSendMessage,
     batchSendMessageForLater,
+    sendMessageWithHeaders,
+    sendMessageWithHeadersForLater,
+    batchSendMessageWithHeaders,
+    batchSendMessageWithHeadersForLater,
     deleteMessage,
     batchDeleteMessages,
     archiveMessage,
@@ -30,6 +34,8 @@ import Pgmq.Db.Statements.Types
   ( BatchMessageQuery,
     BatchSendMessage,
     BatchSendMessageForLater,
+    BatchSendMessageWithHeaders,
+    BatchSendMessageWithHeadersForLater,
     CreatePartitionedQueue,
     MessageQuery,
     QueueMetrics,
@@ -37,6 +43,8 @@ import Pgmq.Db.Statements.Types
     ReadWithPollMessage,
     SendMessage,
     SendMessageForLater,
+    SendMessageWithHeaders,
+    SendMessageWithHeadersForLater,
     VisibilityTimeoutQuery,
   )
 import Pgmq.Prelude
@@ -59,6 +67,22 @@ batchSendMessage msgs = statement msgs Msg.batchSendMessage
 
 batchSendMessageForLater :: BatchSendMessageForLater -> Session [MessageId]
 batchSendMessageForLater msgs = statement msgs Msg.batchSendMessageForLater
+
+-- | Send a message with headers (pgmq 1.5.0+)
+sendMessageWithHeaders :: SendMessageWithHeaders -> Session MessageId
+sendMessageWithHeaders msg = statement msg Msg.sendMessageWithHeaders
+
+-- | Send a message with headers for later (pgmq 1.5.0+)
+sendMessageWithHeadersForLater :: SendMessageWithHeadersForLater -> Session MessageId
+sendMessageWithHeadersForLater msg = statement msg Msg.sendMessageWithHeadersForLater
+
+-- | Send a batch of messages with headers (pgmq 1.5.0+)
+batchSendMessageWithHeaders :: BatchSendMessageWithHeaders -> Session [MessageId]
+batchSendMessageWithHeaders msgs = statement msgs Msg.batchSendMessageWithHeaders
+
+-- | Send a batch of messages with headers for later (pgmq 1.5.0+)
+batchSendMessageWithHeadersForLater :: BatchSendMessageWithHeadersForLater -> Session [MessageId]
+batchSendMessageWithHeadersForLater msgs = statement msgs Msg.batchSendMessageWithHeadersForLater
 
 deleteMessage :: MessageQuery -> Session Bool
 deleteMessage msg = statement msg Msg.deleteMessage

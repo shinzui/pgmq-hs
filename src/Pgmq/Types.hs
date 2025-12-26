@@ -2,6 +2,7 @@
 
 module Pgmq.Types
   ( MessageBody (..),
+    MessageHeaders (..),
     MessageId (..),
     Message (..),
     Queue (..),
@@ -21,6 +22,12 @@ newtype MessageBody = MessageBody {unMessageBody :: Value}
   deriving newtype (Eq, Ord, FromJSON, ToJSON)
   deriving stock (Show, Generic)
 
+-- | Message headers for metadata (routing, tracing, etc.)
+-- Added in pgmq 1.5.0
+newtype MessageHeaders = MessageHeaders {unMessageHeaders :: Value}
+  deriving newtype (Eq, Ord, FromJSON, ToJSON)
+  deriving stock (Show, Generic)
+
 newtype MessageId = MessageId {unMessageId :: Int64}
   deriving newtype (Eq, Ord, FromJSON, ToJSON)
   deriving stock (Show, Generic)
@@ -34,12 +41,14 @@ data Queue = Queue
   deriving stock (Eq, Generic, Show)
 
 -- | https://tembo.io/pgmq/api/sql/types/
+-- Note: headers field added in pgmq 1.5.0
 data Message = Message
   { messageId :: !MessageId,
     visibilityTime :: !UTCTime,
     enqueuedAt :: !UTCTime,
     readCount :: !Int64,
-    body :: !MessageBody
+    body :: !MessageBody,
+    headers :: !(Maybe Value)
   }
   deriving stock (Eq, Generic, Show)
 

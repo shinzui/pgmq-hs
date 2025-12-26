@@ -3,6 +3,10 @@ module Pgmq.Db.Statements.Message
     sendMessageForLater,
     batchSendMessage,
     batchSendMessageForLater,
+    sendMessageWithHeaders,
+    sendMessageWithHeadersForLater,
+    batchSendMessageWithHeaders,
+    batchSendMessageWithHeadersForLater,
     readMessage,
     deleteMessage,
     batchDeleteMessages,
@@ -22,23 +26,31 @@ import Pgmq.Db.Encoders
   ( batchMessageQueryEncoder,
     batchSendMessageEncoder,
     batchSendMessageForLaterEncoder,
+    batchSendMessageWithHeadersEncoder,
+    batchSendMessageWithHeadersForLaterEncoder,
     messageQueryEncoder,
     queueNameEncoder,
     readMessageEncoder,
     readWithPollEncoder,
     sendMessageEncoder,
     sendMessageForLaterEncoder,
+    sendMessageWithHeadersEncoder,
+    sendMessageWithHeadersForLaterEncoder,
     visibilityTimeoutQueryEncoder,
   )
 import Pgmq.Db.Statements.Types
   ( BatchMessageQuery,
     BatchSendMessage,
     BatchSendMessageForLater,
+    BatchSendMessageWithHeaders,
+    BatchSendMessageWithHeadersForLater,
     MessageQuery,
     ReadMessage,
     ReadWithPollMessage,
     SendMessage,
     SendMessageForLater,
+    SendMessageWithHeaders,
+    SendMessageWithHeadersForLater,
     VisibilityTimeoutQuery,
   )
 import Pgmq.Prelude
@@ -70,6 +82,38 @@ batchSendMessageForLater :: Statement BatchSendMessageForLater [MessageId]
 batchSendMessageForLater = Statement sql batchSendMessageForLaterEncoder decoder True
   where
     sql = "select * from pgmq.send_batch($1, $2, $3)"
+    decoder = D.rowList messageIdDecoder
+
+-- | Send a message with headers (pgmq 1.5.0+)
+-- https://tembo.io/pgmq/api/sql/functions/#send
+sendMessageWithHeaders :: Statement SendMessageWithHeaders MessageId
+sendMessageWithHeaders = Statement sql sendMessageWithHeadersEncoder decoder True
+  where
+    sql = "select * from pgmq.send($1, $2, $3, $4)"
+    decoder = D.singleRow messageIdDecoder
+
+-- | Send a message with headers for later (pgmq 1.5.0+)
+-- https://tembo.io/pgmq/api/sql/functions/#send
+sendMessageWithHeadersForLater :: Statement SendMessageWithHeadersForLater MessageId
+sendMessageWithHeadersForLater = Statement sql sendMessageWithHeadersForLaterEncoder decoder True
+  where
+    sql = "select * from pgmq.send($1, $2, $3, $4)"
+    decoder = D.singleRow messageIdDecoder
+
+-- | Send a batch of messages with headers (pgmq 1.5.0+)
+-- https://tembo.io/pgmq/api/sql/functions/#send_batch
+batchSendMessageWithHeaders :: Statement BatchSendMessageWithHeaders [MessageId]
+batchSendMessageWithHeaders = Statement sql batchSendMessageWithHeadersEncoder decoder True
+  where
+    sql = "select * from pgmq.send_batch($1, $2, $3, $4)"
+    decoder = D.rowList messageIdDecoder
+
+-- | Send a batch of messages with headers for later (pgmq 1.5.0+)
+-- https://tembo.io/pgmq/api/sql/functions/#send_batch
+batchSendMessageWithHeadersForLater :: Statement BatchSendMessageWithHeadersForLater [MessageId]
+batchSendMessageWithHeadersForLater = Statement sql batchSendMessageWithHeadersForLaterEncoder decoder True
+  where
+    sql = "select * from pgmq.send_batch($1, $2, $3, $4)"
     decoder = D.rowList messageIdDecoder
 
 -- | https://tembo.io/pgmq/api/sql/functions/#read

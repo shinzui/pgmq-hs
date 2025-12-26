@@ -11,6 +11,12 @@ module Pgmq
     sendMessageForLater,
     batchSendMessage,
     batchSendMessageForLater,
+
+    -- ** With Headers (pgmq 1.5.0+)
+    sendMessageWithHeaders,
+    sendMessageWithHeadersForLater,
+    batchSendMessageWithHeaders,
+    batchSendMessageWithHeadersForLater,
     readMessage,
     deleteMessage,
     batchDeleteMessages,
@@ -26,6 +32,7 @@ module Pgmq
 
     -- * Types
     MessageBody (..),
+    MessageHeaders (..),
     MessageId (..),
     Message (..),
     Queue (..),
@@ -34,6 +41,12 @@ module Pgmq
     SendMessageForLater (..),
     BatchSendMessage (..),
     BatchSendMessageForLater (..),
+
+    -- ** With Headers (pgmq 1.5.0+)
+    SendMessageWithHeaders (..),
+    SendMessageWithHeadersForLater (..),
+    BatchSendMessageWithHeaders (..),
+    BatchSendMessageWithHeadersForLater (..),
     ReadMessage (..),
     MessageQuery (..),
     BatchMessageQuery (..),
@@ -55,6 +68,8 @@ import Pgmq.Db.Sessions
     batchDeleteMessages,
     batchSendMessage,
     batchSendMessageForLater,
+    batchSendMessageWithHeaders,
+    batchSendMessageWithHeadersForLater,
     changeVisibilityTimeout,
     createPartitionedQueue,
     createQueue,
@@ -70,11 +85,15 @@ import Pgmq.Db.Sessions
     readWithPoll,
     sendMessage,
     sendMessageForLater,
+    sendMessageWithHeaders,
+    sendMessageWithHeadersForLater,
   )
 import Pgmq.Db.Statements.Types
   ( BatchMessageQuery (..),
     BatchSendMessage (..),
     BatchSendMessageForLater (..),
+    BatchSendMessageWithHeaders (..),
+    BatchSendMessageWithHeadersForLater (..),
     CreatePartitionedQueue (..),
     MessageQuery (..),
     QueueMetrics (..),
@@ -82,11 +101,14 @@ import Pgmq.Db.Statements.Types
     ReadWithPollMessage (..),
     SendMessage (..),
     SendMessageForLater (..),
+    SendMessageWithHeaders (..),
+    SendMessageWithHeadersForLater (..),
     VisibilityTimeoutQuery (..),
   )
 import Pgmq.Types
   ( Message (..),
     MessageBody (..),
+    MessageHeaders (..),
     MessageId (..),
     Queue (..),
     QueueName,

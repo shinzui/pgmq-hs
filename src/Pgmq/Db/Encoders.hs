@@ -4,7 +4,12 @@ module Pgmq.Db.Encoders
     sendMessageForLaterEncoder,
     batchSendMessageEncoder,
     batchSendMessageForLaterEncoder,
+    sendMessageWithHeadersEncoder,
+    sendMessageWithHeadersForLaterEncoder,
+    batchSendMessageWithHeadersEncoder,
+    batchSendMessageWithHeadersForLaterEncoder,
     messageIdValue,
+    messageHeadersValue,
     readMessageEncoder,
     messageQueryEncoder,
     batchMessageQueryEncoder,
@@ -22,6 +27,7 @@ import Pgmq.Db.Statements.Types
 import Pgmq.Prelude
 import Pgmq.Types
   ( MessageBody (..),
+    MessageHeaders (..),
     MessageId (..),
     QueueName,
     queueNameToText,
@@ -38,6 +44,9 @@ messageBodyValue = unMessageBody >$< E.jsonb
 
 messageIdValue :: E.Value MessageId
 messageIdValue = unMessageId >$< E.int8
+
+messageHeadersValue :: E.Value MessageHeaders
+messageHeadersValue = unMessageHeaders >$< E.jsonb
 
 -- | Common encoder for queue message fields
 commonSendMessageFields :: (HasField' "queueName" a QueueName, HasField' "messageBody" a MessageBody) => E.Params a
@@ -69,6 +78,42 @@ batchSendMessageEncoder =
 batchSendMessageForLaterEncoder :: E.Params BatchSendMessageForLater
 batchSendMessageForLaterEncoder =
   commonBatchSendMessageFields
+    <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))
+
+-- | Encoder for SendMessageWithHeaders (pgmq 1.5.0+)
+-- SQL: pgmq.send(queue_name, msg, headers, delay)
+sendMessageWithHeadersEncoder :: E.Params SendMessageWithHeaders
+sendMessageWithHeadersEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #messageBody >$< E.param (E.nonNullable messageBodyValue))
+    <> (view #messageHeaders >$< E.param (E.nonNullable messageHeadersValue))
+    <> (view #delay >$< E.param (E.nullable E.int4))
+
+-- | Encoder for SendMessageWithHeadersForLater (pgmq 1.5.0+)
+-- SQL: pgmq.send(queue_name, msg, headers, timestamp)
+sendMessageWithHeadersForLaterEncoder :: E.Params SendMessageWithHeadersForLater
+sendMessageWithHeadersForLaterEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #messageBody >$< E.param (E.nonNullable messageBodyValue))
+    <> (view #messageHeaders >$< E.param (E.nonNullable messageHeadersValue))
+    <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))
+
+-- | Encoder for BatchSendMessageWithHeaders (pgmq 1.5.0+)
+-- SQL: pgmq.send_batch(queue_name, msgs[], headers[], delay)
+batchSendMessageWithHeadersEncoder :: E.Params BatchSendMessageWithHeaders
+batchSendMessageWithHeadersEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #messageBodies >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageBodyValue))))))
+    <> (view #messageHeaders >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageHeadersValue))))))
+    <> (view #delay >$< E.param (E.nullable E.int4))
+
+-- | Encoder for BatchSendMessageWithHeadersForLater (pgmq 1.5.0+)
+-- SQL: pgmq.send_batch(queue_name, msgs[], headers[], timestamp)
+batchSendMessageWithHeadersForLaterEncoder :: E.Params BatchSendMessageWithHeadersForLater
+batchSendMessageWithHeadersForLaterEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #messageBodies >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageBodyValue))))))
+    <> (view #messageHeaders >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageHeadersValue))))))
     <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))
 
 readMessageEncoder :: E.Params ReadMessage

@@ -20,6 +20,7 @@ messageDecoder =
     <*> D.column (D.nonNullable D.timestamptz)
     <*> D.column (D.nonNullable D.int8)
     <*> (MessageBody <$> D.column (D.nonNullable D.jsonb))
+    <*> D.column (D.nullable D.jsonb) -- headers (pgmq 1.5.0+)
 
 messageIdDecoder :: D.Row MessageId
 messageIdDecoder = MessageId <$> D.column (D.nonNullable D.int8)

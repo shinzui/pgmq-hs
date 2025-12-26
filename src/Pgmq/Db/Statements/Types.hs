@@ -3,6 +3,10 @@ module Pgmq.Db.Statements.Types
     SendMessageForLater (..),
     BatchSendMessage (..),
     BatchSendMessageForLater (..),
+    SendMessageWithHeaders (..),
+    SendMessageWithHeadersForLater (..),
+    BatchSendMessageWithHeaders (..),
+    BatchSendMessageWithHeadersForLater (..),
     ReadMessage (..),
     MessageQuery (..),
     BatchMessageQuery (..),
@@ -15,7 +19,7 @@ where
 
 import Data.Aeson (Value)
 import Pgmq.Prelude
-import Pgmq.Types (MessageBody, MessageId, QueueName)
+import Pgmq.Types (MessageBody, MessageHeaders, MessageId, QueueName)
 
 type Delay = Int32
 
@@ -62,6 +66,42 @@ data BatchSendMessage = BatchSendMessage
 data BatchSendMessageForLater = BatchSendMessageForLater
   { queueName :: !QueueName,
     messageBodies :: ![MessageBody],
+    scheduledAt :: !UTCTime
+  }
+  deriving stock (Generic)
+
+-- | Send message with headers (pgmq 1.5.0+)
+data SendMessageWithHeaders = SendMessageWithHeaders
+  { queueName :: !QueueName,
+    messageBody :: !MessageBody,
+    messageHeaders :: !MessageHeaders,
+    delay :: !(Maybe Delay)
+  }
+  deriving stock (Generic)
+
+-- | Send message with headers for later (pgmq 1.5.0+)
+data SendMessageWithHeadersForLater = SendMessageWithHeadersForLater
+  { queueName :: !QueueName,
+    messageBody :: !MessageBody,
+    messageHeaders :: !MessageHeaders,
+    scheduledAt :: !UTCTime
+  }
+  deriving stock (Generic)
+
+-- | Batch send messages with headers (pgmq 1.5.0+)
+data BatchSendMessageWithHeaders = BatchSendMessageWithHeaders
+  { queueName :: !QueueName,
+    messageBodies :: ![MessageBody],
+    messageHeaders :: ![MessageHeaders],
+    delay :: !(Maybe Delay)
+  }
+  deriving stock (Generic)
+
+-- | Batch send messages with headers for later (pgmq 1.5.0+)
+data BatchSendMessageWithHeadersForLater = BatchSendMessageWithHeadersForLater
+  { queueName :: !QueueName,
+    messageBodies :: ![MessageBody],
+    messageHeaders :: ![MessageHeaders],
     scheduledAt :: !UTCTime
   }
   deriving stock (Generic)
