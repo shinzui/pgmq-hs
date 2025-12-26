@@ -11,6 +11,7 @@ module Pgmq.Db.Encoders
     messageIdValue,
     messageHeadersValue,
     readMessageEncoder,
+    popMessageEncoder,
     messageQueryEncoder,
     batchMessageQueryEncoder,
     queueNameEncoder,
@@ -122,6 +123,12 @@ readMessageEncoder =
     <> (view #delay >$< E.param (E.nonNullable E.int4))
     <> (view #batchSize >$< E.param (E.nullable E.int4))
     <> (view #conditional >$< E.param (E.nullable E.jsonb)) -- pgmq 1.5.0+
+
+-- | Encoder for PopMessage (pgmq 1.7.0+)
+popMessageEncoder :: E.Params PopMessage
+popMessageEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #qty >$< E.param (E.nullable E.int4))
 
 messageQueryEncoder :: E.Params MessageQuery
 messageQueryEncoder =

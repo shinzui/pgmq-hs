@@ -38,6 +38,7 @@ import Pgmq.Db.Statements.Types
     BatchSendMessageWithHeadersForLater,
     CreatePartitionedQueue,
     MessageQuery,
+    PopMessage,
     QueueMetrics,
     ReadMessage,
     ReadWithPollMessage,
@@ -114,8 +115,9 @@ createUnloggedQueue q = statement q Db.createUnloggedQueue
 detachArchive :: QueueName -> Session ()
 detachArchive q = statement q Db.detachArchive
 
-pop :: QueueName -> Session Message
-pop q = statement q Msg.pop
+-- | Pop messages from queue (pgmq 1.7.0+)
+pop :: PopMessage -> Session (Vector Message)
+pop query = statement query Msg.pop
 
 queueMetrics :: QueueName -> Session QueueMetrics
 queueMetrics q = statement q Db.queueMetrics

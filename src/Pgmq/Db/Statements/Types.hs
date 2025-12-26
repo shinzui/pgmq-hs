@@ -8,6 +8,7 @@ module Pgmq.Db.Statements.Types
     BatchSendMessageWithHeaders (..),
     BatchSendMessageWithHeadersForLater (..),
     ReadMessage (..),
+    PopMessage (..),
     MessageQuery (..),
     BatchMessageQuery (..),
     VisibilityTimeoutQuery (..),
@@ -124,6 +125,14 @@ data ReadWithPollMessage = ReadWithPollMessage
     maxPollSeconds :: !Int32,
     pollIntervalMs :: !Int32,
     conditional :: !(Maybe Value)
+  }
+  deriving stock (Generic)
+
+-- | Parameters for popping messages from a queue (pgmq 1.7.0+)
+data PopMessage = PopMessage
+  { queueName :: !QueueName,
+    -- | Number of messages to pop (Nothing = default 1)
+    qty :: !(Maybe Int32)
   }
   deriving stock (Generic)
 

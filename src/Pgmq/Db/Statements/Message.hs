@@ -29,6 +29,7 @@ import Pgmq.Db.Encoders
     batchSendMessageWithHeadersEncoder,
     batchSendMessageWithHeadersForLaterEncoder,
     messageQueryEncoder,
+    popMessageEncoder,
     queueNameEncoder,
     readMessageEncoder,
     readWithPollEncoder,
@@ -45,6 +46,7 @@ import Pgmq.Db.Statements.Types
     BatchSendMessageWithHeaders,
     BatchSendMessageWithHeadersForLater,
     MessageQuery,
+    PopMessage,
     ReadMessage,
     ReadWithPollMessage,
     SendMessage,
@@ -175,9 +177,11 @@ readWithPoll = Statement sql readWithPollEncoder decoder True
     sql = "select * from pgmq.read_with_poll($1,$2,$3,$4,$5,$6)"
     decoder = D.rowVector messageDecoder
 
--- | https://tembo.io/pgmq/api/sql/functions/#pop
-pop :: Statement QueueName Message
-pop = Statement sql queueNameEncoder decoder True
+-- | Pop messages from queue (atomic read + delete)
+-- https://tembo.io/pgmq/api/sql/functions/#pop
+-- Note: qty parameter added in pgmq 1.7.0
+pop :: Statement PopMessage (Vector Message)
+pop = Statement sql popMessageEncoder decoder True
   where
-    sql = "select * from pgmq.pop($1)"
-    decoder = D.singleRow messageDecoder
+    sql = "select * from pgmq.pop($1,$2)"
+    decoder = D.rowVector messageDecoder
