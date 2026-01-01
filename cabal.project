@@ -1,12 +1,23 @@
 packages: .
 
-with-compiler: ghc-9.8.4
+with-compiler: ghc-9.12.2
 
 test-show-details: direct
 
 tests: True
 
-allow-newer: openapi3:time
+allow-newer:
+  -- GHC 9.12 ships with updated boot libraries
+  *:time
+  , *:containers
+  , *:template-haskell
+  , *:text
+  , *:bytestring
+  , *:base
+  , *:ghc-prim
+  , *:deepseq
+  , *:filepath
+  , openapi3:time
 
 source-repository-package
   type: git

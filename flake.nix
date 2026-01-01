@@ -11,7 +11,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        ghcVersion = "ghc984";
+        ghcVersion = "ghc9122";
         treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
         formatter = treefmtEval.config.build.wrapper;
 
@@ -39,7 +39,6 @@
             cabal-install
             (haskell.packages.${ghcVersion}.ghcWithPackages (ps: with ps; [
               haskell-language-server
-              cabal-plan-bounds
             ]))
           ];
         };

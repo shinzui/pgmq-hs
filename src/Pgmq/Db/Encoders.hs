@@ -23,7 +23,6 @@ module Pgmq.Db.Encoders
   )
 where
 
-import Data.Foldable (foldl')
 import Data.Generics.Product (HasField')
 import Hasql.Encoders qualified as E
 import Pgmq.Db.Statements.Types

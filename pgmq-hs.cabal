@@ -41,13 +41,10 @@ library
     Pgmq.Types
 
   default-extensions:
-    DataKinds
     DeriveGeneric
-    DerivingStrategies
     DuplicateRecordFields
     GeneralisedNewtypeDeriving
     ImportQualifiedPost
-    LambdaCase
     NamedFieldPuns
     OverloadedLabels
     OverloadedStrings
@@ -66,11 +63,11 @@ library
     , vector             ^>=0.13
 
   hs-source-dirs:     src
-  default-language:   GHC2021
+  default-language:   GHC2024
 
 test-suite pgmq-hs-test
   import:           warnings
-  default-language: GHC2021
+  default-language: GHC2024
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
   main-is:          Main.hs
