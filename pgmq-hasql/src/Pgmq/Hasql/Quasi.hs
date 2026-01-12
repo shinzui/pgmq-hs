@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskellQuotes #-}
 
-module Pgmq.Quasi (pgmq) where
+module Pgmq.Hasql.Quasi (pgmq) where
 
 import Data.Text qualified as T
 import Language.Haskell.TH

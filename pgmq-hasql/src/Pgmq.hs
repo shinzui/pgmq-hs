@@ -69,7 +69,7 @@ module Pgmq
   )
 where
 
-import Pgmq.Db.Sessions
+import Pgmq.Hasql.Sessions
   ( allQueueMetrics,
     archiveMessage,
     batchArchiveMessages,
@@ -99,7 +99,7 @@ import Pgmq.Db.Sessions
     sendMessageWithHeaders,
     sendMessageWithHeadersForLater,
   )
-import Pgmq.Db.Statements.Types
+import Pgmq.Hasql.Statements.Types
   ( BatchMessageQuery (..),
     BatchSendMessage (..),
     BatchSendMessageForLater (..),

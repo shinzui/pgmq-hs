@@ -1,4 +1,4 @@
-module Pgmq.Db.Statements.QueueObservability
+module Pgmq.Hasql.Statements.QueueObservability
   ( listQueues,
     queueMetrics,
     allQueueMetrics,
@@ -8,9 +8,9 @@ where
 import Hasql.Decoders qualified as D
 import Hasql.Encoders qualified as E
 import Hasql.Statement (Statement (..))
-import Pgmq.Db.Decoders (queueDecoder, queueMetricsDecoder)
-import Pgmq.Db.Encoders (queueNameEncoder)
-import Pgmq.Db.Statements.Types (QueueMetrics)
+import Pgmq.Hasql.Decoders (queueDecoder, queueMetricsDecoder)
+import Pgmq.Hasql.Encoders (queueNameEncoder)
+import Pgmq.Hasql.Statements.Types (QueueMetrics)
 import Pgmq.Types (Queue, QueueName)
 
 -- | List all queues that currently exist

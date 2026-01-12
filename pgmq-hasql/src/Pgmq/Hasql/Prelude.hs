@@ -1,6 +1,6 @@
 {-# LANGUAGE PackageImports #-}
 
-module Pgmq.Prelude
+module Pgmq.Hasql.Prelude
   ( -- base
     Generic,
     Data,

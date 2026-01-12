@@ -9,14 +9,18 @@ module Pgmq.Types
     QueueName,
     parseQueueName,
     queueNameToText,
+    PgmqError (..),
   )
 where
 
-import Data.Aeson (Value)
+import Data.Aeson (FromJSON, ToJSON, Value)
 import Data.Char (isAlphaNum, isAscii)
+import Data.Int (Int64)
+import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Time (UTCTime)
+import GHC.Generics (Generic)
 import Language.Haskell.TH.Syntax (Lift (..))
-import Pgmq.Prelude
 
 newtype MessageBody = MessageBody {unMessageBody :: Value}
   deriving newtype (Eq, Ord, FromJSON, ToJSON)

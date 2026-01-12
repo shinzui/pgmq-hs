@@ -1,4 +1,4 @@
-module Pgmq.Db.Statements.QueueManagement
+module Pgmq.Hasql.Statements.QueueManagement
   ( createQueue,
     dropQueue,
     createPartitionedQueue,
@@ -11,8 +11,8 @@ where
 
 import Hasql.Decoders qualified as D
 import Hasql.Statement (Statement (..))
-import Pgmq.Db.Encoders (createPartitionedQueueEncoder, enableNotifyInsertEncoder, queueNameEncoder)
-import Pgmq.Db.Statements.Types (CreatePartitionedQueue, EnableNotifyInsert)
+import Pgmq.Hasql.Encoders (createPartitionedQueueEncoder, enableNotifyInsertEncoder, queueNameEncoder)
+import Pgmq.Hasql.Statements.Types (CreatePartitionedQueue, EnableNotifyInsert)
 import Pgmq.Types (QueueName)
 
 -- https://tembo.io/pgmq/api/sql/functions/#create

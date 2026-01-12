@@ -1,4 +1,4 @@
-module Pgmq.Db.Encoders
+module Pgmq.Hasql.Encoders
   ( queueNameValue,
     sendMessageEncoder,
     sendMessageForLaterEncoder,
@@ -25,8 +25,8 @@ where
 
 import Data.Generics.Product (HasField')
 import Hasql.Encoders qualified as E
-import Pgmq.Db.Statements.Types
-import Pgmq.Prelude
+import Pgmq.Hasql.Prelude
+import Pgmq.Hasql.Statements.Types
 import Pgmq.Types
   ( MessageBody (..),
     MessageHeaders (..),

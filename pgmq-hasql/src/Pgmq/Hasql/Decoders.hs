@@ -1,4 +1,4 @@
-module Pgmq.Db.Decoders
+module Pgmq.Hasql.Decoders
   ( messageDecoder,
     messageIdDecoder,
     queueDecoder,
@@ -9,7 +9,7 @@ where
 import Data.Bifunctor (first)
 import Data.Text (pack)
 import Hasql.Decoders qualified as D
-import Pgmq.Db.Statements.Types (QueueMetrics (..))
+import Pgmq.Hasql.Statements.Types (QueueMetrics (..))
 import Pgmq.Types (Message (..), MessageBody (..), MessageId (..), Queue (..), parseQueueName)
 
 messageDecoder :: D.Row Message

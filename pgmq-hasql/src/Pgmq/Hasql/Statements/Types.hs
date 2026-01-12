@@ -1,4 +1,4 @@
-module Pgmq.Db.Statements.Types
+module Pgmq.Hasql.Statements.Types
   ( SendMessage (..),
     SendMessageForLater (..),
     BatchSendMessage (..),
@@ -21,7 +21,7 @@ module Pgmq.Db.Statements.Types
 where
 
 import Data.Aeson (Value)
-import Pgmq.Prelude
+import Pgmq.Hasql.Prelude
 import Pgmq.Types (MessageBody, MessageHeaders, MessageId, QueueName)
 
 type Delay = Int32

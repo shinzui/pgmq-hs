@@ -1,4 +1,4 @@
-module Pgmq.Db.Sessions
+module Pgmq.Hasql.Sessions
   ( createQueue,
     dropQueue,
     createPartitionedQueue,
@@ -31,9 +31,10 @@ module Pgmq.Db.Sessions
 where
 
 import Hasql.Session (Session, statement)
-import Pgmq.Db.Statements qualified as Db
-import Pgmq.Db.Statements.Message qualified as Msg
-import Pgmq.Db.Statements.Types
+import Pgmq.Hasql.Prelude
+import Pgmq.Hasql.Statements qualified as Stmt
+import Pgmq.Hasql.Statements.Message qualified as Msg
+import Pgmq.Hasql.Statements.Types
   ( BatchMessageQuery,
     BatchSendMessage,
     BatchSendMessageForLater,
@@ -53,14 +54,13 @@ import Pgmq.Db.Statements.Types
     SendMessageWithHeadersForLater,
     VisibilityTimeoutQuery,
   )
-import Pgmq.Prelude
 import Pgmq.Types (Message, MessageId, Queue, QueueName)
 
 createQueue :: QueueName -> Session ()
-createQueue q = statement q Db.createQueue
+createQueue q = statement q Stmt.createQueue
 
 dropQueue :: QueueName -> Session Bool
-dropQueue q = statement q Db.dropQueue
+dropQueue q = statement q Stmt.dropQueue
 
 sendMessage :: SendMessage -> Session MessageId
 sendMessage msg = statement msg Msg.sendMessage
@@ -113,38 +113,38 @@ batchChangeVisibilityTimeout :: BatchVisibilityTimeoutQuery -> Session (Vector M
 batchChangeVisibilityTimeout query = statement query Msg.batchChangeVisibilityTimeout
 
 listQueues :: Session [Queue]
-listQueues = statement () Db.listQueues
+listQueues = statement () Stmt.listQueues
 
 createPartitionedQueue :: CreatePartitionedQueue -> Session ()
-createPartitionedQueue q = statement q Db.createPartitionedQueue
+createPartitionedQueue q = statement q Stmt.createPartitionedQueue
 
 createUnloggedQueue :: QueueName -> Session ()
-createUnloggedQueue q = statement q Db.createUnloggedQueue
+createUnloggedQueue q = statement q Stmt.createUnloggedQueue
 
 {-# DEPRECATED detachArchive "detach_archive is a no-op in pgmq and will be removed in pgmq 2.0" #-}
 detachArchive :: QueueName -> Session ()
-detachArchive q = statement q Db.detachArchive
+detachArchive q = statement q Stmt.detachArchive
 
 -- | Enable insert notifications for a queue (pgmq 1.7.0+)
 enableNotifyInsert :: EnableNotifyInsert -> Session ()
-enableNotifyInsert config = statement config Db.enableNotifyInsert
+enableNotifyInsert config = statement config Stmt.enableNotifyInsert
 
 -- | Disable insert notifications for a queue
 disableNotifyInsert :: QueueName -> Session ()
-disableNotifyInsert q = statement q Db.disableNotifyInsert
+disableNotifyInsert q = statement q Stmt.disableNotifyInsert
 
 -- | Pop messages from queue (pgmq 1.7.0+)
 pop :: PopMessage -> Session (Vector Message)
 pop query = statement query Msg.pop
 
 queueMetrics :: QueueName -> Session QueueMetrics
-queueMetrics q = statement q Db.queueMetrics
+queueMetrics q = statement q Stmt.queueMetrics
 
 allQueueMetrics :: Session [QueueMetrics]
-allQueueMetrics = statement () Db.allQueueMetrics
+allQueueMetrics = statement () Stmt.allQueueMetrics
 
 readMessage :: ReadMessage -> Session (Vector Message)
-readMessage query = statement query Db.readMessage
+readMessage query = statement query Stmt.readMessage
 
 readWithPoll :: ReadWithPollMessage -> Session (Vector Message)
-readWithPoll query = statement query Db.readWithPoll
+readWithPoll query = statement query Stmt.readWithPoll

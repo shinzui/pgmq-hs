@@ -1,5 +1,5 @@
 cabal-version:   3.4
-name:            pgmq-hs
+name:            pgmq-hasql
 version:         0.1.0.0
 
 -- synopsis:
@@ -28,17 +28,16 @@ library
   import:             warnings
   exposed-modules:
     Pgmq
-    Pgmq.Db.Decoders
-    Pgmq.Db.Encoders
-    Pgmq.Db.Sessions
-    Pgmq.Db.Statements
-    Pgmq.Db.Statements.Message
-    Pgmq.Db.Statements.QueueManagement
-    Pgmq.Db.Statements.QueueObservability
-    Pgmq.Db.Statements.Types
-    Pgmq.Prelude
-    Pgmq.Quasi
-    Pgmq.Types
+    Pgmq.Hasql.Decoders
+    Pgmq.Hasql.Encoders
+    Pgmq.Hasql.Prelude
+    Pgmq.Hasql.Quasi
+    Pgmq.Hasql.Sessions
+    Pgmq.Hasql.Statements
+    Pgmq.Hasql.Statements.Message
+    Pgmq.Hasql.Statements.QueueManagement
+    Pgmq.Hasql.Statements.QueueObservability
+    Pgmq.Hasql.Statements.Types
 
   default-extensions:
     DeriveGeneric
@@ -56,6 +55,7 @@ library
     , hasql              ^>=1.9
     , hasql-transaction  ^>=1.2
     , lens               ^>=5.3
+    , pgmq-core
     , template-haskell   >=2.20  && <3
     , text               ^>=2.1
     , time               ^>=1.14
@@ -65,7 +65,7 @@ library
   hs-source-dirs:     src
   default-language:   GHC2024
 
-test-suite pgmq-hs-test
+test-suite pgmq-hasql-test
   import:           warnings
   default-language: GHC2024
   type:             exitcode-stdio-1.0
@@ -82,7 +82,8 @@ test-suite pgmq-hs-test
     , hasql-transaction
     , hedgehog             ^>=1.5
     , lens
-    , pgmq-hs
+    , pgmq-core
+    , pgmq-hasql
     , tan-commons-testing
     , tasty                ^>=1.5
     , tasty-hedgehog       ^>=1.4

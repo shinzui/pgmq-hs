@@ -1,4 +1,4 @@
-module Pgmq.Db.Statements.Message
+module Pgmq.Hasql.Statements.Message
   ( sendMessage,
     sendMessageForLater,
     batchSendMessage,
@@ -22,8 +22,8 @@ where
 
 import Hasql.Decoders qualified as D
 import Hasql.Statement (Statement (..))
-import Pgmq.Db.Decoders (messageDecoder, messageIdDecoder)
-import Pgmq.Db.Encoders
+import Pgmq.Hasql.Decoders (messageDecoder, messageIdDecoder)
+import Pgmq.Hasql.Encoders
   ( batchMessageQueryEncoder,
     batchSendMessageEncoder,
     batchSendMessageForLaterEncoder,
@@ -41,7 +41,8 @@ import Pgmq.Db.Encoders
     sendMessageWithHeadersForLaterEncoder,
     visibilityTimeoutQueryEncoder,
   )
-import Pgmq.Db.Statements.Types
+import Pgmq.Hasql.Prelude
+import Pgmq.Hasql.Statements.Types
   ( BatchMessageQuery,
     BatchSendMessage,
     BatchSendMessageForLater,
@@ -58,7 +59,6 @@ import Pgmq.Db.Statements.Types
     SendMessageWithHeadersForLater,
     VisibilityTimeoutQuery,
   )
-import Pgmq.Prelude
 import Pgmq.Types (Message, MessageId, QueueName)
 
 -- https://tembo.io/pgmq/api/sql/functions/#send

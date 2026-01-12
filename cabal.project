@@ -1,4 +1,6 @@
-packages: .
+packages:
+  pgmq-core
+  pgmq-hasql
 
 with-compiler: ghc-9.12.2
 
