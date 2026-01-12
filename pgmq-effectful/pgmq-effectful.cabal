@@ -1,0 +1,55 @@
+cabal-version: 3.4
+name:          pgmq-effectful
+version:       0.1.0.0
+
+-- synopsis:
+-- description:
+homepage:      https://github.com/topagentnetwork/pgmq-hs
+license:       MIT
+license-file:  LICENSE
+author:        Nadeem Bitar
+maintainer:    nadeem@topagentnetwork.com
+
+-- copyright:
+category:      Database
+build-type:    Simple
+
+-- extra-source-files:
+
+common warnings
+  ghc-options:
+    -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
+    -Wincomplete-record-updates -Wredundant-constraints
+    -fhide-source-paths -Wmissing-export-lists -Wpartial-fields
+    -Wmissing-deriving-strategies
+
+library
+  import:             warnings
+  exposed-modules:
+    Pgmq.Effectful
+    Pgmq.Effectful.Effect
+    Pgmq.Effectful.Interpreter
+
+  default-extensions:
+    DataKinds
+    DuplicateRecordFields
+    GADTs
+    GeneralisedNewtypeDeriving
+    ImportQualifiedPost
+    LambdaCase
+    NoFieldSelectors
+    OverloadedStrings
+    TypeFamilies
+    TypeOperators
+
+  build-depends:
+    , base            >=4.18  && <5.0
+    , effectful-core  ^>=2.5  || ^>=2.6
+    , hasql           ^>=1.9
+    , hasql-pool      ^>=1.3
+    , pgmq-core
+    , pgmq-hasql
+    , vector          ^>=0.13
+
+  hs-source-dirs:     src
+  default-language:   GHC2024

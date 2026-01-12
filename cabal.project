@@ -1,6 +1,7 @@
 packages:
   pgmq-core
   pgmq-hasql
+  pgmq-effectful
 
 with-compiler: ghc-9.12.2
 
