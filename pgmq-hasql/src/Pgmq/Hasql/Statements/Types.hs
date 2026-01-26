@@ -17,6 +17,9 @@ module Pgmq.Hasql.Statements.Types
     EnableNotifyInsert (..),
     CreatePartitionedQueue (..),
     QueueMetrics (..),
+    -- FIFO read types (pgmq 1.8.0+)
+    ReadGrouped (..),
+    ReadGroupedWithPoll (..),
   )
 where
 
@@ -174,3 +177,25 @@ data QueueMetrics = QueueMetrics
     queueVisibleLength :: !Int64
   }
   deriving stock (Generic, Show)
+
+-- | Parameters for FIFO grouped read (pgmq 1.8.0+)
+-- Used for both read_grouped and read_grouped_rr functions.
+-- Note: conditional parameter was removed in pgmq 1.9.0 (commit 9e9c3dc)
+data ReadGrouped = ReadGrouped
+  { queueName :: !QueueName,
+    visibilityTimeout :: !Int32,
+    qty :: !Int32
+  }
+  deriving stock (Generic)
+
+-- | Parameters for FIFO grouped read with polling (pgmq 1.8.0+)
+-- Used for both read_grouped_with_poll and read_grouped_rr_with_poll functions.
+-- Note: conditional parameter was removed in pgmq 1.9.0 (commit 9e9c3dc)
+data ReadGroupedWithPoll = ReadGroupedWithPoll
+  { queueName :: !QueueName,
+    visibilityTimeout :: !Int32,
+    qty :: !Int32,
+    maxPollSeconds :: !Int32,
+    pollIntervalMs :: !Int32
+  }
+  deriving stock (Generic)

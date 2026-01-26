@@ -37,6 +37,8 @@ runPgmq pool = interpret $ \_ -> \case
   DetachArchive q -> runSession pool $ Sessions.detachArchive q
   EnableNotifyInsert config -> runSession pool $ Sessions.enableNotifyInsert config
   DisableNotifyInsert q -> runSession pool $ Sessions.disableNotifyInsert q
+  CreateFifoIndex q -> runSession pool $ Sessions.createFifoIndex q
+  CreateFifoIndexesAll -> runSession pool Sessions.createFifoIndexesAll
   -- Message Operations
   SendMessage msg -> runSession pool $ Sessions.sendMessage msg
   SendMessageForLater msg -> runSession pool $ Sessions.sendMessageForLater msg
@@ -56,6 +58,12 @@ runPgmq pool = interpret $ \_ -> \case
   BatchChangeVisibilityTimeout query -> runSession pool $ Sessions.batchChangeVisibilityTimeout query
   ReadWithPoll query -> runSession pool $ Sessions.readWithPoll query
   Pop query -> runSession pool $ Sessions.pop query
+  -- FIFO Read (pgmq 1.8.0+)
+  ReadGrouped query -> runSession pool $ Sessions.readGrouped query
+  ReadGroupedWithPoll query -> runSession pool $ Sessions.readGroupedWithPoll query
+  -- Round-robin FIFO Read (pgmq 1.9.0+)
+  ReadGroupedRoundRobin query -> runSession pool $ Sessions.readGroupedRoundRobin query
+  ReadGroupedRoundRobinWithPoll query -> runSession pool $ Sessions.readGroupedRoundRobinWithPoll query
   -- Queue Observability
   ListQueues -> runSession pool Sessions.listQueues
   QueueMetrics q -> runSession pool $ Sessions.queueMetrics q

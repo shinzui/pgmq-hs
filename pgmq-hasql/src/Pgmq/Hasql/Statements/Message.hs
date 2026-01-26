@@ -17,6 +17,12 @@ module Pgmq.Hasql.Statements.Message
     batchChangeVisibilityTimeout,
     readWithPoll,
     pop,
+    -- FIFO read functions (pgmq 1.8.0+)
+    readGrouped,
+    readGroupedWithPoll,
+    -- Round-robin FIFO functions (pgmq 1.9.0+)
+    readGroupedRoundRobin,
+    readGroupedRoundRobinWithPoll,
   )
 where
 
@@ -33,6 +39,8 @@ import Pgmq.Hasql.Encoders
     messageQueryEncoder,
     popMessageEncoder,
     queueNameEncoder,
+    readGroupedEncoder,
+    readGroupedWithPollEncoder,
     readMessageEncoder,
     readWithPollEncoder,
     sendMessageEncoder,
@@ -51,6 +59,8 @@ import Pgmq.Hasql.Statements.Types
     BatchVisibilityTimeoutQuery,
     MessageQuery,
     PopMessage,
+    ReadGrouped,
+    ReadGroupedWithPoll,
     ReadMessage,
     ReadWithPollMessage,
     SendMessage,
@@ -195,4 +205,38 @@ pop :: Statement PopMessage (Vector Message)
 pop = Statement sql popMessageEncoder decoder True
   where
     sql = "select * from pgmq.pop($1,$2)"
+    decoder = D.rowVector messageDecoder
+
+-- | FIFO read - fills batch from same message group (pgmq 1.8.0+)
+-- Messages are grouped by the x-pgmq-group header.
+-- https://tembo.io/pgmq/api/sql/functions/#read_grouped
+readGrouped :: Statement ReadGrouped (Vector Message)
+readGrouped = Statement sql readGroupedEncoder decoder True
+  where
+    sql = "select * from pgmq.read_grouped($1,$2,$3)"
+    decoder = D.rowVector messageDecoder
+
+-- | FIFO read with polling - fills batch from same message group (pgmq 1.8.0+)
+-- https://tembo.io/pgmq/api/sql/functions/#read_grouped_with_poll
+readGroupedWithPoll :: Statement ReadGroupedWithPoll (Vector Message)
+readGroupedWithPoll = Statement sql readGroupedWithPollEncoder decoder True
+  where
+    sql = "select * from pgmq.read_grouped_with_poll($1,$2,$3,$4,$5)"
+    decoder = D.rowVector messageDecoder
+
+-- | Round-robin FIFO read - fair distribution across message groups (pgmq 1.9.0+)
+-- Uses layered round-robin algorithm for fairness.
+-- https://tembo.io/pgmq/api/sql/functions/#read_grouped_rr
+readGroupedRoundRobin :: Statement ReadGrouped (Vector Message)
+readGroupedRoundRobin = Statement sql readGroupedEncoder decoder True
+  where
+    sql = "select * from pgmq.read_grouped_rr($1,$2,$3)"
+    decoder = D.rowVector messageDecoder
+
+-- | Round-robin FIFO read with polling (pgmq 1.9.0+)
+-- https://tembo.io/pgmq/api/sql/functions/#read_grouped_rr_with_poll
+readGroupedRoundRobinWithPoll :: Statement ReadGroupedWithPoll (Vector Message)
+readGroupedRoundRobinWithPoll = Statement sql readGroupedWithPollEncoder decoder True
+  where
+    sql = "select * from pgmq.read_grouped_rr_with_poll($1,$2,$3,$4,$5)"
     decoder = D.rowVector messageDecoder

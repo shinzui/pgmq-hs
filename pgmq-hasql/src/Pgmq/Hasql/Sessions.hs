@@ -27,6 +27,15 @@ module Pgmq.Hasql.Sessions
     allQueueMetrics,
     readMessage,
     readWithPoll,
+    -- FIFO read functions (pgmq 1.8.0+)
+    readGrouped,
+    readGroupedWithPoll,
+    -- Round-robin FIFO functions (pgmq 1.9.0+)
+    readGroupedRoundRobin,
+    readGroupedRoundRobinWithPoll,
+    -- FIFO index functions (pgmq 1.8.0+)
+    createFifoIndex,
+    createFifoIndexesAll,
   )
 where
 
@@ -46,6 +55,8 @@ import Pgmq.Hasql.Statements.Types
     MessageQuery,
     PopMessage,
     QueueMetrics,
+    ReadGrouped,
+    ReadGroupedWithPoll,
     ReadMessage,
     ReadWithPollMessage,
     SendMessage,
@@ -148,3 +159,27 @@ readMessage query = statement query Stmt.readMessage
 
 readWithPoll :: ReadWithPollMessage -> Session (Vector Message)
 readWithPoll query = statement query Stmt.readWithPoll
+
+-- | FIFO read - fills batch from same message group (pgmq 1.8.0+)
+readGrouped :: ReadGrouped -> Session (Vector Message)
+readGrouped query = statement query Msg.readGrouped
+
+-- | FIFO read with polling (pgmq 1.8.0+)
+readGroupedWithPoll :: ReadGroupedWithPoll -> Session (Vector Message)
+readGroupedWithPoll query = statement query Msg.readGroupedWithPoll
+
+-- | Round-robin FIFO read (pgmq 1.9.0+)
+readGroupedRoundRobin :: ReadGrouped -> Session (Vector Message)
+readGroupedRoundRobin query = statement query Msg.readGroupedRoundRobin
+
+-- | Round-robin FIFO read with polling (pgmq 1.9.0+)
+readGroupedRoundRobinWithPoll :: ReadGroupedWithPoll -> Session (Vector Message)
+readGroupedRoundRobinWithPoll query = statement query Msg.readGroupedRoundRobinWithPoll
+
+-- | Create FIFO index for a queue (pgmq 1.8.0+)
+createFifoIndex :: QueueName -> Session ()
+createFifoIndex q = statement q Stmt.createFifoIndex
+
+-- | Create FIFO indexes for all queues (pgmq 1.8.0+)
+createFifoIndexesAll :: Session ()
+createFifoIndexesAll = statement () Stmt.createFifoIndexesAll

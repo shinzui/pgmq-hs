@@ -6,10 +6,14 @@ module Pgmq.Hasql.Statements.QueueManagement
     detachArchive,
     enableNotifyInsert,
     disableNotifyInsert,
+    -- FIFO index functions (pgmq 1.8.0+)
+    createFifoIndex,
+    createFifoIndexesAll,
   )
 where
 
 import Hasql.Decoders qualified as D
+import Hasql.Encoders qualified as E
 import Hasql.Statement (Statement (..))
 import Pgmq.Hasql.Encoders (createPartitionedQueueEncoder, enableNotifyInsertEncoder, queueNameEncoder)
 import Pgmq.Hasql.Statements.Types (CreatePartitionedQueue, EnableNotifyInsert)
@@ -59,3 +63,16 @@ disableNotifyInsert :: Statement QueueName ()
 disableNotifyInsert = Statement sql queueNameEncoder D.noResult True
   where
     sql = "select from pgmq.disable_notify_insert($1)"
+
+-- | Create FIFO index for a queue (pgmq 1.8.0+)
+-- Improves performance for FIFO read operations.
+createFifoIndex :: Statement QueueName ()
+createFifoIndex = Statement sql queueNameEncoder D.noResult True
+  where
+    sql = "select from pgmq.create_fifo_index($1)"
+
+-- | Create FIFO indexes for all queues (pgmq 1.8.0+)
+createFifoIndexesAll :: Statement () ()
+createFifoIndexesAll = Statement sql E.noParams D.noResult True
+  where
+    sql = "select from pgmq.create_fifo_indexes_all()"

@@ -1,4 +1,4 @@
-# Revision history for pgmq-hs
+# Revision history for pgmq-hasql
 
 ## Unreleased
 
@@ -23,7 +23,25 @@
 
 #### pgmq 1.8.0+ Support
 - Batch visibility timeout: `batchChangeVisibilityTimeout`
+  - pgmq commit: [b19033d](https://github.com/tembo-io/pgmq/commit/b19033d)
 - Notification throttling via `throttleIntervalMs` in `EnableNotifyInsert`
+  - pgmq commit: [f0b4acb](https://github.com/tembo-io/pgmq/commit/f0b4acb)
+- FIFO read functions:
+  - `readGrouped`: SQS-style batch filling from same message group
+  - `readGroupedWithPoll`: Same with polling support
+  - pgmq commit: [730f679](https://github.com/tembo-io/pgmq/commit/730f679)
+- FIFO index management:
+  - `createFifoIndex`: Create FIFO index for a specific queue
+  - `createFifoIndexesAll`: Create FIFO indexes for all queues
+- New types: `ReadGrouped`, `ReadGroupedWithPoll`
+
+#### pgmq 1.9.0+ Support
+- Round-robin FIFO read functions:
+  - `readGroupedRoundRobin`: Fair distribution across message groups
+  - `readGroupedRoundRobinWithPoll`: Same with polling support
+  - pgmq commits: [cb5dd01](https://github.com/tembo-io/pgmq/commit/cb5dd01), [2129a38](https://github.com/tembo-io/pgmq/commit/2129a38)
+- Note: FIFO functions do not support `conditional` parameter (removed in pgmq 1.9.0)
+  - pgmq commit: [9e9c3dc](https://github.com/tembo-io/pgmq/commit/9e9c3dc)
 
 ### Deprecations
 

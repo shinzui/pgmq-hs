@@ -20,6 +20,9 @@ module Pgmq.Hasql.Encoders
     enableNotifyInsertEncoder,
     readWithPollEncoder,
     createPartitionedQueueEncoder,
+    -- FIFO encoders (pgmq 1.8.0+)
+    readGroupedEncoder,
+    readGroupedWithPollEncoder,
   )
 where
 
@@ -174,3 +177,21 @@ createPartitionedQueueEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #partitionInterval >$< E.param (E.nonNullable E.text))
     <> (view #retentionInterval >$< E.param (E.nonNullable E.text))
+
+-- | Encoder for ReadGrouped (pgmq 1.8.0+)
+-- Used for read_grouped and read_grouped_rr
+readGroupedEncoder :: E.Params ReadGrouped
+readGroupedEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #visibilityTimeout >$< E.param (E.nonNullable E.int4))
+    <> (view #qty >$< E.param (E.nonNullable E.int4))
+
+-- | Encoder for ReadGroupedWithPoll (pgmq 1.8.0+)
+-- Used for read_grouped_with_poll and read_grouped_rr_with_poll
+readGroupedWithPollEncoder :: E.Params ReadGroupedWithPoll
+readGroupedWithPollEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #visibilityTimeout >$< E.param (E.nonNullable E.int4))
+    <> (view #qty >$< E.param (E.nonNullable E.int4))
+    <> (view #maxPollSeconds >$< E.param (E.nonNullable E.int4))
+    <> (view #pollIntervalMs >$< E.param (E.nonNullable E.int4))

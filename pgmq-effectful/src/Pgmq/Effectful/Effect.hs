@@ -13,6 +13,10 @@ module Pgmq.Effectful.Effect
     enableNotifyInsert,
     disableNotifyInsert,
 
+    -- ** FIFO Index (pgmq 1.8.0+)
+    createFifoIndex,
+    createFifoIndexesAll,
+
     -- * Message Operations
     sendMessage,
     sendMessageForLater,
@@ -34,6 +38,14 @@ module Pgmq.Effectful.Effect
     batchChangeVisibilityTimeout,
     readWithPoll,
     pop,
+
+    -- ** FIFO Read (pgmq 1.8.0+)
+    readGrouped,
+    readGroupedWithPoll,
+
+    -- ** Round-Robin FIFO Read (pgmq 1.9.0+)
+    readGroupedRoundRobin,
+    readGroupedRoundRobinWithPoll,
 
     -- * Queue Observability
     listQueues,
@@ -58,6 +70,8 @@ import Pgmq.Hasql.Statements.Types
     MessageQuery,
     PopMessage,
     QueueMetrics,
+    ReadGrouped,
+    ReadGroupedWithPoll,
     ReadMessage,
     ReadWithPollMessage,
     SendMessage,
@@ -78,6 +92,8 @@ data Pgmq :: Effect where
   DetachArchive :: QueueName -> Pgmq m ()
   EnableNotifyInsert :: EnableNotifyInsert -> Pgmq m ()
   DisableNotifyInsert :: QueueName -> Pgmq m ()
+  CreateFifoIndex :: QueueName -> Pgmq m ()
+  CreateFifoIndexesAll :: Pgmq m ()
   -- Message Operations
   SendMessage :: SendMessage -> Pgmq m MessageId
   SendMessageForLater :: SendMessageForLater -> Pgmq m MessageId
@@ -97,6 +113,12 @@ data Pgmq :: Effect where
   BatchChangeVisibilityTimeout :: BatchVisibilityTimeoutQuery -> Pgmq m (Vector Message)
   ReadWithPoll :: ReadWithPollMessage -> Pgmq m (Vector Message)
   Pop :: PopMessage -> Pgmq m (Vector Message)
+  -- FIFO Read (pgmq 1.8.0+)
+  ReadGrouped :: ReadGrouped -> Pgmq m (Vector Message)
+  ReadGroupedWithPoll :: ReadGroupedWithPoll -> Pgmq m (Vector Message)
+  -- Round-robin FIFO Read (pgmq 1.9.0+)
+  ReadGroupedRoundRobin :: ReadGrouped -> Pgmq m (Vector Message)
+  ReadGroupedRoundRobinWithPoll :: ReadGroupedWithPoll -> Pgmq m (Vector Message)
   -- Queue Observability
   ListQueues :: Pgmq m [Queue]
   QueueMetrics :: QueueName -> Pgmq m QueueMetrics
@@ -127,6 +149,14 @@ enableNotifyInsert = send . EnableNotifyInsert
 
 disableNotifyInsert :: (Pgmq :> es) => QueueName -> Eff es ()
 disableNotifyInsert = send . DisableNotifyInsert
+
+-- | Create FIFO index for a queue (pgmq 1.8.0+)
+createFifoIndex :: (Pgmq :> es) => QueueName -> Eff es ()
+createFifoIndex = send . CreateFifoIndex
+
+-- | Create FIFO indexes for all queues (pgmq 1.8.0+)
+createFifoIndexesAll :: (Pgmq :> es) => Eff es ()
+createFifoIndexesAll = send CreateFifoIndexesAll
 
 -- Message Operations
 
@@ -183,6 +213,24 @@ readWithPoll = send . ReadWithPoll
 
 pop :: (Pgmq :> es) => PopMessage -> Eff es (Vector Message)
 pop = send . Pop
+
+-- FIFO Read (pgmq 1.8.0+)
+
+-- | FIFO read - fills batch from same message group (pgmq 1.8.0+)
+readGrouped :: (Pgmq :> es) => ReadGrouped -> Eff es (Vector Message)
+readGrouped = send . ReadGrouped
+
+-- | FIFO read with polling (pgmq 1.8.0+)
+readGroupedWithPoll :: (Pgmq :> es) => ReadGroupedWithPoll -> Eff es (Vector Message)
+readGroupedWithPoll = send . ReadGroupedWithPoll
+
+-- | Round-robin FIFO read (pgmq 1.9.0+)
+readGroupedRoundRobin :: (Pgmq :> es) => ReadGrouped -> Eff es (Vector Message)
+readGroupedRoundRobin = send . ReadGroupedRoundRobin
+
+-- | Round-robin FIFO read with polling (pgmq 1.9.0+)
+readGroupedRoundRobinWithPoll :: (Pgmq :> es) => ReadGroupedWithPoll -> Eff es (Vector Message)
+readGroupedRoundRobinWithPoll = send . ReadGroupedRoundRobinWithPoll
 
 -- Queue Observability
 
