@@ -2,7 +2,37 @@
 
 Haskell client for [pgmq](https://github.com/tembo-io/pgmq)
 
-**Requires pgmq 1.5.0+** for full functionality.
+**Requires pgmq 1.9.0+** for full functionality.
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| `pgmq-core` | Core types and type classes |
+| `pgmq-hasql` | Hasql-based implementation |
+| `pgmq-effectful` | Effectful effects for pgmq |
+| `pgmq-migration` | Schema migrations without pgmq extension |
+
+## pgmq-migration
+
+The `pgmq-migration` package allows you to install the PGMQ schema into PostgreSQL without requiring the pgmq extension. This is useful when you don't have superuser access or can't install extensions.
+
+```haskell
+import Hasql.Connection (acquire)
+import Hasql.Session (run)
+import Pgmq.Migration (migrate)
+
+main :: IO ()
+main = do
+  Right conn <- acquire connectionSettings
+  result <- run migrate conn
+  case result of
+    Right (Right ()) -> putStrLn "Migration successful"
+    Right (Left err) -> print err
+    Left sessionErr  -> print sessionErr
+```
+
+Migrations are tracked using `hasql-migration`, so running `migrate` multiple times is safe and idempotent.
 
 ## Supported API
 
@@ -13,6 +43,8 @@ Haskell client for [pgmq](https://github.com/tembo-io/pgmq)
   - [x] [read](https://tembo.io/pgmq/api/sql/functions/#read) - with conditional filtering (1.5.0+)
   - [x] [read_with_poll](https://tembo.io/pgmq/api/sql/functions/#read_with_poll)
   - [x] [pop](https://tembo.io/pgmq/api/sql/functions/#pop) - with quantity parameter (1.7.0+)
+  - [x] read_fifo - strict FIFO ordering (1.8.0+)
+  - [x] read_fifo_with_poll - strict FIFO ordering with polling (1.9.0+)
 - [x] [Deleting/Archiving Messages](https://tembo.io/pgmq/api/sql/functions/#deletingarchiving-messages)
   - [x] [delete (single)](https://tembo.io/pgmq/api/sql/functions/#delete-single)
   - [x] [delete (batch)](https://tembo.io/pgmq/api/sql/functions/#delete-batch)
