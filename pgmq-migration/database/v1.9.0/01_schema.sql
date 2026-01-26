@@ -1,0 +1,11 @@
+------------------------------------------------------------
+-- Schema creation and grants (without extension)
+------------------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS pgmq;
+
+-- Grant permission to pg_monitor to all tables and sequences
+GRANT USAGE ON SCHEMA pgmq TO pg_monitor;
+GRANT SELECT ON ALL TABLES IN SCHEMA pgmq TO pg_monitor;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA pgmq TO pg_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON TABLES TO pg_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON SEQUENCES TO pg_monitor;
