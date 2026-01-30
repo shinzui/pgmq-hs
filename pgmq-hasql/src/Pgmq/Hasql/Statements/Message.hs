@@ -137,10 +137,13 @@ batchSendMessageWithHeadersForLater = Statement sql batchSendMessageWithHeadersF
 
 -- | https://tembo.io/pgmq/api/sql/functions/#read
 -- Note: conditional parameter added in pgmq 1.5.0
+-- We use the 3-param version since the 4-param version fails with NULL conditional
+-- (message @> NULL = NULL, not TRUE, so no rows match).
+-- To use conditional filtering, use readMessageConditional instead.
 readMessage :: Statement ReadMessage (Vector Message)
 readMessage = Statement sql readMessageEncoder decoder True
   where
-    sql = "select * from pgmq.read($1,$2,$3,$4)"
+    sql = "select * from pgmq.read($1,$2,$3)"
     decoder = D.rowVector messageDecoder
 
 -- | https://tembo.io/pgmq/api/sql/functions/#delete-single
