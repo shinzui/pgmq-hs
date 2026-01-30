@@ -17,6 +17,7 @@
 
       in
       {
+        formatter = formatter;
         checks = {
           formatting = treefmtEval.config.build.check self;
           pre-commit-check = pre-commit-hooks.lib.${system}.run {
@@ -29,7 +30,6 @@
           };
         };
         devShell = pkgs.mkShell {
-          inherit (self.checks.${system}.pre-commit-check) shellHook;
           nativeBuildInputs = with pkgs; [
             zlib
             xz
@@ -37,10 +37,27 @@
             postgresql
             pkg-config
             cabal-install
+            process-compose
             (haskell.packages.${ghcVersion}.ghcWithPackages (ps: with ps; [
               haskell-language-server
             ]))
           ];
+          shellHook = ''
+            # Database paths - all relative to project root
+            export PGHOST="$PWD/.dev/db"
+            export PGDATA="$PGHOST/data"
+            export PGLOG="$PGHOST/postgres.log"
+            export PGDATABASE=pgmq_dev
+
+            # Connection string for application use
+            export PG_CONNECTION_STRING="postgresql://$PGHOST/$PGDATABASE"
+
+            # Initialize database cluster on first entry
+            if [ ! -d $PGDATA ]; then
+              mkdir -p $PGHOST
+              initdb --auth=trust --no-locale --encoding=UTF8
+            fi
+          '' + self.checks.${system}.pre-commit-check.shellHook;
         };
       }
     );

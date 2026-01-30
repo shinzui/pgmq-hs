@@ -1,0 +1,19 @@
+version: "0.5"
+
+processes:
+  postgres:
+    command: postgres -k $PGHOST
+    readiness_probe:
+      exec:
+        command: pg_isready -h $PGHOST
+      initial_delay_seconds: 1
+      period_seconds: 1
+      timeout_seconds: 5
+      failure_threshold: 30
+    shutdown:
+      command: pg_ctl stop -m fast
+      timeout_seconds: 10
+    availability:
+      restart: on_failure
+      backoff_seconds: 2
+      max_restarts: 3
