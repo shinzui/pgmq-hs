@@ -72,10 +72,11 @@ import Pgmq.Hasql.Statements.Types
 import Pgmq.Types (Message, MessageId, QueueName)
 
 -- https://tembo.io/pgmq/api/sql/functions/#send
+-- Note: coalesce handles null delay to ensure correct function overload resolution
 sendMessage :: Statement SendMessage MessageId
 sendMessage = Statement sql sendMessageEncoder decoder True
   where
-    sql = "select * from pgmq.send($1, $2, $3)"
+    sql = "select * from pgmq.send($1, $2, coalesce($3, 0))"
     decoder = D.singleRow messageIdDecoder
 
 -- https://tembo.io/pgmq/api/sql/functions/#send
@@ -86,10 +87,11 @@ sendMessageForLater = Statement sql sendMessageForLaterEncoder decoder True
     decoder = D.singleRow messageIdDecoder
 
 -- | https://tembo.io/pgmq/api/sql/functions/#send_batch
+-- Note: coalesce handles null delay to ensure correct function overload resolution
 batchSendMessage :: Statement BatchSendMessage [MessageId]
 batchSendMessage = Statement sql batchSendMessageEncoder decoder True
   where
-    sql = "select * from pgmq.send_batch($1, $2, $3)"
+    sql = "select * from pgmq.send_batch($1, $2, coalesce($3, 0))"
     decoder = D.rowList messageIdDecoder
 
 -- | https://tembo.io/pgmq/api/sql/functions/#send_batch
@@ -101,10 +103,11 @@ batchSendMessageForLater = Statement sql batchSendMessageForLaterEncoder decoder
 
 -- | Send a message with headers (pgmq 1.5.0+)
 -- https://tembo.io/pgmq/api/sql/functions/#send
+-- Note: coalesce handles null delay to ensure correct function overload resolution
 sendMessageWithHeaders :: Statement SendMessageWithHeaders MessageId
 sendMessageWithHeaders = Statement sql sendMessageWithHeadersEncoder decoder True
   where
-    sql = "select * from pgmq.send($1, $2, $3, $4)"
+    sql = "select * from pgmq.send($1, $2, $3, coalesce($4, 0))"
     decoder = D.singleRow messageIdDecoder
 
 -- | Send a message with headers for later (pgmq 1.5.0+)
@@ -117,10 +120,11 @@ sendMessageWithHeadersForLater = Statement sql sendMessageWithHeadersForLaterEnc
 
 -- | Send a batch of messages with headers (pgmq 1.5.0+)
 -- https://tembo.io/pgmq/api/sql/functions/#send_batch
+-- Note: coalesce handles null delay to ensure correct function overload resolution
 batchSendMessageWithHeaders :: Statement BatchSendMessageWithHeaders [MessageId]
 batchSendMessageWithHeaders = Statement sql batchSendMessageWithHeadersEncoder decoder True
   where
-    sql = "select * from pgmq.send_batch($1, $2, $3, $4)"
+    sql = "select * from pgmq.send_batch($1, $2, $3, coalesce($4, 0))"
     decoder = D.rowList messageIdDecoder
 
 -- | Send a batch of messages with headers for later (pgmq 1.5.0+)
