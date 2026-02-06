@@ -4,17 +4,16 @@
 default:
     @just --list
 
-# Start PostgreSQL and other services with process-compose
+
+# --- Services ---
+[group("services")]
 process-up:
-    process-compose up
+  process-compose --tui=false --unix-socket .dev/process-compose.sock up
 
-# Start services in the background
-process-up-background:
-    process-compose up -d
-
-# Stop all services
+[group("services")]
 process-down:
-    process-compose down
+  process-compose --unix-socket .dev/process-compose.sock down || true
+
 
 # Create the development database
 create-database:
