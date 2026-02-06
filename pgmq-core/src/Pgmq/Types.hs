@@ -46,10 +46,12 @@ data Queue = Queue
 
 -- | https://tembo.io/pgmq/api/sql/types/
 -- Note: headers field added in pgmq 1.5.0
+-- Note: lastReadAt field added in pgmq 1.10.0
 data Message = Message
   { messageId :: !MessageId,
     visibilityTime :: !UTCTime,
     enqueuedAt :: !UTCTime,
+    lastReadAt :: !(Maybe UTCTime),
     readCount :: !Int64,
     body :: !MessageBody,
     headers :: !(Maybe Value)

@@ -6,12 +6,12 @@ module Pgmq.Migration.Migrations
 where
 
 import Hasql.Migration (MigrationCommand)
-import Pgmq.Migration.Migrations.V1_9_0 qualified as V1_9_0
+import Pgmq.Migration.Migrations.V1_10_0 qualified as V1_10_0
 
 -- | Current version of the PGMQ schema
 version :: String
-version = V1_9_0.version
+version = V1_10_0.version
 
 -- | All migration commands for the current version
 migrations :: [MigrationCommand]
-migrations = V1_9_0.migrations
+migrations = V1_10_0.migrations

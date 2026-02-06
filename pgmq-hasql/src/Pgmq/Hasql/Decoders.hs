@@ -18,6 +18,7 @@ messageDecoder =
     <$> messageIdDecoder
     <*> D.column (D.nonNullable D.timestamptz)
     <*> D.column (D.nonNullable D.timestamptz)
+    <*> D.column (D.nullable D.timestamptz) -- last_read_at (pgmq 1.10.0+)
     <*> D.column (D.nonNullable D.int8)
     <*> (MessageBody <$> D.column (D.nonNullable D.jsonb))
     <*> D.column (D.nullable D.jsonb) -- headers (pgmq 1.5.0+)

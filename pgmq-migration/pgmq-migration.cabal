@@ -28,6 +28,7 @@ library
   exposed-modules:
     Pgmq.Migration
     Pgmq.Migration.Migrations
+    Pgmq.Migration.Migrations.V1_10_0
     Pgmq.Migration.Migrations.V1_9_0
     Pgmq.Migration.Sessions
     Pgmq.Migration.Statements

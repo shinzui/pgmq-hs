@@ -26,7 +26,7 @@ tests =
     [ testCase "migrate on fresh database succeeds" testMigrateFresh,
       testCase "migrate is idempotent" testMigrateIdempotent,
       testCase "getMigrations returns applied migrations" testGetMigrations,
-      testCase "version is v1.9.0" testVersion
+      testCase "version is v1.10.0" testVersion
     ]
 
 -- | Helper to run a test with a temporary PostgreSQL database
@@ -90,4 +90,4 @@ testGetMigrations = do
 
 testVersion :: IO ()
 testVersion =
-  Migration.version @?= "v1.9.0"
+  Migration.version @?= "v1.10.0"
