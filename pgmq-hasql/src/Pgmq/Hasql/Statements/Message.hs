@@ -15,6 +15,9 @@ module Pgmq.Hasql.Statements.Message
     deleteAllMessagesFromQueue,
     changeVisibilityTimeout,
     batchChangeVisibilityTimeout,
+    -- Timestamp-based VT functions (pgmq 1.10.0+)
+    setVisibilityTimeoutAt,
+    batchSetVisibilityTimeoutAt,
     readWithPoll,
     pop,
     -- FIFO read functions (pgmq 1.8.0+)
@@ -35,6 +38,7 @@ import Pgmq.Hasql.Encoders
     batchSendMessageForLaterEncoder,
     batchSendMessageWithHeadersEncoder,
     batchSendMessageWithHeadersForLaterEncoder,
+    batchVisibilityTimeoutAtQueryEncoder,
     batchVisibilityTimeoutQueryEncoder,
     messageQueryEncoder,
     popMessageEncoder,
@@ -47,6 +51,7 @@ import Pgmq.Hasql.Encoders
     sendMessageForLaterEncoder,
     sendMessageWithHeadersEncoder,
     sendMessageWithHeadersForLaterEncoder,
+    visibilityTimeoutAtQueryEncoder,
     visibilityTimeoutQueryEncoder,
   )
 import Pgmq.Hasql.Prelude
@@ -56,6 +61,7 @@ import Pgmq.Hasql.Statements.Types
     BatchSendMessageForLater,
     BatchSendMessageWithHeaders,
     BatchSendMessageWithHeadersForLater,
+    BatchVisibilityTimeoutAtQuery,
     BatchVisibilityTimeoutQuery,
     MessageQuery,
     PopMessage,
@@ -67,6 +73,7 @@ import Pgmq.Hasql.Statements.Types
     SendMessageForLater,
     SendMessageWithHeaders,
     SendMessageWithHeadersForLater,
+    VisibilityTimeoutAtQuery,
     VisibilityTimeoutQuery,
   )
 import Pgmq.Types (Message, MessageId, QueueName)
@@ -194,6 +201,22 @@ changeVisibilityTimeout = Statement sql visibilityTimeoutQueryEncoder decoder Tr
 -- | https://tembo.io/pgmq/api/sql/functions/#set_vt
 batchChangeVisibilityTimeout :: Statement BatchVisibilityTimeoutQuery (Vector Message)
 batchChangeVisibilityTimeout = Statement sql batchVisibilityTimeoutQueryEncoder decoder True
+  where
+    sql = "select * from pgmq.set_vt($1,$2,$3)"
+    decoder = D.rowVector messageDecoder
+
+-- | Set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
+-- | https://tembo.io/pgmq/api/sql/functions/#set_vt
+setVisibilityTimeoutAt :: Statement VisibilityTimeoutAtQuery Message
+setVisibilityTimeoutAt = Statement sql visibilityTimeoutAtQueryEncoder decoder True
+  where
+    sql = "select * from pgmq.set_vt($1,$2,$3)"
+    decoder = D.singleRow messageDecoder
+
+-- | Batch set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
+-- | https://tembo.io/pgmq/api/sql/functions/#set_vt
+batchSetVisibilityTimeoutAt :: Statement BatchVisibilityTimeoutAtQuery (Vector Message)
+batchSetVisibilityTimeoutAt = Statement sql batchVisibilityTimeoutAtQueryEncoder decoder True
   where
     sql = "select * from pgmq.set_vt($1,$2,$3)"
     decoder = D.rowVector messageDecoder

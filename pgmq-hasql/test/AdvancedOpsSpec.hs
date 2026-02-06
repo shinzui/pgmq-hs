@@ -10,6 +10,7 @@ module AdvancedOpsSpec (tests) where
 
 import Control.Concurrent (threadDelay)
 import Data.Aeson (object, (.=))
+import Data.Time.Clock (addUTCTime, getCurrentTime)
 import Data.Vector qualified as V
 import Hasql.Pool qualified as Pool
 import Pgmq.Hasql.Sessions qualified as Sessions
@@ -17,6 +18,7 @@ import Pgmq.Hasql.Statements.Types
   ( BatchMessageQuery (..),
     BatchSendMessage (..),
     BatchSendMessageWithHeaders (..),
+    BatchVisibilityTimeoutAtQuery (..),
     BatchVisibilityTimeoutQuery (..),
     PopMessage (..),
     ReadGrouped (..),
@@ -24,6 +26,7 @@ import Pgmq.Hasql.Statements.Types
     ReadMessage (..),
     ReadWithPollMessage (..),
     SendMessage (..),
+    VisibilityTimeoutAtQuery (..),
   )
 import Pgmq.Types (MessageBody (..), MessageHeaders (..), MessageId (..))
 import Pgmq.Types qualified as PgmqTypes
@@ -40,6 +43,8 @@ tests p =
     [ testPopSingle p,
       testPopBatch p,
       testBatchChangeVisibilityTimeout p,
+      testSetVisibilityTimeoutAt p,
+      testBatchSetVisibilityTimeoutAt p,
       testReadWithPoll p,
       testReadWithPollEmpty p,
       testCreateFifoIndex p,
@@ -142,6 +147,78 @@ testBatchChangeVisibilityTimeout p = testCase "batchChangeVisibilityTimeout upda
               visibilityTimeoutOffset = 60
             }
     updated <- assertSession pool (Sessions.batchChangeVisibilityTimeout vtQuery)
+    assertEqual "Should update 3 messages" 3 (V.length updated)
+    cleanupQueue pool queueName
+
+-- | Test setVisibilityTimeoutAt (pgmq 1.10.0+)
+testSetVisibilityTimeoutAt :: Pool.Pool -> TestTree
+testSetVisibilityTimeoutAt p = testCase "setVisibilityTimeoutAt sets VT to absolute timestamp" $ do
+  withTestFixture p $ \TestFixture {pool, queueName} -> do
+    assertSession pool (Sessions.createQueue queueName)
+    -- Send a message
+    let msg =
+          SendMessage
+            { queueName = queueName,
+              messageBody = MessageBody (object ["vt_at" .= ("test" :: String)]),
+              delay = Nothing
+            }
+    msgId <- assertSession pool (Sessions.sendMessage msg)
+    -- Read message to set initial VT
+    let readQuery =
+          ReadMessage
+            { queueName = queueName,
+              delay = 5,
+              batchSize = Just 1,
+              conditional = Nothing
+            }
+    _ <- assertSession pool (Sessions.readMessage readQuery)
+    -- Set VT to 60 seconds in the future using absolute timestamp
+    futureTime <- addUTCTime 60 <$> getCurrentTime
+    let vtQuery =
+          VisibilityTimeoutAtQuery
+            { queueName = queueName,
+              messageId = msgId,
+              visibilityTime = futureTime
+            }
+    updated <- assertSession pool (Sessions.setVisibilityTimeoutAt vtQuery)
+    assertEqual "Should return the updated message" msgId (PgmqTypes.messageId updated)
+    cleanupQueue pool queueName
+
+-- | Test batchSetVisibilityTimeoutAt (pgmq 1.10.0+)
+testBatchSetVisibilityTimeoutAt :: Pool.Pool -> TestTree
+testBatchSetVisibilityTimeoutAt p = testCase "batchSetVisibilityTimeoutAt sets VT for multiple messages" $ do
+  withTestFixture p $ \TestFixture {pool, queueName} -> do
+    assertSession pool (Sessions.createQueue queueName)
+    -- Send messages
+    let msgs =
+          BatchSendMessage
+            { queueName = queueName,
+              messageBodies =
+                [ MessageBody (object ["vt_at" .= (1 :: Int)]),
+                  MessageBody (object ["vt_at" .= (2 :: Int)]),
+                  MessageBody (object ["vt_at" .= (3 :: Int)])
+                ],
+              delay = Nothing
+            }
+    msgIds <- assertSession pool (Sessions.batchSendMessage msgs)
+    -- Read messages to set initial VT
+    let readQuery =
+          ReadMessage
+            { queueName = queueName,
+              delay = 5,
+              batchSize = Just 10,
+              conditional = Nothing
+            }
+    _ <- assertSession pool (Sessions.readMessage readQuery)
+    -- Set VT to 120 seconds in the future using absolute timestamp
+    futureTime <- addUTCTime 120 <$> getCurrentTime
+    let vtQuery =
+          BatchVisibilityTimeoutAtQuery
+            { queueName = queueName,
+              messageIds = msgIds,
+              visibilityTime = futureTime
+            }
+    updated <- assertSession pool (Sessions.batchSetVisibilityTimeoutAt vtQuery)
     assertEqual "Should update 3 messages" 3 (V.length updated)
     cleanupQueue pool queueName
 

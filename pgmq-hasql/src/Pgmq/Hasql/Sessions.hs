@@ -21,6 +21,9 @@ module Pgmq.Hasql.Sessions
     deleteAllMessagesFromQueue,
     changeVisibilityTimeout,
     batchChangeVisibilityTimeout,
+    -- Timestamp-based VT functions (pgmq 1.10.0+)
+    setVisibilityTimeoutAt,
+    batchSetVisibilityTimeoutAt,
     listQueues,
     pop,
     queueMetrics,
@@ -49,6 +52,7 @@ import Pgmq.Hasql.Statements.Types
     BatchSendMessageForLater,
     BatchSendMessageWithHeaders,
     BatchSendMessageWithHeadersForLater,
+    BatchVisibilityTimeoutAtQuery,
     BatchVisibilityTimeoutQuery,
     CreatePartitionedQueue,
     EnableNotifyInsert,
@@ -63,6 +67,7 @@ import Pgmq.Hasql.Statements.Types
     SendMessageForLater,
     SendMessageWithHeaders,
     SendMessageWithHeadersForLater,
+    VisibilityTimeoutAtQuery,
     VisibilityTimeoutQuery,
   )
 import Pgmq.Types (Message, MessageId, Queue, QueueName)
@@ -122,6 +127,14 @@ changeVisibilityTimeout query = statement query Msg.changeVisibilityTimeout
 -- | Batch update visibility timeout (pgmq 1.8.0+)
 batchChangeVisibilityTimeout :: BatchVisibilityTimeoutQuery -> Session (Vector Message)
 batchChangeVisibilityTimeout query = statement query Msg.batchChangeVisibilityTimeout
+
+-- | Set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
+setVisibilityTimeoutAt :: VisibilityTimeoutAtQuery -> Session Message
+setVisibilityTimeoutAt query = statement query Msg.setVisibilityTimeoutAt
+
+-- | Batch set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
+batchSetVisibilityTimeoutAt :: BatchVisibilityTimeoutAtQuery -> Session (Vector Message)
+batchSetVisibilityTimeoutAt query = statement query Msg.batchSetVisibilityTimeoutAt
 
 listQueues :: Session [Queue]
 listQueues = statement () Stmt.listQueues

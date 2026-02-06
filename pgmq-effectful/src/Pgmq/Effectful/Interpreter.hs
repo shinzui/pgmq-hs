@@ -56,6 +56,9 @@ runPgmq pool = interpret $ \_ -> \case
   DeleteAllMessagesFromQueue q -> runSession pool $ Sessions.deleteAllMessagesFromQueue q
   ChangeVisibilityTimeout query -> runSession pool $ Sessions.changeVisibilityTimeout query
   BatchChangeVisibilityTimeout query -> runSession pool $ Sessions.batchChangeVisibilityTimeout query
+  -- Timestamp-based VT (pgmq 1.10.0+)
+  SetVisibilityTimeoutAt query -> runSession pool $ Sessions.setVisibilityTimeoutAt query
+  BatchSetVisibilityTimeoutAt query -> runSession pool $ Sessions.batchSetVisibilityTimeoutAt query
   ReadWithPoll query -> runSession pool $ Sessions.readWithPoll query
   Pop query -> runSession pool $ Sessions.pop query
   -- FIFO Read (pgmq 1.8.0+)

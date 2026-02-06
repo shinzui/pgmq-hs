@@ -29,6 +29,10 @@ module Pgmq
     deleteAllMessagesFromQueue,
     changeVisibilityTimeout,
     batchChangeVisibilityTimeout, -- pgmq 1.8.0+
+
+    -- ** Timestamp-based VT (pgmq 1.10.0+)
+    setVisibilityTimeoutAt,
+    batchSetVisibilityTimeoutAt,
     listQueues,
     readWithPoll,
     pop,
@@ -59,6 +63,10 @@ module Pgmq
     BatchMessageQuery (..),
     VisibilityTimeoutQuery (..),
     BatchVisibilityTimeoutQuery (..), -- pgmq 1.8.0+
+
+    -- ** Timestamp-based VT types (pgmq 1.10.0+)
+    VisibilityTimeoutAtQuery (..),
+    BatchVisibilityTimeoutAtQuery (..),
     ReadWithPollMessage (..),
     CreatePartitionedQueue (..),
     QueueMetrics (..),
@@ -79,6 +87,7 @@ import Pgmq.Hasql.Sessions
     batchSendMessageForLater,
     batchSendMessageWithHeaders,
     batchSendMessageWithHeadersForLater,
+    batchSetVisibilityTimeoutAt,
     changeVisibilityTimeout,
     createPartitionedQueue,
     createQueue,
@@ -98,6 +107,7 @@ import Pgmq.Hasql.Sessions
     sendMessageForLater,
     sendMessageWithHeaders,
     sendMessageWithHeadersForLater,
+    setVisibilityTimeoutAt,
   )
 import Pgmq.Hasql.Statements.Types
   ( BatchMessageQuery (..),
@@ -105,6 +115,7 @@ import Pgmq.Hasql.Statements.Types
     BatchSendMessageForLater (..),
     BatchSendMessageWithHeaders (..),
     BatchSendMessageWithHeadersForLater (..),
+    BatchVisibilityTimeoutAtQuery (..),
     BatchVisibilityTimeoutQuery (..),
     CreatePartitionedQueue (..),
     EnableNotifyInsert (..),
@@ -117,6 +128,7 @@ import Pgmq.Hasql.Statements.Types
     SendMessageForLater (..),
     SendMessageWithHeaders (..),
     SendMessageWithHeadersForLater (..),
+    VisibilityTimeoutAtQuery (..),
     VisibilityTimeoutQuery (..),
   )
 import Pgmq.Types

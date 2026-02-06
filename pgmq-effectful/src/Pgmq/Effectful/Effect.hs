@@ -36,6 +36,10 @@ module Pgmq.Effectful.Effect
     deleteAllMessagesFromQueue,
     changeVisibilityTimeout,
     batchChangeVisibilityTimeout,
+
+    -- ** Timestamp-based VT (pgmq 1.10.0+)
+    setVisibilityTimeoutAt,
+    batchSetVisibilityTimeoutAt,
     readWithPoll,
     pop,
 
@@ -64,6 +68,7 @@ import Pgmq.Hasql.Statements.Types
     BatchSendMessageForLater,
     BatchSendMessageWithHeaders,
     BatchSendMessageWithHeadersForLater,
+    BatchVisibilityTimeoutAtQuery,
     BatchVisibilityTimeoutQuery,
     CreatePartitionedQueue,
     EnableNotifyInsert,
@@ -78,6 +83,7 @@ import Pgmq.Hasql.Statements.Types
     SendMessageForLater,
     SendMessageWithHeaders,
     SendMessageWithHeadersForLater,
+    VisibilityTimeoutAtQuery,
     VisibilityTimeoutQuery,
   )
 import Pgmq.Types (Message, MessageId, Queue, QueueName)
@@ -111,6 +117,9 @@ data Pgmq :: Effect where
   DeleteAllMessagesFromQueue :: QueueName -> Pgmq m Int64
   ChangeVisibilityTimeout :: VisibilityTimeoutQuery -> Pgmq m Message
   BatchChangeVisibilityTimeout :: BatchVisibilityTimeoutQuery -> Pgmq m (Vector Message)
+  -- Timestamp-based VT (pgmq 1.10.0+)
+  SetVisibilityTimeoutAt :: VisibilityTimeoutAtQuery -> Pgmq m Message
+  BatchSetVisibilityTimeoutAt :: BatchVisibilityTimeoutAtQuery -> Pgmq m (Vector Message)
   ReadWithPoll :: ReadWithPollMessage -> Pgmq m (Vector Message)
   Pop :: PopMessage -> Pgmq m (Vector Message)
   -- FIFO Read (pgmq 1.8.0+)
@@ -207,6 +216,14 @@ changeVisibilityTimeout = send . ChangeVisibilityTimeout
 
 batchChangeVisibilityTimeout :: (Pgmq :> es) => BatchVisibilityTimeoutQuery -> Eff es (Vector Message)
 batchChangeVisibilityTimeout = send . BatchChangeVisibilityTimeout
+
+-- | Set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
+setVisibilityTimeoutAt :: (Pgmq :> es) => VisibilityTimeoutAtQuery -> Eff es Message
+setVisibilityTimeoutAt = send . SetVisibilityTimeoutAt
+
+-- | Batch set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
+batchSetVisibilityTimeoutAt :: (Pgmq :> es) => BatchVisibilityTimeoutAtQuery -> Eff es (Vector Message)
+batchSetVisibilityTimeoutAt = send . BatchSetVisibilityTimeoutAt
 
 readWithPoll :: (Pgmq :> es) => ReadWithPollMessage -> Eff es (Vector Message)
 readWithPoll = send . ReadWithPoll

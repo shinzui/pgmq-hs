@@ -17,6 +17,9 @@ module Pgmq.Hasql.Encoders
     queueNameEncoder,
     visibilityTimeoutQueryEncoder,
     batchVisibilityTimeoutQueryEncoder,
+    -- Timestamp-based VT encoders (pgmq 1.10.0+)
+    visibilityTimeoutAtQueryEncoder,
+    batchVisibilityTimeoutAtQueryEncoder,
     enableNotifyInsertEncoder,
     readWithPollEncoder,
     createPartitionedQueueEncoder,
@@ -165,6 +168,22 @@ batchVisibilityTimeoutQueryEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #messageIds >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageIdValue))))))
     <> (view #visibilityTimeoutOffset >$< E.param (E.nonNullable E.int4))
+
+-- | Encoder for VisibilityTimeoutAtQuery (pgmq 1.10.0+)
+-- SQL: pgmq.set_vt(queue_name, msg_id, timestamp)
+visibilityTimeoutAtQueryEncoder :: E.Params VisibilityTimeoutAtQuery
+visibilityTimeoutAtQueryEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #messageId >$< E.param (E.nonNullable messageIdValue))
+    <> (view #visibilityTime >$< E.param (E.nonNullable E.timestamptz))
+
+-- | Encoder for BatchVisibilityTimeoutAtQuery (pgmq 1.10.0+)
+-- SQL: pgmq.set_vt(queue_name, msg_ids[], timestamp)
+batchVisibilityTimeoutAtQueryEncoder :: E.Params BatchVisibilityTimeoutAtQuery
+batchVisibilityTimeoutAtQueryEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #messageIds >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageIdValue))))))
+    <> (view #visibilityTime >$< E.param (E.nonNullable E.timestamptz))
 
 -- | Encoder for EnableNotifyInsert (pgmq 1.7.0+)
 enableNotifyInsertEncoder :: E.Params EnableNotifyInsert

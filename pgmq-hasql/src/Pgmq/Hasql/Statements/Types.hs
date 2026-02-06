@@ -13,6 +13,9 @@ module Pgmq.Hasql.Statements.Types
     BatchMessageQuery (..),
     VisibilityTimeoutQuery (..),
     BatchVisibilityTimeoutQuery (..),
+    -- Timestamp-based VT types (pgmq 1.10.0+)
+    VisibilityTimeoutAtQuery (..),
+    BatchVisibilityTimeoutAtQuery (..),
     ReadWithPollMessage (..),
     EnableNotifyInsert (..),
     CreatePartitionedQueue (..),
@@ -48,6 +51,22 @@ data BatchVisibilityTimeoutQuery = BatchVisibilityTimeoutQuery
   { queueName :: !QueueName,
     messageIds :: ![MessageId],
     visibilityTimeoutOffset :: !Int32
+  }
+  deriving stock (Generic)
+
+-- | Set visibility timeout to absolute timestamp (pgmq 1.10.0+)
+data VisibilityTimeoutAtQuery = VisibilityTimeoutAtQuery
+  { queueName :: !QueueName,
+    messageId :: !MessageId,
+    visibilityTime :: !UTCTime
+  }
+  deriving stock (Generic)
+
+-- | Batch set visibility timeout to absolute timestamp (pgmq 1.10.0+)
+data BatchVisibilityTimeoutAtQuery = BatchVisibilityTimeoutAtQuery
+  { queueName :: !QueueName,
+    messageIds :: ![MessageId],
+    visibilityTime :: !UTCTime
   }
   deriving stock (Generic)
 
