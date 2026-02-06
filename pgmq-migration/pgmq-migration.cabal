@@ -30,6 +30,7 @@ library
     Pgmq.Migration.Migrations
     Pgmq.Migration.Migrations.V1_10_0
     Pgmq.Migration.Migrations.V1_9_0
+    Pgmq.Migration.Migrations.V1_9_0_to_V1_10_0
     Pgmq.Migration.Sessions
     Pgmq.Migration.Statements
     Pgmq.Migration.Transactions
