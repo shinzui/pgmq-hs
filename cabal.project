@@ -3,12 +3,15 @@ packages:
   pgmq-hasql
   pgmq-effectful
   pgmq-migration
+  pgmq-bench
 
 with-compiler: ghc-9.12.2
 
 test-show-details: direct
 
 tests: True
+
+benchmarks: True
 
 allow-newer:
   -- GHC 9.12 ships with updated boot libraries
