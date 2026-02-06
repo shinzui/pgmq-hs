@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import AdvancedOpsSpec qualified
 import MessageSpec qualified
 import QueueSpec qualified
 import Test.Tasty (defaultMain, testGroup)
@@ -15,8 +16,8 @@ main = do
           testGroup
             "pgmq-hasql"
             [ QueueSpec.tests pool,
-              MessageSpec.tests pool
-              -- Note: MetricsSpec is temporarily disabled due to ambiguous column issue in pgmq.metrics
+              MessageSpec.tests pool,
+              AdvancedOpsSpec.tests pool
             ]
     defaultMain tree
   case result of

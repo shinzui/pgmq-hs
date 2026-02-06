@@ -26,10 +26,9 @@ BEGIN
                     %L || '_part_' || pgmq._get_partition_col(%L)
                 ELSE
                     %L
-            END as queue_name,
-            *
+            END as queue_name
             FROM pgmq.meta
-            WHERE queue_name = %L
+            WHERE meta.queue_name = %L
         )
         SELECT
             m.queue_name,

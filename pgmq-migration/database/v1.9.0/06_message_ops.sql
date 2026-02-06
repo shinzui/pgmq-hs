@@ -223,6 +223,7 @@ $$ LANGUAGE plpgsql;
 
 ---- read_with_poll
 ---- reads a number of messages from a queue, setting a visibility timeout on them
+---- 5-arg version without conditional filter
 CREATE FUNCTION pgmq.read_with_poll(
     queue_name TEXT,
     vt INTEGER,
@@ -280,7 +281,99 @@ END;
 $$ LANGUAGE plpgsql;
 
 ---- read_with_poll
----- reads a number of messages from a queue, setting a visibility timeout on them
+---- 6-arg version with conditional as 6th parameter (matches pgmq-hasql expected order)
+---- This is the overload used by pgmq-hasql: read_with_poll($1,$2,$3,$4,$5,$6)
+CREATE FUNCTION pgmq.read_with_poll(
+    queue_name TEXT,
+    vt INTEGER,
+    qty INTEGER,
+    max_poll_seconds INTEGER,
+    poll_interval_ms INTEGER,
+    conditional JSONB
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    r pgmq.message_record;
+    stop_at TIMESTAMP;
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    stop_at := clock_timestamp() + make_interval(secs => max_poll_seconds);
+    LOOP
+      IF clock_timestamp() >= stop_at THEN
+        RETURN;
+      END IF;
+
+      -- If conditional is NULL or empty, don't filter
+      IF conditional IS NULL OR conditional = '{}'::jsonb THEN
+          sql := FORMAT(
+              $QUERY$
+              WITH cte AS
+              (
+                  SELECT msg_id
+                  FROM pgmq.%I
+                  WHERE vt <= clock_timestamp()
+                  ORDER BY msg_id ASC
+                  LIMIT $1
+                  FOR UPDATE SKIP LOCKED
+              )
+              UPDATE pgmq.%I m
+              SET
+                  vt = clock_timestamp() + %L,
+                  read_ct = read_ct + 1
+              FROM cte
+              WHERE m.msg_id = cte.msg_id
+              RETURNING m.msg_id, m.read_ct, m.enqueued_at, m.vt, m.message, m.headers;
+              $QUERY$,
+              qtable, qtable, make_interval(secs => vt)
+          );
+
+          FOR r IN
+            EXECUTE sql USING qty
+          LOOP
+            RETURN NEXT r;
+          END LOOP;
+      ELSE
+          sql := FORMAT(
+              $QUERY$
+              WITH cte AS
+              (
+                  SELECT msg_id
+                  FROM pgmq.%I
+                  WHERE vt <= clock_timestamp() AND message @> $2
+                  ORDER BY msg_id ASC
+                  LIMIT $1
+                  FOR UPDATE SKIP LOCKED
+              )
+              UPDATE pgmq.%I m
+              SET
+                  vt = clock_timestamp() + %L,
+                  read_ct = read_ct + 1
+              FROM cte
+              WHERE m.msg_id = cte.msg_id
+              RETURNING m.msg_id, m.read_ct, m.enqueued_at, m.vt, m.message, m.headers;
+              $QUERY$,
+              qtable, qtable, make_interval(secs => vt)
+          );
+
+          FOR r IN
+            EXECUTE sql USING qty, conditional
+          LOOP
+            RETURN NEXT r;
+          END LOOP;
+      END IF;
+
+      IF FOUND THEN
+        RETURN;
+      ELSE
+        PERFORM pg_sleep(poll_interval_ms::numeric / 1000);
+      END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+---- read_with_poll
+---- 6-arg version with conditional as 4th parameter (legacy order)
 CREATE FUNCTION pgmq.read_with_poll(
     queue_name TEXT,
     vt INTEGER,
@@ -452,14 +545,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- pop a single message
+-- pop messages from queue (atomic read + delete)
+-- qty parameter added in pgmq 1.7.0
 CREATE FUNCTION pgmq.pop(
-    queue_name TEXT
+    queue_name TEXT,
+    qty INTEGER DEFAULT 1
 )
 RETURNS SETOF pgmq.message_record AS $$
 DECLARE
     sql TEXT;
-    result pgmq.message_record;
     qtable TEXT := pgmq.format_table_name(queue_name, 'q');
 BEGIN
     sql := FORMAT(
@@ -470,20 +564,20 @@ BEGIN
                 FROM pgmq.%I
                 WHERE vt <= clock_timestamp()
                 ORDER BY msg_id ASC
-                LIMIT 1
+                LIMIT $1
                 FOR UPDATE SKIP LOCKED
             )
         DELETE from pgmq.%I
-        WHERE msg_id = (select msg_id from cte)
+        WHERE msg_id IN (select msg_id from cte)
         RETURNING *;
         $QUERY$,
         qtable, qtable
     );
-    RETURN QUERY EXECUTE sql;
+    RETURN QUERY EXECUTE sql USING qty;
 END;
 $$ LANGUAGE plpgsql;
 
--- Sets vt of a message, returns it
+-- Sets vt of a single message, returns it
 CREATE FUNCTION pgmq.set_vt(
     queue_name TEXT,
     msg_id BIGINT,
@@ -492,7 +586,6 @@ CREATE FUNCTION pgmq.set_vt(
 RETURNS SETOF pgmq.message_record AS $$
 DECLARE
     sql TEXT;
-    result pgmq.message_record;
     qtable TEXT := pgmq.format_table_name(queue_name, 'q');
 BEGIN
     sql := FORMAT(
@@ -505,5 +598,29 @@ BEGIN
         qtable, make_interval(secs => vt_offset), msg_id
     );
     RETURN QUERY EXECUTE sql;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Batch set_vt for multiple messages (pgmq 1.8.0+)
+CREATE FUNCTION pgmq.set_vt(
+    queue_name TEXT,
+    msg_ids BIGINT[],
+    vt_offset INTEGER
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        UPDATE pgmq.%I
+        SET vt = (clock_timestamp() + %L)
+        WHERE msg_id = ANY($1)
+        RETURNING *;
+        $QUERY$,
+        qtable, make_interval(secs => vt_offset)
+    );
+    RETURN QUERY EXECUTE sql USING msg_ids;
 END;
 $$ LANGUAGE plpgsql;
