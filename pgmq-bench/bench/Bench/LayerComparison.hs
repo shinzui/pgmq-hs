@@ -23,6 +23,7 @@ import Hasql.Pool (Pool)
 import Hasql.Session (Session, statement)
 import Hasql.Statement (Statement (..))
 import Pgmq.Effectful.Effect qualified as Eff
+import Pgmq.Hasql.Decoders (messageDecoder)
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types
   ( BatchMessageQuery (..),
@@ -32,7 +33,7 @@ import Pgmq.Hasql.Statements.Types
     ReadMessage (..),
     SendMessage (..),
   )
-import Pgmq.Types (MessageBody (..), MessageId (..), QueueName, queueNameToText)
+import Pgmq.Types (Message, MessageBody (..), MessageId (..), QueueName, queueNameToText)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Tasty.Bench (Benchmark, bench, bgroup, whnfIO)
 
@@ -237,20 +238,21 @@ runRawBatchSend :: Pool -> QueueName -> [MessageBody] -> IO [MessageId]
 runRawBatchSend pool qname payloads =
   runSessionOrFail pool $ statement (qname, payloads) rawBatchSendStatement
 
--- | Raw SQL for reading messages
-rawReadStatement :: Statement (QueueName, Int) ()
+-- | Raw SQL for reading messages (with full message decoding for fair comparison)
+rawReadStatement :: Statement (QueueName, Int) (V.Vector Message)
 rawReadStatement = Statement sql encoder decoder True
   where
     sql = "select * from pgmq.read($1, 30, $2)"
     encoder =
       (queueNameToText . fst >$< E.param (E.nonNullable E.text))
         <> (fromIntegral . snd >$< E.param (E.nonNullable E.int4))
-    decoder = D.noResult
+    decoder = D.rowVector messageDecoder
 
--- | Run raw read (we ignore the result for benchmark purposes)
+-- | Run raw read
 runRawRead :: Pool -> QueueName -> Int -> IO ()
-runRawRead pool qname batchSize =
-  runSessionOrFail pool $ statement (qname, batchSize) rawReadStatement
+runRawRead pool qname batchSize = do
+  _ <- runSessionOrFail pool $ statement (qname, batchSize) rawReadStatement
+  pure ()
 
 -- | Raw SQL for deleting a single message
 rawDeleteSingleStatement :: Statement (QueueName, MessageId) Bool
@@ -267,17 +269,18 @@ runRawDeleteSingle :: Pool -> QueueName -> MessageId -> IO Bool
 runRawDeleteSingle pool qname msgId =
   runSessionOrFail pool $ statement (qname, msgId) rawDeleteSingleStatement
 
--- | Raw SQL for popping messages
-rawPopStatement :: Statement (QueueName, Int) ()
+-- | Raw SQL for popping messages (with full message decoding for fair comparison)
+rawPopStatement :: Statement (QueueName, Int) (V.Vector Message)
 rawPopStatement = Statement sql encoder decoder True
   where
     sql = "select * from pgmq.pop($1, $2)"
     encoder =
       (queueNameToText . fst >$< E.param (E.nonNullable E.text))
         <> (fromIntegral . snd >$< E.param (E.nonNullable E.int4))
-    decoder = D.noResult
+    decoder = D.rowVector messageDecoder
 
 -- | Run raw pop
 runRawPop :: Pool -> QueueName -> Int -> IO ()
-runRawPop pool qname qty =
-  runSessionOrFail pool $ statement (qname, qty) rawPopStatement
+runRawPop pool qname qty = do
+  _ <- runSessionOrFail pool $ statement (qname, qty) rawPopStatement
+  pure ()
