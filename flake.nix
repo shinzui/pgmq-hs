@@ -56,6 +56,8 @@
             if [ ! -d $PGDATA ]; then
               mkdir -p $PGHOST
               initdb --auth=trust --no-locale --encoding=UTF8
+              # Include benchmark config for local development
+              echo "include = '$PWD/config/postgresql-benchmark.conf'" >> $PGDATA/postgresql.conf
             fi
           '' + self.checks.${system}.pre-commit-check.shellHook;
         };

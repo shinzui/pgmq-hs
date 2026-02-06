@@ -5,7 +5,7 @@ log_level: debug
 
 processes:
   postgres:
-    command: pg_ctl start -w -l $PGLOG -o "--unix_socket_directories='$PGHOST'" -o "-c listen_addresses=''" -o "-c include_file='$PWD/config/postgresql-benchmark.conf'"
+    command: pg_ctl start -w -l $PGLOG -o "--unix_socket_directories='$PGHOST'" -o "-c listen_addresses=''"
     is_daemon: true
     shutdown:
       command: pg_ctl stop -D $PGDATA
