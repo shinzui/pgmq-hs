@@ -15,7 +15,9 @@ data BenchConfig = BenchConfig
   { connectionString :: !BS.ByteString,
     messageCount :: !Int,
     batchSizes :: ![Int],
-    skipCleanup :: !Bool
+    skipCleanup :: !Bool,
+    enablePollBenchmarks :: !Bool,
+    enableThroughputBenchmarks :: !Bool
   }
   deriving stock (Show)
 
@@ -25,7 +27,9 @@ defaultConfig =
     { connectionString = "host=localhost port=5432 dbname=pgmq_bench",
       messageCount = 1000,
       batchSizes = [1, 10, 50, 100],
-      skipCleanup = False
+      skipCleanup = False,
+      enablePollBenchmarks = False,
+      enableThroughputBenchmarks = False
     }
 
 loadConfig :: IO BenchConfig
@@ -34,13 +38,17 @@ loadConfig = do
   msgCount <- lookupEnv "BENCH_MESSAGE_COUNT"
   batchSizesStr <- lookupEnv "BENCH_BATCH_SIZES"
   skipClean <- lookupEnv "BENCH_SKIP_CLEANUP"
+  enablePoll <- lookupEnv "BENCH_ENABLE_POLL"
+  enableThroughput <- lookupEnv "BENCH_ENABLE_THROUGHPUT"
 
   pure
     BenchConfig
       { connectionString = maybe (defaultConfig.connectionString) BS.pack connStr,
         messageCount = fromMaybe (defaultConfig.messageCount) (msgCount >>= readMaybe),
         batchSizes = maybe (defaultConfig.batchSizes) parseBatchSizes batchSizesStr,
-        skipCleanup = maybe False parseBool skipClean
+        skipCleanup = maybe False parseBool skipClean,
+        enablePollBenchmarks = maybe False parseBool enablePoll,
+        enableThroughputBenchmarks = maybe False parseBool enableThroughput
       }
 
 parseBatchSizes :: String -> [Int]

@@ -17,6 +17,8 @@ main = do
   putStrLn $ "  Message count: " <> show config.messageCount
   putStrLn $ "  Batch sizes: " <> show config.batchSizes
   putStrLn $ "  Skip cleanup: " <> show config.skipCleanup
+  putStrLn $ "  Poll benchmarks: " <> show config.enablePollBenchmarks
+  putStrLn $ "  Throughput benchmarks: " <> show config.enableThroughputBenchmarks
   putStrLn ""
 
   withBenchPool config.connectionString $ \pool -> do
@@ -24,10 +26,10 @@ main = do
     installPgmqSchema pool
     putStrLn "Schema installed. Starting benchmarks...\n"
 
-    defaultMain
+    defaultMain $
       [ layerComparisonBenchmarks pool config,
         sendBenchmarks pool config,
         readBenchmarks pool config,
-        ackBenchmarks pool config,
-        throughputBenchmarks pool config
+        ackBenchmarks pool config
       ]
+        <> [throughputBenchmarks pool config | config.enableThroughputBenchmarks]

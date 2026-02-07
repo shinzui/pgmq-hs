@@ -26,10 +26,11 @@ readBenchmarks :: Pool -> BenchConfig -> Benchmark
 readBenchmarks pool config =
   bgroup
     "read"
-    [ singleReadBenchmarks pool config,
-      batchReadBenchmarks pool config,
-      readWithPollBenchmarks pool config
-    ]
+    ( [ singleReadBenchmarks pool config,
+        batchReadBenchmarks pool config
+      ]
+        <> [readWithPollBenchmarks pool config | config.enablePollBenchmarks]
+    )
 
 -- | Single read benchmarks
 singleReadBenchmarks :: Pool -> BenchConfig -> Benchmark
