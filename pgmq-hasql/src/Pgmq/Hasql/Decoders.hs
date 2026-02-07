@@ -12,16 +12,27 @@ import Hasql.Decoders qualified as D
 import Pgmq.Hasql.Statements.Types (QueueMetrics (..))
 import Pgmq.Types (Message (..), MessageBody (..), MessageId (..), Queue (..), parseQueueName)
 
+-- | Decoder for pgmq.message_record type
+-- Column order matches pgmq SQL: msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers
 messageDecoder :: D.Row Message
-messageDecoder =
-  Message
-    <$> messageIdDecoder
-    <*> D.column (D.nonNullable D.timestamptz)
-    <*> D.column (D.nonNullable D.timestamptz)
-    <*> D.column (D.nullable D.timestamptz) -- last_read_at (pgmq 1.10.0+)
-    <*> D.column (D.nonNullable D.int8)
-    <*> (MessageBody <$> D.column (D.nonNullable D.jsonb))
-    <*> D.column (D.nullable D.jsonb) -- headers (pgmq 1.5.0+)
+messageDecoder = do
+  msgId <- messageIdDecoder -- msg_id
+  readCt <- D.column (D.nonNullable D.int4) -- read_ct (INTEGER -> Int32)
+  enqueuedAt <- D.column (D.nonNullable D.timestamptz) -- enqueued_at
+  lastReadAt <- D.column (D.nullable D.timestamptz) -- last_read_at
+  vt <- D.column (D.nonNullable D.timestamptz) -- vt
+  body <- MessageBody <$> D.column (D.nonNullable D.jsonb) -- message
+  headers <- D.column (D.nullable D.jsonb) -- headers
+  pure $
+    Message
+      { messageId = msgId,
+        visibilityTime = vt,
+        enqueuedAt = enqueuedAt,
+        lastReadAt = lastReadAt,
+        readCount = fromIntegral readCt,
+        body = body,
+        headers = headers
+      }
 
 messageIdDecoder :: D.Row MessageId
 messageIdDecoder = MessageId <$> D.column (D.nonNullable D.int8)
