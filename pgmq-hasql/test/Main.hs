@@ -3,8 +3,12 @@
 module Main (main) where
 
 import AdvancedOpsSpec qualified
+import AllFunctionsDecoderSpec qualified
+import DecoderValidationSpec qualified
 import MessageSpec qualified
 import QueueSpec qualified
+import RoundTripSpec qualified
+import SchemaSpec qualified
 import Test.Tasty (defaultMain, testGroup)
 import TmpPostgres (withPgmqPool)
 
@@ -17,7 +21,11 @@ main = do
             "pgmq-hasql"
             [ QueueSpec.tests pool,
               MessageSpec.tests pool,
-              AdvancedOpsSpec.tests pool
+              AdvancedOpsSpec.tests pool,
+              SchemaSpec.tests pool,
+              RoundTripSpec.tests pool,
+              DecoderValidationSpec.tests pool,
+              AllFunctionsDecoderSpec.tests pool
             ]
     defaultMain tree
   case result of
