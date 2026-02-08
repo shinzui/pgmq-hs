@@ -6,6 +6,23 @@ module Pgmq.Effectful
     runPgmq,
     PgmqError (..),
 
+    -- ** Traced Interpreters
+    runPgmqTraced,
+    runPgmqTracedWith,
+    TracingConfig (..),
+    defaultTracingConfig,
+
+    -- ** Traced Operations
+    sendMessageTraced,
+    readMessageWithContext,
+    MessageWithContext,
+
+    -- ** Telemetry Utilities
+    injectTraceContext,
+    extractTraceContext,
+    mergeTraceHeaders,
+    TraceHeaders,
+
     -- * Queue Management
     createQueue,
     dropQueue,
@@ -110,6 +127,23 @@ import Pgmq.Effectful.Effect
     sendMessageWithHeadersForLater,
   )
 import Pgmq.Effectful.Interpreter (PgmqError (..), runPgmq)
+import Pgmq.Effectful.Interpreter.Traced
+  ( TracingConfig (..),
+    defaultTracingConfig,
+    runPgmqTraced,
+    runPgmqTracedWith,
+  )
+import Pgmq.Effectful.Telemetry
+  ( TraceHeaders,
+    extractTraceContext,
+    injectTraceContext,
+    mergeTraceHeaders,
+  )
+import Pgmq.Effectful.Traced
+  ( MessageWithContext,
+    readMessageWithContext,
+    sendMessageTraced,
+  )
 import Pgmq.Hasql.Statements.Types
   ( BatchMessageQuery (..),
     BatchSendMessage (..),
