@@ -106,9 +106,8 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
   CreateUnloggedQueue q ->
     withTracedSession config "pgmq create_unlogged_queue" OTel.Producer q pool $
       Sessions.createUnloggedQueue q
-  DetachArchive q ->
-    withTracedSession config "pgmq detach_archive" OTel.Internal q pool $
-      Sessions.detachArchive q
+  DetachArchive _q ->
+    pure ()
   EnableNotifyInsert cfg@(Types.EnableNotifyInsert qn _) ->
     withTracedSession config "pgmq enable_notify_insert" OTel.Internal qn pool $
       Sessions.enableNotifyInsert cfg

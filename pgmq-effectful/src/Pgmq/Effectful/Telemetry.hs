@@ -38,8 +38,8 @@ type TraceHeaders = [(ByteString, ByteString)]
 -- | Inject trace context into message headers (for producers).
 -- Creates traceparent and tracestate headers from current span context.
 injectTraceContext :: OTel.Span -> IO TraceHeaders
-injectTraceContext span = do
-  (traceparent, tracestate) <- W3C.encodeSpanContext span
+injectTraceContext otelSpan = do
+  (traceparent, tracestate) <- W3C.encodeSpanContext otelSpan
   pure
     [ ("traceparent", traceparent),
       ("tracestate", tracestate)

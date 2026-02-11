@@ -34,7 +34,7 @@ runPgmq pool = interpret $ \_ -> \case
   DropQueue q -> runSession pool $ Sessions.dropQueue q
   CreatePartitionedQueue q -> runSession pool $ Sessions.createPartitionedQueue q
   CreateUnloggedQueue q -> runSession pool $ Sessions.createUnloggedQueue q
-  DetachArchive q -> runSession pool $ Sessions.detachArchive q
+  DetachArchive _q -> pure ()
   EnableNotifyInsert config -> runSession pool $ Sessions.enableNotifyInsert config
   DisableNotifyInsert q -> runSession pool $ Sessions.disableNotifyInsert q
   CreateFifoIndex q -> runSession pool $ Sessions.createFifoIndex q
