@@ -38,8 +38,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Word (Word32)
 import Effectful (Eff, IOE, runEff)
 import Effectful.Error.Static (Error, runErrorNoCallStack)
-import Hasql.Connection.Setting qualified as Setting
-import Hasql.Connection.Setting.Connection qualified as Connection.Setting
+import Hasql.Connection.Settings qualified as Settings
 import Hasql.Pool (Pool, UsageError)
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as PoolConfig
@@ -55,7 +54,7 @@ import System.Random (randomRIO)
 -- | Create a connection pool with benchmark-optimized settings
 withBenchPool :: BS.ByteString -> (Pool -> IO a) -> IO a
 withBenchPool connStr action = do
-  let connSettings = [Setting.connection (Connection.Setting.string (TE.decodeUtf8 connStr))]
+  let connSettings = Settings.connectionString (TE.decodeUtf8 connStr)
       poolConfig =
         PoolConfig.settings
           [ PoolConfig.size 20,

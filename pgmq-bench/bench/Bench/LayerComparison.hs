@@ -21,7 +21,7 @@ import Hasql.Decoders qualified as D
 import Hasql.Encoders qualified as E
 import Hasql.Pool (Pool)
 import Hasql.Session (Session, statement)
-import Hasql.Statement (Statement (..))
+import Hasql.Statement (Statement, preparable)
 import Pgmq.Effectful.Effect qualified as Eff
 import Pgmq.Hasql.Decoders (messageDecoder)
 import Pgmq.Hasql.Sessions qualified as Sessions
@@ -210,7 +210,7 @@ runSessionOrFail pool session = do
 
 -- | Raw SQL for sending a single message
 rawSendSingleStatement :: Statement (QueueName, MessageBody) MessageId
-rawSendSingleStatement = Statement sql encoder decoder True
+rawSendSingleStatement = preparable sql encoder decoder
   where
     sql = "select * from pgmq.send($1, $2, 0)"
     encoder =
@@ -225,7 +225,7 @@ runRawSendSingle pool qname payload =
 
 -- | Raw SQL for batch sending messages
 rawBatchSendStatement :: Statement (QueueName, [MessageBody]) [MessageId]
-rawBatchSendStatement = Statement sql encoder decoder True
+rawBatchSendStatement = preparable sql encoder decoder
   where
     sql = "select * from pgmq.send_batch($1, $2, 0)"
     encoder =
@@ -240,7 +240,7 @@ runRawBatchSend pool qname payloads =
 
 -- | Raw SQL for reading messages (with full message decoding for fair comparison)
 rawReadStatement :: Statement (QueueName, Int) (V.Vector Message)
-rawReadStatement = Statement sql encoder decoder True
+rawReadStatement = preparable sql encoder decoder
   where
     sql = "select * from pgmq.read($1, 30, $2)"
     encoder =
@@ -256,7 +256,7 @@ runRawRead pool qname batchSize = do
 
 -- | Raw SQL for deleting a single message
 rawDeleteSingleStatement :: Statement (QueueName, MessageId) Bool
-rawDeleteSingleStatement = Statement sql encoder decoder True
+rawDeleteSingleStatement = preparable sql encoder decoder
   where
     sql = "select * from pgmq.delete($1, $2)"
     encoder =
@@ -271,7 +271,7 @@ runRawDeleteSingle pool qname msgId =
 
 -- | Raw SQL for popping messages (with full message decoding for fair comparison)
 rawPopStatement :: Statement (QueueName, Int) (V.Vector Message)
-rawPopStatement = Statement sql encoder decoder True
+rawPopStatement = preparable sql encoder decoder
   where
     sql = "select * from pgmq.pop($1, $2)"
     encoder =

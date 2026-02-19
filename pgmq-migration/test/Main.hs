@@ -11,13 +11,13 @@ import Database.Postgres.Temp
     with,
   )
 import Hasql.Connection qualified as Connection
-import Hasql.Connection.Setting qualified as Setting
-import Hasql.Connection.Setting.Connection qualified as Connection.Setting
+import Hasql.Connection.Settings qualified as Settings
 import Hasql.Decoders qualified as Decoders
 import Hasql.Encoders qualified as Encoders
 import Hasql.Migration (MigrationCommand, MigrationError)
 import Hasql.Session (Session)
 import Hasql.Session qualified as Session
+import Hasql.Statement (preparable)
 import Hasql.Statement qualified as Statement
 import Pgmq.Migration qualified as Migration
 import Pgmq.Migration.Migrations.V1_9_0 qualified as V1_9_0
@@ -51,7 +51,7 @@ tests =
 withTempDb :: (Connection.Connection -> IO a) -> IO (Either StartError a)
 withTempDb action = with $ \db -> do
   let connStr = toConnectionString db
-      connSettings = [Setting.connection (Connection.Setting.string (TE.decodeUtf8 connStr))]
+      connSettings = Settings.connectionString (TE.decodeUtf8 connStr)
   connResult <- Connection.acquire connSettings
   case connResult of
     Left err -> error $ "Failed to connect: " <> show err
@@ -60,7 +60,7 @@ withTempDb action = with $ \db -> do
 testMigrateFresh :: IO ()
 testMigrateFresh = do
   result <- withTempDb $ \conn -> do
-    migResult <- Session.run Migration.migrate conn
+    migResult <- Connection.use conn Migration.migrate
     case migResult of
       Left sessionErr -> assertFailure $ "Session error: " <> show sessionErr
       Right (Left migrationErr) -> assertFailure $ "Migration error: " <> show migrationErr
@@ -73,14 +73,14 @@ testMigrateIdempotent :: IO ()
 testMigrateIdempotent = do
   result <- withTempDb $ \conn -> do
     -- Run migration first time
-    result1 <- Session.run Migration.migrate conn
+    result1 <- Connection.use conn Migration.migrate
     case result1 of
       Left sessionErr -> assertFailure $ "First migration session error: " <> show sessionErr
       Right (Left migrationErr) -> assertFailure $ "First migration error: " <> show migrationErr
       Right (Right ()) -> pure ()
 
     -- Run migration second time - should succeed without error
-    result2 <- Session.run Migration.migrate conn
+    result2 <- Connection.use conn Migration.migrate
     case result2 of
       Left sessionErr -> assertFailure $ "Second migration session error: " <> show sessionErr
       Right (Left migrationErr) -> assertFailure $ "Second migration error: " <> show migrationErr
@@ -93,10 +93,10 @@ testGetMigrations :: IO ()
 testGetMigrations = do
   result <- withTempDb $ \conn -> do
     -- Run migrations first
-    _ <- Session.run Migration.migrate conn
+    _ <- Connection.use conn Migration.migrate
 
     -- Get applied migrations
-    migrationsResult <- Session.run Migration.getMigrations conn
+    migrationsResult <- Connection.use conn Migration.getMigrations
     case migrationsResult of
       Left sessionErr -> assertFailure $ "Session error: " <> show sessionErr
       Right appliedMigrations -> do
@@ -126,21 +126,21 @@ testUpgradeFromV1_9_0 :: IO ()
 testUpgradeFromV1_9_0 = do
   result <- withTempDb $ \conn -> do
     -- First install v1.9.0 schema
-    v190Result <- Session.run installV1_9_0 conn
+    v190Result <- Connection.use conn installV1_9_0
     case v190Result of
       Left sessionErr -> assertFailure $ "v1.9.0 install session error: " <> show sessionErr
       Right (Left migrationErr) -> assertFailure $ "v1.9.0 install migration error: " <> show migrationErr
       Right (Right ()) -> pure ()
 
     -- Now run upgrade
-    upgradeResult <- Session.run Migration.upgrade conn
+    upgradeResult <- Connection.use conn Migration.upgrade
     case upgradeResult of
       Left sessionErr -> assertFailure $ "Upgrade session error: " <> show sessionErr
       Right (Left migrationErr) -> assertFailure $ "Upgrade migration error: " <> show migrationErr
       Right (Right ()) -> pure ()
 
     -- Verify upgrade migration was applied
-    migrationsResult <- Session.run Migration.getMigrations conn
+    migrationsResult <- Connection.use conn Migration.getMigrations
     case migrationsResult of
       Left sessionErr -> assertFailure $ "getMigrations session error: " <> show sessionErr
       Right appliedMigrations -> do
@@ -155,21 +155,21 @@ testUpgradeIdempotent :: IO ()
 testUpgradeIdempotent = do
   result <- withTempDb $ \conn -> do
     -- First install v1.9.0 schema
-    v190Result <- Session.run installV1_9_0 conn
+    v190Result <- Connection.use conn installV1_9_0
     case v190Result of
       Left sessionErr -> assertFailure $ "v1.9.0 install session error: " <> show sessionErr
       Right (Left migrationErr) -> assertFailure $ "v1.9.0 install migration error: " <> show migrationErr
       Right (Right ()) -> pure ()
 
     -- Run upgrade first time
-    upgrade1Result <- Session.run Migration.upgrade conn
+    upgrade1Result <- Connection.use conn Migration.upgrade
     case upgrade1Result of
       Left sessionErr -> assertFailure $ "First upgrade session error: " <> show sessionErr
       Right (Left migrationErr) -> assertFailure $ "First upgrade migration error: " <> show migrationErr
       Right (Right ()) -> pure ()
 
     -- Run upgrade second time - should succeed
-    upgrade2Result <- Session.run Migration.upgrade conn
+    upgrade2Result <- Connection.use conn Migration.upgrade
     case upgrade2Result of
       Left sessionErr -> assertFailure $ "Second upgrade session error: " <> show sessionErr
       Right (Left migrationErr) -> assertFailure $ "Second upgrade migration error: " <> show migrationErr
@@ -182,27 +182,27 @@ testUpgradeAddsLastReadAt :: IO ()
 testUpgradeAddsLastReadAt = do
   result <- withTempDb $ \conn -> do
     -- First install v1.9.0 schema
-    v190Result <- Session.run installV1_9_0 conn
+    v190Result <- Connection.use conn installV1_9_0
     case v190Result of
       Left sessionErr -> assertFailure $ "v1.9.0 install session error: " <> show sessionErr
       Right (Left migrationErr) -> assertFailure $ "v1.9.0 install migration error: " <> show migrationErr
       Right (Right ()) -> pure ()
 
     -- Create a queue to test the schema
-    createQueueResult <- Session.run createTestQueue conn
+    createQueueResult <- Connection.use conn createTestQueue
     case createQueueResult of
       Left sessionErr -> assertFailure $ "Create queue session error: " <> show sessionErr
       Right () -> pure ()
 
     -- Run upgrade
-    upgradeResult <- Session.run Migration.upgrade conn
+    upgradeResult <- Connection.use conn Migration.upgrade
     case upgradeResult of
       Left sessionErr -> assertFailure $ "Upgrade session error: " <> show sessionErr
       Right (Left migrationErr) -> assertFailure $ "Upgrade migration error: " <> show migrationErr
       Right (Right ()) -> pure ()
 
     -- Verify last_read_at column exists in the queue table
-    checkResult <- Session.run checkLastReadAtColumn conn
+    checkResult <- Connection.use conn checkLastReadAtColumn
     case checkResult of
       Left sessionErr -> assertFailure $ "Check column session error: " <> show sessionErr
       Right hasColumn ->
@@ -217,7 +217,7 @@ createTestQueue = Session.statement () createQueueStmt
   where
     createQueueStmt :: Statement.Statement () ()
     createQueueStmt =
-      Statement.Statement sql encoder decoder True
+      preparable sql encoder decoder
       where
         sql = "SELECT pgmq.create('test_upgrade_queue')"
         encoder = Encoders.noParams
@@ -229,7 +229,7 @@ checkLastReadAtColumn = Session.statement () checkColumnStmt
   where
     checkColumnStmt :: Statement.Statement () Bool
     checkColumnStmt =
-      Statement.Statement sql encoder decoder True
+      preparable sql encoder decoder
       where
         sql =
           "SELECT EXISTS ( \

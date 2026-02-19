@@ -15,35 +15,38 @@ import Pgmq.Types (Message (..), MessageBody (..), MessageId (..), Queue (..), p
 -- | Decoder for pgmq.message_record type
 -- Column order matches pgmq SQL: msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers
 messageDecoder :: D.Row Message
-messageDecoder = do
-  msgId <- messageIdDecoder -- msg_id
-  readCt <- D.column (D.nonNullable D.int4) -- read_ct (INTEGER -> Int32)
-  enqueuedAt <- D.column (D.nonNullable D.timestamptz) -- enqueued_at
-  lastReadAt <- D.column (D.nullable D.timestamptz) -- last_read_at
-  vt <- D.column (D.nonNullable D.timestamptz) -- vt
-  body <- MessageBody <$> D.column (D.nonNullable D.jsonb) -- message
-  headers <- D.column (D.nullable D.jsonb) -- headers
-  pure $
-    Message
-      { messageId = msgId,
-        visibilityTime = vt,
-        enqueuedAt = enqueuedAt,
-        lastReadAt = lastReadAt,
-        readCount = fromIntegral readCt,
-        body = body,
-        headers = headers
-      }
+messageDecoder =
+  ( \msgId readCt enqueuedAt lastReadAt vt body headers ->
+      Message
+        { messageId = msgId,
+          visibilityTime = vt,
+          enqueuedAt = enqueuedAt,
+          lastReadAt = lastReadAt,
+          readCount = fromIntegral readCt,
+          body = body,
+          headers = headers
+        }
+  )
+    <$> messageIdDecoder -- msg_id
+    <*> D.column (D.nonNullable D.int4) -- read_ct (INTEGER -> Int32)
+    <*> D.column (D.nonNullable D.timestamptz) -- enqueued_at
+    <*> D.column (D.nullable D.timestamptz) -- last_read_at
+    <*> D.column (D.nonNullable D.timestamptz) -- vt
+    <*> (MessageBody <$> D.column (D.nonNullable D.jsonb)) -- message
+    <*> D.column (D.nullable D.jsonb) -- headers
 
 messageIdDecoder :: D.Row MessageId
 messageIdDecoder = MessageId <$> D.column (D.nonNullable D.int8)
 
+-- | Decoder for pgmq.queue_record type
+-- Column order: queue_name (varchar), is_partitioned (bool), is_unlogged (bool), created_at (timestamptz)
 queueDecoder :: D.Row Queue
 queueDecoder =
-  Queue
-    <$> D.column (D.nonNullable $ D.refine (first (pack . show) . parseQueueName) D.text)
+  (\name isPartitioned isUnlogged createdAt -> Queue name createdAt isPartitioned isUnlogged)
+    <$> D.column (D.nonNullable $ D.refine (first (pack . show) . parseQueueName) D.varchar)
+    <*> D.column (D.nonNullable D.bool)
+    <*> D.column (D.nonNullable D.bool)
     <*> D.column (D.nonNullable D.timestamptz)
-    <*> D.column (D.nonNullable D.bool)
-    <*> D.column (D.nonNullable D.bool)
 
 queueMetricsDecoder :: D.Row QueueMetrics
 queueMetricsDecoder =

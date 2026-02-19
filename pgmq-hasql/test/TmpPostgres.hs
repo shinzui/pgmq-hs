@@ -23,8 +23,7 @@ import Database.Postgres.Temp
     toConnectionString,
     with,
   )
-import Hasql.Connection.Setting qualified as Setting
-import Hasql.Connection.Setting.Connection qualified as Connection.Setting
+import Hasql.Connection.Settings qualified as Settings
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as PoolConfig
 import Pgmq.Migration qualified as Migration
@@ -35,7 +34,7 @@ import System.Random (randomRIO)
 withPgmqDb :: (Pool.Pool -> IO a) -> IO (Either StartError a)
 withPgmqDb action = with $ \db -> do
   let connStr = toConnectionString db
-      connSettings = [Setting.connection (Connection.Setting.string (TE.decodeUtf8 connStr))]
+      connSettings = Settings.connectionString (TE.decodeUtf8 connStr)
       poolConfig =
         PoolConfig.settings
           [ PoolConfig.size 3,

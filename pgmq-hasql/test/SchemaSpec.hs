@@ -10,7 +10,7 @@ import Data.Vector qualified as V
 import Hasql.Decoders qualified as D
 import Hasql.Pool qualified as Pool
 import Hasql.Session (Session, statement)
-import Hasql.Statement (Statement (..))
+import Hasql.Statement (Statement, preparable)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
 import TestUtils (assertSession)
@@ -41,11 +41,10 @@ expectedMessageRecordColumns =
 -- Returns columns in their attribute order
 messageRecordColumnsQuery :: Statement () (V.Vector (Text, Text))
 messageRecordColumnsQuery =
-  Statement
+  preparable
     sql
     mempty
     decoder
-    True
   where
     sql =
       "SELECT a.attname::text, t.typname::text \
