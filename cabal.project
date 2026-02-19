@@ -42,8 +42,8 @@ source-repository-package
 -- hasql 1.10 ecosystem
 source-repository-package
   type: git
-  location: https://github.com/sumo/hasql-migration
-  tag: 805aecdd1fcec934e60835365c7fbb0940ab8ccf
+  location: https://github.com/shinzui/hasql-migration
+  tag: ab66f6ae93e40065f8532dd9d497ecb15c91122e
 
 source-repository-package
   type: git

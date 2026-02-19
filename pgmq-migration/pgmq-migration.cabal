@@ -44,7 +44,7 @@ library
     , bytestring         ^>=0.12
     , file-embed         ^>=0.0.16
     , hasql              ^>=1.10
-    , hasql-migration    ^>=0.4
+    , hasql-migration    ^>=0.3.1
     , hasql-transaction  ^>=1.2
     , text               ^>=2.1
     , transformers       ^>=0.6
