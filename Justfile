@@ -40,6 +40,10 @@ test:
 test-package PACKAGE:
     cabal test {{PACKAGE}}
 
+# Run benchmarks (requires running PostgreSQL)
+bench:
+    cabal bench pgmq-bench
+
 # Format code
 fmt:
     nix fmt
