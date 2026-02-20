@@ -1,11 +1,10 @@
 {
-  description = "Haskell nix template";
+  description = "pgmq-hs - Haskell client library for pgmq";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   inputs.pre-commit-hooks.url = "github:cachix/pre-commit-hooks.nix";
   inputs.flake-utils.url = "github:numtide/flake-utils";
   inputs.treefmt-nix.url = "github:numtide/treefmt-nix";
-
 
   outputs = { self, nixpkgs, pre-commit-hooks, flake-utils, treefmt-nix }:
     flake-utils.lib.eachDefaultSystem (system:
@@ -15,9 +14,30 @@
         treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
         formatter = treefmtEval.config.build.wrapper;
 
+        haskellPackages = pkgs.haskell.packages.${ghcVersion}.override {
+          overrides = import ./nix/haskell-overlay.nix { inherit pkgs; };
+        };
+
+        # Re-enable tests and inject PostgreSQL into PATH
+        withTests = pkg:
+          pkgs.haskell.lib.overrideCabal (pkgs.haskell.lib.doCheck pkg) (old: {
+            testToolDepends = (old.testToolDepends or [ ]) ++ [ pkgs.postgresql ];
+            preCheck = (old.preCheck or "") + ''
+              export HOME=$(mktemp -d)
+            '';
+          });
       in
       {
         formatter = formatter;
+
+        packages = {
+          pgmq-core = haskellPackages.pgmq-core;
+          pgmq-hasql = haskellPackages.pgmq-hasql;
+          pgmq-effectful = haskellPackages.pgmq-effectful;
+          pgmq-migration = haskellPackages.pgmq-migration;
+          default = haskellPackages.pgmq-hasql;
+        };
+
         checks = {
           formatting = treefmtEval.config.build.check self;
           pre-commit-check = pre-commit-hooks.lib.${system}.run {
@@ -25,11 +45,14 @@
             hooks = {
               treefmt.package = formatter;
               treefmt.enable = true;
-
             };
           };
+          inherit (haskellPackages) pgmq-core pgmq-hasql pgmq-effectful pgmq-migration;
+          pgmq-hasql-tests = withTests haskellPackages.pgmq-hasql;
+          pgmq-migration-tests = withTests haskellPackages.pgmq-migration;
         };
-        devShell = pkgs.mkShell {
+
+        devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
             zlib
             xz
@@ -38,7 +61,7 @@
             pkg-config
             cabal-install
             process-compose
-            (haskell.packages.${ghcVersion}.ghcWithPackages (ps: with ps; [
+            (haskellPackages.ghcWithPackages (ps: with ps; [
               haskell-language-server
             ]))
           ];
