@@ -26,14 +26,6 @@ allow-newer:
   , *:filepath
   , openapi3:time
 
-source-repository-package
-  type: git
-  location: https://github.com/topagentnetwork/tan-commons
-  tag: 28f236d906e22c9aa14b7636ace1930f4caaefaa
-  subdir:
-    tan-commons-testing
-    tan-commons-time
-
 -- hasql 1.10 ecosystem
 source-repository-package
   type: git
