@@ -5,12 +5,12 @@ module Main (main) where
 import AdvancedOpsSpec qualified
 import AllFunctionsDecoderSpec qualified
 import DecoderValidationSpec qualified
+import EphemeralDb (withPgmqPool)
 import MessageSpec qualified
 import QueueSpec qualified
 import RoundTripSpec qualified
 import SchemaSpec qualified
 import Test.Tasty (defaultMain, testGroup)
-import TmpPostgres (withPgmqPool)
 
 main :: IO ()
 main = do

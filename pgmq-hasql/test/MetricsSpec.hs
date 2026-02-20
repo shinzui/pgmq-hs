@@ -5,6 +5,7 @@ module MetricsSpec (tests) where
 
 import Data.Aeson (object, (.=))
 import Data.Text (Text)
+import EphemeralDb (TestFixture (..), withTestFixture)
 import Hasql.Pool qualified as Pool
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types (QueueMetrics (..))
@@ -13,7 +14,6 @@ import Pgmq.Types (MessageBody (..), QueueName, parseQueueName, queueNameToText)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase, (@?=))
 import TestUtils (assertRight, assertSession, cleanupQueue)
-import TmpPostgres (TestFixture (..), withTestFixture)
 
 -- | All metrics tests
 tests :: Pool.Pool -> TestTree

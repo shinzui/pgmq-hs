@@ -12,6 +12,7 @@ import Control.Concurrent (threadDelay)
 import Data.Aeson (object, (.=))
 import Data.Time.Clock (addUTCTime, getCurrentTime)
 import Data.Vector qualified as V
+import EphemeralDb (TestFixture (..), withTestFixture)
 import Hasql.Pool qualified as Pool
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types
@@ -33,7 +34,6 @@ import Pgmq.Types qualified as PgmqTypes
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import TestUtils (assertSession, cleanupQueue)
-import TmpPostgres (TestFixture (..), withTestFixture)
 
 -- | All advanced operation tests
 tests :: Pool.Pool -> TestTree

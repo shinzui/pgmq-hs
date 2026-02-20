@@ -75,6 +75,7 @@ test-suite pgmq-hasql-test
     AdvancedOpsSpec
     AllFunctionsDecoderSpec
     DecoderValidationSpec
+    EphemeralDb
     Generators
     MessageSpec
     MetricsSpec
@@ -82,7 +83,6 @@ test-suite pgmq-hasql-test
     RoundTripSpec
     SchemaSpec
     TestUtils
-    TmpPostgres
 
   default-extensions:
     ImportQualifiedPost
@@ -91,6 +91,7 @@ test-suite pgmq-hasql-test
   build-depends:
     , aeson
     , base            >=4.18  && <5.0
+    , ephemeral-pg    >=0.2.1
     , hasql
     , hasql-pool      ^>=1.4
     , hedgehog        ^>=1.5
@@ -104,5 +105,4 @@ test-suite pgmq-hasql-test
     , tasty-hunit     ^>=0.10
     , text
     , time
-    , tmp-postgres
     , vector

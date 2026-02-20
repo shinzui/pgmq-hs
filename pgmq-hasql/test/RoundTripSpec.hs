@@ -5,6 +5,7 @@
 module RoundTripSpec (tests) where
 
 import Data.Vector qualified as V
+import EphemeralDb (TestFixture (..), withTestFixture)
 import Generators (genMessageBody, genMessageHeaders)
 import Hasql.Pool qualified as Pool
 import Hedgehog (annotateShow, forAll, (===))
@@ -19,7 +20,6 @@ import Pgmq.Types (Message (..), MessageBody (..), MessageHeaders (..), unMessag
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 import TestUtils (assertSession, cleanupQueue)
-import TmpPostgres (TestFixture (..), withTestFixture)
 
 -- | All round-trip property tests
 tests :: Pool.Pool -> TestTree

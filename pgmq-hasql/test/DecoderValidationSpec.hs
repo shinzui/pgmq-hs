@@ -8,6 +8,7 @@ module DecoderValidationSpec (tests) where
 import Data.Aeson (Value, object, (.=))
 import Data.Time (addUTCTime, getCurrentTime)
 import Data.Vector qualified as V
+import EphemeralDb (TestFixture (..), withTestFixture)
 import Hasql.Pool qualified as Pool
 import Hasql.Session (Session)
 import Pgmq.Hasql.Sessions qualified as Sessions
@@ -28,7 +29,6 @@ import Pgmq.Types qualified
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import TestUtils (assertSession, cleanupQueue)
-import TmpPostgres (TestFixture (..), withTestFixture)
 
 -- | All decoder validation tests
 tests :: Pool.Pool -> TestTree

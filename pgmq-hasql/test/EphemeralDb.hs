@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Test database infrastructure using tmp-postgres
-module TmpPostgres
+-- | Test database infrastructure using ephemeral-pg
+module EphemeralDb
   ( -- * Database setup
     withPgmqDb,
     withPgmqPool,
@@ -16,14 +16,12 @@ module TmpPostgres
 where
 
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as TE
 import Data.Word (Word32)
-import Database.Postgres.Temp
+import EphemeralPg
   ( StartError,
-    toConnectionString,
-    with,
+    connectionSettings,
+    withCached,
   )
-import Hasql.Connection.Settings qualified as Settings
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as PoolConfig
 import Pgmq.Migration qualified as Migration
@@ -32,9 +30,8 @@ import System.Random (randomRIO)
 
 -- | Run an action with a temporary PostgreSQL database that has pgmq schema installed
 withPgmqDb :: (Pool.Pool -> IO a) -> IO (Either StartError a)
-withPgmqDb action = with $ \db -> do
-  let connStr = toConnectionString db
-      connSettings = Settings.connectionString (TE.decodeUtf8 connStr)
+withPgmqDb action = withCached $ \db -> do
+  let connSettings = connectionSettings db
       poolConfig =
         PoolConfig.settings
           [ PoolConfig.size 3,

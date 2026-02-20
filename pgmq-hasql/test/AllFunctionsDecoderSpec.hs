@@ -7,6 +7,7 @@ module AllFunctionsDecoderSpec (tests) where
 import Data.Aeson (Value, object, (.=))
 import Data.Time (addUTCTime, getCurrentTime)
 import Data.Vector qualified as V
+import EphemeralDb (TestFixture (..), withTestFixture)
 import Hasql.Pool qualified as Pool
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types
@@ -22,7 +23,6 @@ import Pgmq.Types qualified
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import TestUtils (assertSession, cleanupQueue)
-import TmpPostgres (TestFixture (..), withTestFixture)
 
 -- | All per-function decoder tests
 tests :: Pool.Pool -> TestTree

@@ -3,6 +3,7 @@
 -- | Tests for queue management operations
 module QueueSpec (tests) where
 
+import EphemeralDb (TestFixture (..), withTestFixture)
 import Hasql.Pool qualified as Pool
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Types (Queue (..), parseQueueName)
@@ -13,7 +14,6 @@ import TestUtils
     assertSession,
     cleanupQueue,
   )
-import TmpPostgres (TestFixture (..), withTestFixture)
 
 -- | All queue management tests
 tests :: Pool.Pool -> TestTree
