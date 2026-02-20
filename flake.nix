@@ -72,8 +72,8 @@
             export PGLOG="$PGHOST/postgres.log"
             export PGDATABASE=pgmq_dev
 
-            # Connection string for application use
-            export PG_CONNECTION_STRING="postgresql://$PGHOST/$PGDATABASE"
+            # Connection string for application use (libpq key-value format for Unix sockets)
+            export PG_CONNECTION_STRING="host=$PGHOST dbname=$PGDATABASE"
 
             # Initialize database cluster on first entry
             if [ ! -d $PGDATA ]; then
