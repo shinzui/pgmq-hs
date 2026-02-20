@@ -12,3 +12,6 @@ cabal.project.local
 
 # Development database
 .dev/
+
+# Nix build output
+result
