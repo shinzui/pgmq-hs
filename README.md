@@ -99,3 +99,70 @@ Both functions are idempotent - migrations that have already been applied will b
   - [x] [create_partitioned](https://tembo.io/pgmq/api/sql/functions/#create_partitioned)
   - [ ] [show_partitions](https://github.com/pgpartman/pg_partman/blob/development/doc/pg_partman.md#show_partitions)
   - [ ] [run_maintenance](https://github.com/pgpartman/pg_partman/blob/development/doc/pg_partman.md#run_maintenance)
+
+## Nix Build
+
+All packages can be built with Nix via `callCabal2nix`. This provides reproducible builds and makes the packages consumable as flake inputs by other Nix projects.
+
+### Building
+
+```bash
+# Build a specific package
+nix build .#pgmq-core
+nix build .#pgmq-hasql
+nix build .#pgmq-effectful
+nix build .#pgmq-migration
+
+# Build the default package (pgmq-hasql)
+nix build
+```
+
+### Checks
+
+`nix flake check` verifies formatting, pre-commit hooks, library compilation, and test suites:
+
+```bash
+# Run all checks
+nix flake check
+```
+
+Individual checks can be built directly:
+
+```bash
+# Library compilation (no tests)
+nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-core
+nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-hasql
+nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-effectful
+nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-migration
+
+# Test suites (compile + run tests with ephemeral PostgreSQL)
+nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-hasql-tests
+nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-migration-tests
+```
+
+### Development Shell
+
+```bash
+# Enter the dev shell (GHC 9.12.2, cabal, PostgreSQL, HLS)
+nix develop
+
+# Then use cabal as usual
+cabal build all
+cabal test all
+```
+
+### Consuming as a Flake Input
+
+```nix
+{
+  inputs.pgmq-hs.url = "github:topagentnetwork/pgmq-hs";
+
+  outputs = { self, pgmq-hs, ... }: {
+    # Access packages
+    # pgmq-hs.packages.${system}.pgmq-core
+    # pgmq-hs.packages.${system}.pgmq-hasql
+    # pgmq-hs.packages.${system}.pgmq-effectful
+    # pgmq-hs.packages.${system}.pgmq-migration
+  };
+}
+```
