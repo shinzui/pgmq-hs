@@ -51,3 +51,29 @@ clean:
 # Check database status
 db-status:
     pg_isready -h $PGHOST && echo "PostgreSQL is running" || echo "PostgreSQL is not running"
+
+# --- Nix ---
+
+# Build all packages with Nix
+[group("nix")]
+nix-build:
+    nix build .#pgmq-core
+    nix build .#pgmq-hasql
+    nix build .#pgmq-effectful
+    nix build .#pgmq-migration
+
+# Build a specific package with Nix
+[group("nix")]
+nix-build-package PACKAGE:
+    nix build .#{{PACKAGE}}
+
+# Run all Nix checks (formatting, builds, tests)
+[group("nix")]
+nix-check:
+    nix flake check
+
+# Run test suites with Nix (ephemeral PostgreSQL)
+[group("nix")]
+nix-test:
+    nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-hasql-tests
+    nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-migration-tests
