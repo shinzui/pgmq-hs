@@ -17,6 +17,7 @@ module Pgmq.Effectful.Telemetry
     messagingDestinationName,
     messagingMessageId,
     messagingBatchMessageCount,
+    messagingRoutingKey,
     dbSystem,
     dbOperationName,
   )
@@ -99,6 +100,10 @@ messagingMessageId = "messaging.message.id"
 -- | Number of messages in a batch operation.
 messagingBatchMessageCount :: Text
 messagingBatchMessageCount = "messaging.batch.message_count"
+
+-- | The routing key for topic-based message routing.
+messagingRoutingKey :: Text
+messagingRoutingKey = "messaging.destination.routing_key"
 
 -- | The database system.
 -- Value: "postgresql"

@@ -4,6 +4,10 @@ Haskell client for [pgmq](https://github.com/tembo-io/pgmq)
 
 **Requires pgmq 1.10.0+** for full functionality (or use `pgmq-migration` to install the schema without the extension).
 
+> **⚠️ Work in Progress**
+>
+> pgmq-hs is under active development and not yet complete. The API may change significantly before the first stable release. 
+
 ## Packages
 
 | Package | Description |

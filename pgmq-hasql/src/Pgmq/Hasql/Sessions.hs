@@ -39,6 +39,24 @@ module Pgmq.Hasql.Sessions
     -- FIFO index functions (pgmq 1.8.0+)
     createFifoIndex,
     createFifoIndexesAll,
+    -- Topic management (pgmq 1.11.0+)
+    bindTopic,
+    unbindTopic,
+    validateRoutingKey,
+    validateTopicPattern,
+    testRouting,
+    listTopicBindings,
+    listTopicBindingsForQueue,
+    -- Topic sending (pgmq 1.11.0+)
+    sendTopic,
+    sendTopicWithHeaders,
+    batchSendTopic,
+    batchSendTopicForLater,
+    batchSendTopicWithHeaders,
+    batchSendTopicWithHeadersForLater,
+    -- Notification management (pgmq 1.11.0+)
+    listNotifyInsertThrottles,
+    updateNotifyInsert,
   )
 where
 
@@ -46,14 +64,20 @@ import Hasql.Session (Session, statement)
 import Pgmq.Hasql.Prelude
 import Pgmq.Hasql.Statements qualified as Stmt
 import Pgmq.Hasql.Statements.Message qualified as Msg
+import Pgmq.Hasql.Statements.TopicManagement qualified as Topic
 import Pgmq.Hasql.Statements.Types
   ( BatchMessageQuery,
     BatchSendMessage,
     BatchSendMessageForLater,
     BatchSendMessageWithHeaders,
     BatchSendMessageWithHeadersForLater,
+    BatchSendTopic,
+    BatchSendTopicForLater,
+    BatchSendTopicWithHeaders,
+    BatchSendTopicWithHeadersForLater,
     BatchVisibilityTimeoutAtQuery,
     BatchVisibilityTimeoutQuery,
+    BindTopic,
     CreatePartitionedQueue,
     EnableNotifyInsert,
     MessageQuery,
@@ -67,10 +91,25 @@ import Pgmq.Hasql.Statements.Types
     SendMessageForLater,
     SendMessageWithHeaders,
     SendMessageWithHeadersForLater,
+    SendTopic,
+    SendTopicWithHeaders,
+    UnbindTopic,
+    UpdateNotifyInsert,
     VisibilityTimeoutAtQuery,
     VisibilityTimeoutQuery,
   )
-import Pgmq.Types (Message, MessageId, Queue, QueueName)
+import Pgmq.Types
+  ( Message,
+    MessageId,
+    NotifyInsertThrottle,
+    Queue,
+    QueueName,
+    RoutingKey,
+    RoutingMatch,
+    TopicBinding,
+    TopicPattern,
+    TopicSendResult,
+  )
 
 createQueue :: QueueName -> Session ()
 createQueue q = statement q Stmt.createQueue
@@ -196,3 +235,69 @@ createFifoIndex q = statement q Stmt.createFifoIndex
 -- | Create FIFO indexes for all queues (pgmq 1.8.0+)
 createFifoIndexesAll :: Session ()
 createFifoIndexesAll = statement () Stmt.createFifoIndexesAll
+
+-- Topic Management (pgmq 1.11.0+)
+
+-- | Bind a topic pattern to a queue (pgmq 1.11.0+)
+bindTopic :: BindTopic -> Session ()
+bindTopic params = statement params Topic.bindTopic
+
+-- | Unbind a topic pattern from a queue (pgmq 1.11.0+)
+unbindTopic :: UnbindTopic -> Session Bool
+unbindTopic params = statement params Topic.unbindTopic
+
+-- | Validate a routing key (pgmq 1.11.0+)
+validateRoutingKey :: RoutingKey -> Session Bool
+validateRoutingKey key = statement key Topic.validateRoutingKey
+
+-- | Validate a topic pattern (pgmq 1.11.0+)
+validateTopicPattern :: TopicPattern -> Session Bool
+validateTopicPattern pat = statement pat Topic.validateTopicPattern
+
+-- | Test which queues a routing key would match (pgmq 1.11.0+)
+testRouting :: RoutingKey -> Session [RoutingMatch]
+testRouting key = statement key Topic.testRouting
+
+-- | List all topic bindings (pgmq 1.11.0+)
+listTopicBindings :: Session [TopicBinding]
+listTopicBindings = statement () Topic.listTopicBindings
+
+-- | List topic bindings for a specific queue (pgmq 1.11.0+)
+listTopicBindingsForQueue :: QueueName -> Session [TopicBinding]
+listTopicBindingsForQueue q = statement q Topic.listTopicBindingsForQueue
+
+-- Topic Sending (pgmq 1.11.0+)
+
+-- | Send a message via topic routing (pgmq 1.11.0+)
+sendTopic :: SendTopic -> Session Int32
+sendTopic msg = statement msg Msg.sendTopic
+
+-- | Send a message via topic routing with headers (pgmq 1.11.0+)
+sendTopicWithHeaders :: SendTopicWithHeaders -> Session Int32
+sendTopicWithHeaders msg = statement msg Msg.sendTopicWithHeaders
+
+-- | Batch send messages via topic routing (pgmq 1.11.0+)
+batchSendTopic :: BatchSendTopic -> Session [TopicSendResult]
+batchSendTopic msgs = statement msgs Msg.batchSendTopic
+
+-- | Batch send messages via topic routing for later (pgmq 1.11.0+)
+batchSendTopicForLater :: BatchSendTopicForLater -> Session [TopicSendResult]
+batchSendTopicForLater msgs = statement msgs Msg.batchSendTopicForLater
+
+-- | Batch send messages via topic routing with headers (pgmq 1.11.0+)
+batchSendTopicWithHeaders :: BatchSendTopicWithHeaders -> Session [TopicSendResult]
+batchSendTopicWithHeaders msgs = statement msgs Msg.batchSendTopicWithHeaders
+
+-- | Batch send messages via topic routing with headers for later (pgmq 1.11.0+)
+batchSendTopicWithHeadersForLater :: BatchSendTopicWithHeadersForLater -> Session [TopicSendResult]
+batchSendTopicWithHeadersForLater msgs = statement msgs Msg.batchSendTopicWithHeadersForLater
+
+-- Notification Management (pgmq 1.11.0+)
+
+-- | List all notification insert throttle settings (pgmq 1.11.0+)
+listNotifyInsertThrottles :: Session [NotifyInsertThrottle]
+listNotifyInsertThrottles = statement () Stmt.listNotifyInsertThrottles
+
+-- | Update the throttle interval for a queue's insert notifications (pgmq 1.11.0+)
+updateNotifyInsert :: UpdateNotifyInsert -> Session ()
+updateNotifyInsert params = statement params Stmt.updateNotifyInsert

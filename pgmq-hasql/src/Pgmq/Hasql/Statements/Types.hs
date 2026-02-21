@@ -23,12 +23,22 @@ module Pgmq.Hasql.Statements.Types
     -- FIFO read types (pgmq 1.8.0+)
     ReadGrouped (..),
     ReadGroupedWithPoll (..),
+    -- Topic types (pgmq 1.11.0+)
+    BindTopic (..),
+    UnbindTopic (..),
+    SendTopic (..),
+    SendTopicWithHeaders (..),
+    BatchSendTopic (..),
+    BatchSendTopicForLater (..),
+    BatchSendTopicWithHeaders (..),
+    BatchSendTopicWithHeadersForLater (..),
+    UpdateNotifyInsert (..),
   )
 where
 
 import Data.Aeson (Value)
 import Pgmq.Hasql.Prelude
-import Pgmq.Types (MessageBody, MessageHeaders, MessageId, QueueName)
+import Pgmq.Types (MessageBody, MessageHeaders, MessageId, QueueName, RoutingKey, TopicPattern)
 
 type Delay = Int32
 
@@ -216,5 +226,77 @@ data ReadGroupedWithPoll = ReadGroupedWithPoll
     qty :: !Int32,
     maxPollSeconds :: !Int32,
     pollIntervalMs :: !Int32
+  }
+  deriving stock (Generic)
+
+-- | Bind a topic pattern to a queue (pgmq 1.11.0+)
+data BindTopic = BindTopic
+  { topicPattern :: !TopicPattern,
+    queueName :: !QueueName
+  }
+  deriving stock (Generic)
+
+-- | Unbind a topic pattern from a queue (pgmq 1.11.0+)
+data UnbindTopic = UnbindTopic
+  { topicPattern :: !TopicPattern,
+    queueName :: !QueueName
+  }
+  deriving stock (Generic)
+
+-- | Send a message via topic routing (pgmq 1.11.0+)
+data SendTopic = SendTopic
+  { routingKey :: !RoutingKey,
+    messageBody :: !MessageBody,
+    delay :: !(Maybe Delay)
+  }
+  deriving stock (Generic)
+
+-- | Send a message via topic routing with headers (pgmq 1.11.0+)
+data SendTopicWithHeaders = SendTopicWithHeaders
+  { routingKey :: !RoutingKey,
+    messageBody :: !MessageBody,
+    messageHeaders :: !MessageHeaders,
+    delay :: !(Maybe Delay)
+  }
+  deriving stock (Generic)
+
+-- | Batch send messages via topic routing (pgmq 1.11.0+)
+data BatchSendTopic = BatchSendTopic
+  { routingKey :: !RoutingKey,
+    messageBodies :: ![MessageBody],
+    delay :: !(Maybe Delay)
+  }
+  deriving stock (Generic)
+
+-- | Batch send messages via topic routing for later (pgmq 1.11.0+)
+data BatchSendTopicForLater = BatchSendTopicForLater
+  { routingKey :: !RoutingKey,
+    messageBodies :: ![MessageBody],
+    scheduledAt :: !UTCTime
+  }
+  deriving stock (Generic)
+
+-- | Batch send messages via topic routing with headers (pgmq 1.11.0+)
+data BatchSendTopicWithHeaders = BatchSendTopicWithHeaders
+  { routingKey :: !RoutingKey,
+    messageBodies :: ![MessageBody],
+    messageHeaders :: ![MessageHeaders],
+    delay :: !(Maybe Delay)
+  }
+  deriving stock (Generic)
+
+-- | Batch send messages via topic routing with headers for later (pgmq 1.11.0+)
+data BatchSendTopicWithHeadersForLater = BatchSendTopicWithHeadersForLater
+  { routingKey :: !RoutingKey,
+    messageBodies :: ![MessageBody],
+    messageHeaders :: ![MessageHeaders],
+    scheduledAt :: !UTCTime
+  }
+  deriving stock (Generic)
+
+-- | Update notification throttle interval (pgmq 1.11.0+)
+data UpdateNotifyInsert = UpdateNotifyInsert
+  { queueName :: !QueueName,
+    throttleIntervalMs :: !Int32
   }
   deriving stock (Generic)

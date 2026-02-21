@@ -21,7 +21,7 @@
 -- @
 -- import Pgmq.Migration.Migrations (upgradeMigrations)
 --
--- -- Apply only upgrade migrations (v1.9.0 -> v1.10.0, etc.)
+-- -- Apply only upgrade migrations (v1.9.0 -> v1.10.0 -> v1.11.0, etc.)
 -- runMigrations conn upgradeMigrations
 -- @
 --
@@ -36,23 +36,24 @@ module Pgmq.Migration.Migrations
 where
 
 import Hasql.Migration (MigrationCommand (..))
-import Pgmq.Migration.Migrations.V1_10_0 qualified as V1_10_0
+import Pgmq.Migration.Migrations.V1_10_0_to_V1_11_0 qualified as V1_10_0_to_V1_11_0
+import Pgmq.Migration.Migrations.V1_11_0 qualified as V1_11_0
 import Pgmq.Migration.Migrations.V1_9_0_to_V1_10_0 qualified as V1_9_0_to_V1_10_0
 
 -- | Current version of the PGMQ schema
 version :: String
-version = V1_10_0.version
+version = V1_11_0.version
 
 -- | Full migration commands for the current version.
 --
--- Use this for fresh installations. Applies the complete v1.10.0 schema.
+-- Use this for fresh installations. Applies the complete v1.11.0 schema.
 migrations :: [MigrationCommand]
-migrations = V1_10_0.migrations
+migrations = V1_11_0.migrations
 
 -- | Incremental upgrade migrations.
 --
 -- Use this to upgrade existing installations that were set up via this package.
--- Contains only the delta migrations (e.g., v1.9.0 -> v1.10.0).
+-- Contains only the delta migrations (e.g., v1.9.0 -> v1.10.0 -> v1.11.0).
 --
 -- The hasql-migration library will skip migrations that have already been applied,
 -- so this is safe to run on any database regardless of its current version.
@@ -61,3 +62,4 @@ upgradeMigrations =
   [ MigrationInitialization
   ]
     ++ V1_9_0_to_V1_10_0.migrations
+    ++ V1_10_0_to_V1_11_0.migrations

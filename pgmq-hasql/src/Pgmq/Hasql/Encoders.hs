@@ -26,6 +26,18 @@ module Pgmq.Hasql.Encoders
     -- FIFO encoders (pgmq 1.8.0+)
     readGroupedEncoder,
     readGroupedWithPollEncoder,
+    -- Topic encoders (pgmq 1.11.0+)
+    routingKeyValue,
+    topicPatternValue,
+    bindTopicEncoder,
+    unbindTopicEncoder,
+    sendTopicEncoder,
+    sendTopicWithHeadersEncoder,
+    batchSendTopicEncoder,
+    batchSendTopicForLaterEncoder,
+    batchSendTopicWithHeadersEncoder,
+    batchSendTopicWithHeadersForLaterEncoder,
+    updateNotifyInsertEncoder,
   )
 where
 
@@ -38,7 +50,11 @@ import Pgmq.Types
     MessageHeaders (..),
     MessageId (..),
     QueueName,
+    RoutingKey,
+    TopicPattern,
     queueNameToText,
+    routingKeyToText,
+    topicPatternToText,
   )
 
 queueNameEncoder :: E.Params QueueName
@@ -214,3 +230,79 @@ readGroupedWithPollEncoder =
     <> (view #qty >$< E.param (E.nonNullable E.int4))
     <> (view #maxPollSeconds >$< E.param (E.nonNullable E.int4))
     <> (view #pollIntervalMs >$< E.param (E.nonNullable E.int4))
+
+-- Topic encoders (pgmq 1.11.0+)
+
+routingKeyValue :: E.Value RoutingKey
+routingKeyValue = routingKeyToText >$< E.text
+
+topicPatternValue :: E.Value TopicPattern
+topicPatternValue = topicPatternToText >$< E.text
+
+bindTopicEncoder :: E.Params BindTopic
+bindTopicEncoder =
+  (view #topicPattern >$< E.param (E.nonNullable topicPatternValue))
+    <> (view #queueName >$< E.param (E.nonNullable queueNameValue))
+
+unbindTopicEncoder :: E.Params UnbindTopic
+unbindTopicEncoder =
+  (view #topicPattern >$< E.param (E.nonNullable topicPatternValue))
+    <> (view #queueName >$< E.param (E.nonNullable queueNameValue))
+
+-- | Encoder for SendTopic (pgmq 1.11.0+)
+-- SQL: pgmq.send_topic(routing_key, msg, coalesce(delay, 0))
+sendTopicEncoder :: E.Params SendTopic
+sendTopicEncoder =
+  (view #routingKey >$< E.param (E.nonNullable routingKeyValue))
+    <> (view #messageBody >$< E.param (E.nonNullable messageBodyValue))
+    <> (view #delay >$< E.param (E.nullable E.int4))
+
+-- | Encoder for SendTopicWithHeaders (pgmq 1.11.0+)
+-- SQL: pgmq.send_topic(routing_key, msg, headers, coalesce(delay, 0))
+sendTopicWithHeadersEncoder :: E.Params SendTopicWithHeaders
+sendTopicWithHeadersEncoder =
+  (view #routingKey >$< E.param (E.nonNullable routingKeyValue))
+    <> (view #messageBody >$< E.param (E.nonNullable messageBodyValue))
+    <> (view #messageHeaders >$< E.param (E.nonNullable messageHeadersValue))
+    <> (view #delay >$< E.param (E.nullable E.int4))
+
+-- | Encoder for BatchSendTopic (pgmq 1.11.0+)
+-- SQL: pgmq.send_batch_topic(routing_key, msgs[], coalesce(delay, 0))
+batchSendTopicEncoder :: E.Params BatchSendTopic
+batchSendTopicEncoder =
+  (view #routingKey >$< E.param (E.nonNullable routingKeyValue))
+    <> (view #messageBodies >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageBodyValue))))))
+    <> (view #delay >$< E.param (E.nullable E.int4))
+
+-- | Encoder for BatchSendTopicForLater (pgmq 1.11.0+)
+-- SQL: pgmq.send_batch_topic(routing_key, msgs[], timestamp)
+batchSendTopicForLaterEncoder :: E.Params BatchSendTopicForLater
+batchSendTopicForLaterEncoder =
+  (view #routingKey >$< E.param (E.nonNullable routingKeyValue))
+    <> (view #messageBodies >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageBodyValue))))))
+    <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))
+
+-- | Encoder for BatchSendTopicWithHeaders (pgmq 1.11.0+)
+-- SQL: pgmq.send_batch_topic(routing_key, msgs[], headers[], coalesce(delay, 0))
+batchSendTopicWithHeadersEncoder :: E.Params BatchSendTopicWithHeaders
+batchSendTopicWithHeadersEncoder =
+  (view #routingKey >$< E.param (E.nonNullable routingKeyValue))
+    <> (view #messageBodies >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageBodyValue))))))
+    <> (view #messageHeaders >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageHeadersValue))))))
+    <> (view #delay >$< E.param (E.nullable E.int4))
+
+-- | Encoder for BatchSendTopicWithHeadersForLater (pgmq 1.11.0+)
+-- SQL: pgmq.send_batch_topic(routing_key, msgs[], headers[], timestamp)
+batchSendTopicWithHeadersForLaterEncoder :: E.Params BatchSendTopicWithHeadersForLater
+batchSendTopicWithHeadersForLaterEncoder =
+  (view #routingKey >$< E.param (E.nonNullable routingKeyValue))
+    <> (view #messageBodies >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageBodyValue))))))
+    <> (view #messageHeaders >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageHeadersValue))))))
+    <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))
+
+-- | Encoder for UpdateNotifyInsert (pgmq 1.11.0+)
+-- SQL: pgmq.update_notify_insert(queue_name, throttle_interval_ms)
+updateNotifyInsertEncoder :: E.Params UpdateNotifyInsert
+updateNotifyInsertEncoder =
+  (view #queueName >$< E.param (E.nonNullable queueNameValue))
+    <> (view #throttleIntervalMs >$< E.param (E.nonNullable E.int4))

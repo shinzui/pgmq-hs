@@ -45,7 +45,7 @@ tests conn =
         [ testCase "migrate on fresh database succeeds" (testMigrateFresh conn),
           testCase "migrate is idempotent" (testMigrateIdempotent conn),
           testCase "getMigrations returns applied migrations" (testGetMigrations conn),
-          testCase "version is v1.10.0" testVersion
+          testCase "version is v1.11.0" testVersion
         ],
       testGroup
         "upgrade"
@@ -128,7 +128,7 @@ testGetMigrations conn = withCleanDb conn $ \c -> do
 
 testVersion :: IO ()
 testVersion =
-  Migration.version @?= "v1.10.0"
+  Migration.version @?= "v1.11.0"
 
 -- | Helper to run a list of migrations
 runMigrations :: [MigrationCommand] -> Session (Either MigrationError ())

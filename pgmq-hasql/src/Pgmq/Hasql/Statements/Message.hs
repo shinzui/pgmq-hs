@@ -26,18 +26,29 @@ module Pgmq.Hasql.Statements.Message
     -- Round-robin FIFO functions (pgmq 1.9.0+)
     readGroupedRoundRobin,
     readGroupedRoundRobinWithPoll,
+    -- Topic send functions (pgmq 1.11.0+)
+    sendTopic,
+    sendTopicWithHeaders,
+    batchSendTopic,
+    batchSendTopicForLater,
+    batchSendTopicWithHeaders,
+    batchSendTopicWithHeadersForLater,
   )
 where
 
 import Hasql.Decoders qualified as D
 import Hasql.Statement (Statement, preparable)
-import Pgmq.Hasql.Decoders (messageDecoder, messageIdDecoder)
+import Pgmq.Hasql.Decoders (messageDecoder, messageIdDecoder, topicSendResultDecoder)
 import Pgmq.Hasql.Encoders
   ( batchMessageQueryEncoder,
     batchSendMessageEncoder,
     batchSendMessageForLaterEncoder,
     batchSendMessageWithHeadersEncoder,
     batchSendMessageWithHeadersForLaterEncoder,
+    batchSendTopicEncoder,
+    batchSendTopicForLaterEncoder,
+    batchSendTopicWithHeadersEncoder,
+    batchSendTopicWithHeadersForLaterEncoder,
     batchVisibilityTimeoutAtQueryEncoder,
     batchVisibilityTimeoutQueryEncoder,
     messageQueryEncoder,
@@ -51,6 +62,8 @@ import Pgmq.Hasql.Encoders
     sendMessageForLaterEncoder,
     sendMessageWithHeadersEncoder,
     sendMessageWithHeadersForLaterEncoder,
+    sendTopicEncoder,
+    sendTopicWithHeadersEncoder,
     visibilityTimeoutAtQueryEncoder,
     visibilityTimeoutQueryEncoder,
   )
@@ -61,6 +74,10 @@ import Pgmq.Hasql.Statements.Types
     BatchSendMessageForLater,
     BatchSendMessageWithHeaders,
     BatchSendMessageWithHeadersForLater,
+    BatchSendTopic,
+    BatchSendTopicForLater,
+    BatchSendTopicWithHeaders,
+    BatchSendTopicWithHeadersForLater,
     BatchVisibilityTimeoutAtQuery,
     BatchVisibilityTimeoutQuery,
     MessageQuery,
@@ -73,10 +90,12 @@ import Pgmq.Hasql.Statements.Types
     SendMessageForLater,
     SendMessageWithHeaders,
     SendMessageWithHeadersForLater,
+    SendTopic,
+    SendTopicWithHeaders,
     VisibilityTimeoutAtQuery,
     VisibilityTimeoutQuery,
   )
-import Pgmq.Types (Message, MessageId, QueueName)
+import Pgmq.Types (Message, MessageId, QueueName, TopicSendResult)
 
 -- https://tembo.io/pgmq/api/sql/functions/#send
 -- Note: coalesce handles null delay to ensure correct function overload resolution
@@ -270,3 +289,47 @@ readGroupedRoundRobinWithPoll = preparable sql readGroupedWithPollEncoder decode
   where
     sql = "select * from pgmq.read_grouped_rr_with_poll($1,$2,$3,$4,$5)"
     decoder = D.rowVector messageDecoder
+
+-- | Send a message via topic routing (pgmq 1.11.0+)
+-- Returns the count of queues the message was delivered to.
+sendTopic :: Statement SendTopic Int32
+sendTopic = preparable sql sendTopicEncoder decoder
+  where
+    sql = "select pgmq.send_topic($1, $2, coalesce($3, 0))"
+    decoder = D.singleRow (D.column (D.nonNullable D.int4))
+
+-- | Send a message via topic routing with headers (pgmq 1.11.0+)
+-- Returns the count of queues the message was delivered to.
+sendTopicWithHeaders :: Statement SendTopicWithHeaders Int32
+sendTopicWithHeaders = preparable sql sendTopicWithHeadersEncoder decoder
+  where
+    sql = "select pgmq.send_topic($1, $2, $3, coalesce($4, 0))"
+    decoder = D.singleRow (D.column (D.nonNullable D.int4))
+
+-- | Batch send messages via topic routing (pgmq 1.11.0+)
+batchSendTopic :: Statement BatchSendTopic [TopicSendResult]
+batchSendTopic = preparable sql batchSendTopicEncoder decoder
+  where
+    sql = "select * from pgmq.send_batch_topic($1, $2::jsonb[], coalesce($3, 0))"
+    decoder = D.rowList topicSendResultDecoder
+
+-- | Batch send messages via topic routing for later (pgmq 1.11.0+)
+batchSendTopicForLater :: Statement BatchSendTopicForLater [TopicSendResult]
+batchSendTopicForLater = preparable sql batchSendTopicForLaterEncoder decoder
+  where
+    sql = "select * from pgmq.send_batch_topic($1, $2::jsonb[], $3)"
+    decoder = D.rowList topicSendResultDecoder
+
+-- | Batch send messages via topic routing with headers (pgmq 1.11.0+)
+batchSendTopicWithHeaders :: Statement BatchSendTopicWithHeaders [TopicSendResult]
+batchSendTopicWithHeaders = preparable sql batchSendTopicWithHeadersEncoder decoder
+  where
+    sql = "select * from pgmq.send_batch_topic($1, $2::jsonb[], $3::jsonb[], coalesce($4, 0))"
+    decoder = D.rowList topicSendResultDecoder
+
+-- | Batch send messages via topic routing with headers for later (pgmq 1.11.0+)
+batchSendTopicWithHeadersForLater :: Statement BatchSendTopicWithHeadersForLater [TopicSendResult]
+batchSendTopicWithHeadersForLater = preparable sql batchSendTopicWithHeadersForLaterEncoder decoder
+  where
+    sql = "select * from pgmq.send_batch_topic($1, $2::jsonb[], $3::jsonb[], $4)"
+    decoder = D.rowList topicSendResultDecoder

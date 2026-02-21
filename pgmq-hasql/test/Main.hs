@@ -11,6 +11,7 @@ import QueueSpec qualified
 import RoundTripSpec qualified
 import SchemaSpec qualified
 import Test.Tasty (defaultMain, testGroup)
+import TopicSpec qualified
 
 main :: IO ()
 main = do
@@ -25,7 +26,8 @@ main = do
               SchemaSpec.tests pool,
               RoundTripSpec.tests pool,
               DecoderValidationSpec.tests pool,
-              AllFunctionsDecoderSpec.tests pool
+              AllFunctionsDecoderSpec.tests pool,
+              TopicSpec.tests pool
             ]
     defaultMain tree
   case result of

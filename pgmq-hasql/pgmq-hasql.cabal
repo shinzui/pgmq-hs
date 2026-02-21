@@ -6,8 +6,8 @@ description:
   A Haskell client library for PGMQ (PostgreSQL Message Queue) built
   on hasql. Provides queue management, message sending\/receiving,
   visibility timeout, archival, FIFO reads, and more. Supports
-  pgmq 1.5.0 through 1.10.0 features including message headers,
-  conditional reads, notifications, and round-robin FIFO.
+  pgmq 1.5.0 through 1.11.0 features including message headers,
+  conditional reads, notifications, round-robin FIFO, and topic routing.
 
 homepage:        https://github.com/topagentnetwork/pgmq-hs
 license:         MIT
@@ -38,6 +38,7 @@ library
     Pgmq.Hasql.Statements.Message
     Pgmq.Hasql.Statements.QueueManagement
     Pgmq.Hasql.Statements.QueueObservability
+    Pgmq.Hasql.Statements.TopicManagement
     Pgmq.Hasql.Statements.Types
 
   default-extensions:
@@ -84,6 +85,7 @@ test-suite pgmq-hasql-test
     RoundTripSpec
     SchemaSpec
     TestUtils
+    TopicSpec
 
   default-extensions:
     ImportQualifiedPost

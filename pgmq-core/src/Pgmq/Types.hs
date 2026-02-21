@@ -10,12 +10,24 @@ module Pgmq.Types
     parseQueueName,
     queueNameToText,
     PgmqError (..),
+
+    -- * Topic Routing (pgmq 1.11.0+)
+    RoutingKey,
+    parseRoutingKey,
+    routingKeyToText,
+    TopicPattern,
+    parseTopicPattern,
+    topicPatternToText,
+    TopicBinding (..),
+    RoutingMatch (..),
+    TopicSendResult (..),
+    NotifyInsertThrottle (..),
   )
 where
 
 import Data.Aeson (FromJSON, ToJSON, Value)
 import Data.Char (isAlphaNum, isAscii)
-import Data.Int (Int64)
+import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (UTCTime)
@@ -69,7 +81,10 @@ instance Lift QueueName where
 queueNameToText :: QueueName -> Text
 queueNameToText (QueueName t) = t
 
-newtype PgmqError = InvalidQueueName Text
+data PgmqError
+  = InvalidQueueName Text
+  | InvalidRoutingKey Text
+  | InvalidTopicPattern Text
   deriving stock (Show, Generic)
 
 -- Adopted from https://github.com/tembo-io/pgmq/blob/e4d4b84bf302df77be2d1f877c5cf8ef8861bfc7/pgmq-rs/src/util.rs#L94
@@ -88,3 +103,69 @@ parseQueueName t
     maxIdentifierLength = 63 -- PostgreSQL truncates beyond this length
     longestPrefix :: Text = "archived_at_idx_"
     maxQueueNameLength = maxIdentifierLength - T.length longestPrefix
+
+-- | A validated routing key for topic-based message routing (pgmq 1.11.0+)
+-- Routing keys are dot-separated segments of alphanumeric characters, hyphens,
+-- and underscores. Max 255 characters. No wildcards allowed.
+newtype RoutingKey = RoutingKey Text
+  deriving newtype (Eq, Ord, FromJSON, ToJSON)
+  deriving stock (Show, Generic)
+
+parseRoutingKey :: Text -> Either PgmqError RoutingKey
+parseRoutingKey t
+  | T.null t = Left $ InvalidRoutingKey "Routing key cannot be empty."
+  | T.length t > 255 = Left $ InvalidRoutingKey "Routing key exceeds 255 characters."
+  | not (T.all isValidChar t) = Left $ InvalidRoutingKey "Routing key contains invalid characters."
+  | otherwise = Right $ RoutingKey t
+  where
+    isValidChar c = (isAscii c && isAlphaNum c) || c == '.' || c == '-' || c == '_'
+
+routingKeyToText :: RoutingKey -> Text
+routingKeyToText (RoutingKey t) = t
+
+-- | A topic pattern for binding to queues (pgmq 1.11.0+)
+-- Patterns support wildcards: '*' matches one segment, '#' matches zero or more.
+newtype TopicPattern = TopicPattern Text
+  deriving newtype (Eq, Ord, FromJSON, ToJSON)
+  deriving stock (Show, Generic)
+
+parseTopicPattern :: Text -> Either PgmqError TopicPattern
+parseTopicPattern t
+  | T.null t = Left $ InvalidTopicPattern "Topic pattern cannot be empty."
+  | T.length t > 255 = Left $ InvalidTopicPattern "Topic pattern exceeds 255 characters."
+  | otherwise = Right $ TopicPattern t
+
+topicPatternToText :: TopicPattern -> Text
+topicPatternToText (TopicPattern t) = t
+
+-- | A topic binding record returned by list_topic_bindings (pgmq 1.11.0+)
+data TopicBinding = TopicBinding
+  { bindingPattern :: !TopicPattern,
+    bindingQueueName :: !Text,
+    bindingBoundAt :: !UTCTime,
+    bindingCompiledRegex :: !Text
+  }
+  deriving stock (Eq, Generic, Show)
+
+-- | A routing match result from test_routing (pgmq 1.11.0+)
+data RoutingMatch = RoutingMatch
+  { matchPattern :: !TopicPattern,
+    matchQueueName :: !Text,
+    matchCompiledRegex :: !Text
+  }
+  deriving stock (Eq, Generic, Show)
+
+-- | Result row from send_batch_topic (pgmq 1.11.0+)
+data TopicSendResult = TopicSendResult
+  { sentToQueue :: !Text,
+    sentMessageId :: !MessageId
+  }
+  deriving stock (Eq, Generic, Show)
+
+-- | Notification throttle settings returned by list_notify_insert_throttles (pgmq 1.11.0+)
+data NotifyInsertThrottle = NotifyInsertThrottle
+  { throttleQueueName :: !Text,
+    throttleIntervalMs :: !Int32,
+    throttleLastNotifiedAt :: !UTCTime
+  }
+  deriving stock (Eq, Generic, Show)

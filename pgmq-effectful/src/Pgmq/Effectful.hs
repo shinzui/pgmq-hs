@@ -56,6 +56,29 @@ module Pgmq.Effectful
     readWithPoll,
     pop,
 
+    -- * Topic Routing (pgmq 1.11.0+)
+
+    -- ** Topic Management
+    bindTopic,
+    unbindTopic,
+    validateRoutingKey,
+    validateTopicPattern,
+    testRouting,
+    listTopicBindings,
+    listTopicBindingsForQueue,
+
+    -- ** Topic Sending
+    sendTopic,
+    sendTopicWithHeaders,
+    batchSendTopic,
+    batchSendTopicForLater,
+    batchSendTopicWithHeaders,
+    batchSendTopicWithHeadersForLater,
+
+    -- ** Notification Management
+    listNotifyInsertThrottles,
+    updateNotifyInsert,
+
     -- * Queue Observability
     listQueues,
     queueMetrics,
@@ -89,6 +112,27 @@ module Pgmq.Effectful
     CreatePartitionedQueue (..),
     QueueMetrics (..),
 
+    -- ** Topic types (pgmq 1.11.0+)
+    RoutingKey,
+    parseRoutingKey,
+    routingKeyToText,
+    TopicPattern,
+    parseTopicPattern,
+    topicPatternToText,
+    TopicBinding (..),
+    RoutingMatch (..),
+    TopicSendResult (..),
+    NotifyInsertThrottle (..),
+    BindTopic (..),
+    UnbindTopic (..),
+    SendTopic (..),
+    SendTopicWithHeaders (..),
+    BatchSendTopic (..),
+    BatchSendTopicForLater (..),
+    BatchSendTopicWithHeaders (..),
+    BatchSendTopicWithHeadersForLater (..),
+    UpdateNotifyInsert (..),
+
     -- * Queue Name Utilities
     parseQueueName,
     queueNameToText,
@@ -106,6 +150,11 @@ import Pgmq.Effectful.Effect
     batchSendMessageForLater,
     batchSendMessageWithHeaders,
     batchSendMessageWithHeadersForLater,
+    batchSendTopic,
+    batchSendTopicForLater,
+    batchSendTopicWithHeaders,
+    batchSendTopicWithHeadersForLater,
+    bindTopic,
     changeVisibilityTimeout,
     createPartitionedQueue,
     createQueue,
@@ -116,7 +165,10 @@ import Pgmq.Effectful.Effect
     disableNotifyInsert,
     dropQueue,
     enableNotifyInsert,
+    listNotifyInsertThrottles,
     listQueues,
+    listTopicBindings,
+    listTopicBindingsForQueue,
     pop,
     queueMetrics,
     readMessage,
@@ -125,6 +177,13 @@ import Pgmq.Effectful.Effect
     sendMessageForLater,
     sendMessageWithHeaders,
     sendMessageWithHeadersForLater,
+    sendTopic,
+    sendTopicWithHeaders,
+    testRouting,
+    unbindTopic,
+    updateNotifyInsert,
+    validateRoutingKey,
+    validateTopicPattern,
   )
 import Pgmq.Effectful.Interpreter (PgmqError (..), runPgmq)
 import Pgmq.Effectful.Interpreter.Traced
@@ -150,7 +209,12 @@ import Pgmq.Hasql.Statements.Types
     BatchSendMessageForLater (..),
     BatchSendMessageWithHeaders (..),
     BatchSendMessageWithHeadersForLater (..),
+    BatchSendTopic (..),
+    BatchSendTopicForLater (..),
+    BatchSendTopicWithHeaders (..),
+    BatchSendTopicWithHeadersForLater (..),
     BatchVisibilityTimeoutQuery (..),
+    BindTopic (..),
     CreatePartitionedQueue (..),
     EnableNotifyInsert (..),
     MessageQuery (..),
@@ -162,6 +226,10 @@ import Pgmq.Hasql.Statements.Types
     SendMessageForLater (..),
     SendMessageWithHeaders (..),
     SendMessageWithHeadersForLater (..),
+    SendTopic (..),
+    SendTopicWithHeaders (..),
+    UnbindTopic (..),
+    UpdateNotifyInsert (..),
     VisibilityTimeoutQuery (..),
   )
 import Pgmq.Types
@@ -169,8 +237,18 @@ import Pgmq.Types
     MessageBody (..),
     MessageHeaders (..),
     MessageId (..),
+    NotifyInsertThrottle (..),
     Queue (..),
     QueueName,
+    RoutingKey,
+    RoutingMatch (..),
+    TopicBinding (..),
+    TopicPattern,
+    TopicSendResult (..),
     parseQueueName,
+    parseRoutingKey,
+    parseTopicPattern,
     queueNameToText,
+    routingKeyToText,
+    topicPatternToText,
   )

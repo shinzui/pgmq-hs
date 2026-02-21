@@ -9,15 +9,19 @@ module Pgmq.Hasql.Statements.QueueManagement
     -- FIFO index functions (pgmq 1.8.0+)
     createFifoIndex,
     createFifoIndexesAll,
+    -- Notification management (pgmq 1.11.0+)
+    listNotifyInsertThrottles,
+    updateNotifyInsert,
   )
 where
 
 import Hasql.Decoders qualified as D
 import Hasql.Encoders qualified as E
 import Hasql.Statement (Statement, preparable)
-import Pgmq.Hasql.Encoders (createPartitionedQueueEncoder, enableNotifyInsertEncoder, queueNameEncoder)
-import Pgmq.Hasql.Statements.Types (CreatePartitionedQueue, EnableNotifyInsert)
-import Pgmq.Types (QueueName)
+import Pgmq.Hasql.Decoders (notifyInsertThrottleDecoder)
+import Pgmq.Hasql.Encoders (createPartitionedQueueEncoder, enableNotifyInsertEncoder, queueNameEncoder, updateNotifyInsertEncoder)
+import Pgmq.Hasql.Statements.Types (CreatePartitionedQueue, EnableNotifyInsert, UpdateNotifyInsert)
+import Pgmq.Types (NotifyInsertThrottle, QueueName)
 
 -- https://tembo.io/pgmq/api/sql/functions/#create
 createQueue :: Statement QueueName ()
@@ -76,3 +80,16 @@ createFifoIndexesAll :: Statement () ()
 createFifoIndexesAll = preparable sql E.noParams D.noResult
   where
     sql = "select from pgmq.create_fifo_indexes_all()"
+
+-- | List all notification insert throttle settings (pgmq 1.11.0+)
+listNotifyInsertThrottles :: Statement () [NotifyInsertThrottle]
+listNotifyInsertThrottles = preparable sql E.noParams decoder
+  where
+    sql = "select * from pgmq.list_notify_insert_throttles()"
+    decoder = D.rowList notifyInsertThrottleDecoder
+
+-- | Update the throttle interval for a queue's insert notifications (pgmq 1.11.0+)
+updateNotifyInsert :: Statement UpdateNotifyInsert ()
+updateNotifyInsert = preparable sql updateNotifyInsertEncoder D.noResult
+  where
+    sql = "select from pgmq.update_notify_insert($1, $2)"

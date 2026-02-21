@@ -51,6 +51,29 @@ module Pgmq.Effectful.Effect
     readGroupedRoundRobin,
     readGroupedRoundRobinWithPoll,
 
+    -- * Topic Routing (pgmq 1.11.0+)
+
+    -- ** Topic Management
+    bindTopic,
+    unbindTopic,
+    validateRoutingKey,
+    validateTopicPattern,
+    testRouting,
+    listTopicBindings,
+    listTopicBindingsForQueue,
+
+    -- ** Topic Sending
+    sendTopic,
+    sendTopicWithHeaders,
+    batchSendTopic,
+    batchSendTopicForLater,
+    batchSendTopicWithHeaders,
+    batchSendTopicWithHeadersForLater,
+
+    -- ** Notification Management
+    listNotifyInsertThrottles,
+    updateNotifyInsert,
+
     -- * Queue Observability
     listQueues,
     queueMetrics,
@@ -58,7 +81,7 @@ module Pgmq.Effectful.Effect
   )
 where
 
-import Data.Int (Int64)
+import Data.Int (Int32, Int64)
 import Data.Vector (Vector)
 import Effectful (Dispatch (..), DispatchOf, Eff, Effect, (:>))
 import Effectful.Dispatch.Dynamic (send)
@@ -68,8 +91,13 @@ import Pgmq.Hasql.Statements.Types
     BatchSendMessageForLater,
     BatchSendMessageWithHeaders,
     BatchSendMessageWithHeadersForLater,
+    BatchSendTopic,
+    BatchSendTopicForLater,
+    BatchSendTopicWithHeaders,
+    BatchSendTopicWithHeadersForLater,
     BatchVisibilityTimeoutAtQuery,
     BatchVisibilityTimeoutQuery,
+    BindTopic,
     CreatePartitionedQueue,
     EnableNotifyInsert,
     MessageQuery,
@@ -83,10 +111,25 @@ import Pgmq.Hasql.Statements.Types
     SendMessageForLater,
     SendMessageWithHeaders,
     SendMessageWithHeadersForLater,
+    SendTopic,
+    SendTopicWithHeaders,
+    UnbindTopic,
+    UpdateNotifyInsert,
     VisibilityTimeoutAtQuery,
     VisibilityTimeoutQuery,
   )
-import Pgmq.Types (Message, MessageId, Queue, QueueName)
+import Pgmq.Types
+  ( Message,
+    MessageId,
+    NotifyInsertThrottle,
+    Queue,
+    QueueName,
+    RoutingKey,
+    RoutingMatch,
+    TopicBinding,
+    TopicPattern,
+    TopicSendResult,
+  )
 
 -- | Effect for pgmq message queue operations.
 data Pgmq :: Effect where
@@ -128,6 +171,24 @@ data Pgmq :: Effect where
   -- Round-robin FIFO Read (pgmq 1.9.0+)
   ReadGroupedRoundRobin :: ReadGrouped -> Pgmq m (Vector Message)
   ReadGroupedRoundRobinWithPoll :: ReadGroupedWithPoll -> Pgmq m (Vector Message)
+  -- Topic Management (pgmq 1.11.0+)
+  BindTopic :: BindTopic -> Pgmq m ()
+  UnbindTopic :: UnbindTopic -> Pgmq m Bool
+  ValidateRoutingKey :: RoutingKey -> Pgmq m Bool
+  ValidateTopicPattern :: TopicPattern -> Pgmq m Bool
+  TestRouting :: RoutingKey -> Pgmq m [RoutingMatch]
+  ListTopicBindings :: Pgmq m [TopicBinding]
+  ListTopicBindingsForQueue :: QueueName -> Pgmq m [TopicBinding]
+  -- Topic Sending (pgmq 1.11.0+)
+  SendTopic :: SendTopic -> Pgmq m Int32
+  SendTopicWithHeaders :: SendTopicWithHeaders -> Pgmq m Int32
+  BatchSendTopic :: BatchSendTopic -> Pgmq m [TopicSendResult]
+  BatchSendTopicForLater :: BatchSendTopicForLater -> Pgmq m [TopicSendResult]
+  BatchSendTopicWithHeaders :: BatchSendTopicWithHeaders -> Pgmq m [TopicSendResult]
+  BatchSendTopicWithHeadersForLater :: BatchSendTopicWithHeadersForLater -> Pgmq m [TopicSendResult]
+  -- Notification Management (pgmq 1.11.0+)
+  ListNotifyInsertThrottles :: Pgmq m [NotifyInsertThrottle]
+  UpdateNotifyInsert :: UpdateNotifyInsert -> Pgmq m ()
   -- Queue Observability
   ListQueues :: Pgmq m [Queue]
   QueueMetrics :: QueueName -> Pgmq m QueueMetrics
@@ -248,6 +309,72 @@ readGroupedRoundRobin = send . ReadGroupedRoundRobin
 -- | Round-robin FIFO read with polling (pgmq 1.9.0+)
 readGroupedRoundRobinWithPoll :: (Pgmq :> es) => ReadGroupedWithPoll -> Eff es (Vector Message)
 readGroupedRoundRobinWithPoll = send . ReadGroupedRoundRobinWithPoll
+
+-- Topic Management (pgmq 1.11.0+)
+
+-- | Bind a topic pattern to a queue (pgmq 1.11.0+)
+bindTopic :: (Pgmq :> es) => BindTopic -> Eff es ()
+bindTopic = send . BindTopic
+
+-- | Unbind a topic pattern from a queue (pgmq 1.11.0+)
+unbindTopic :: (Pgmq :> es) => UnbindTopic -> Eff es Bool
+unbindTopic = send . UnbindTopic
+
+-- | Validate a routing key (pgmq 1.11.0+)
+validateRoutingKey :: (Pgmq :> es) => RoutingKey -> Eff es Bool
+validateRoutingKey = send . ValidateRoutingKey
+
+-- | Validate a topic pattern (pgmq 1.11.0+)
+validateTopicPattern :: (Pgmq :> es) => TopicPattern -> Eff es Bool
+validateTopicPattern = send . ValidateTopicPattern
+
+-- | Test which queues a routing key would match (pgmq 1.11.0+)
+testRouting :: (Pgmq :> es) => RoutingKey -> Eff es [RoutingMatch]
+testRouting = send . TestRouting
+
+-- | List all topic bindings (pgmq 1.11.0+)
+listTopicBindings :: (Pgmq :> es) => Eff es [TopicBinding]
+listTopicBindings = send ListTopicBindings
+
+-- | List topic bindings for a specific queue (pgmq 1.11.0+)
+listTopicBindingsForQueue :: (Pgmq :> es) => QueueName -> Eff es [TopicBinding]
+listTopicBindingsForQueue = send . ListTopicBindingsForQueue
+
+-- Topic Sending (pgmq 1.11.0+)
+
+-- | Send a message via topic routing (pgmq 1.11.0+)
+sendTopic :: (Pgmq :> es) => SendTopic -> Eff es Int32
+sendTopic = send . SendTopic
+
+-- | Send a message via topic routing with headers (pgmq 1.11.0+)
+sendTopicWithHeaders :: (Pgmq :> es) => SendTopicWithHeaders -> Eff es Int32
+sendTopicWithHeaders = send . SendTopicWithHeaders
+
+-- | Batch send messages via topic routing (pgmq 1.11.0+)
+batchSendTopic :: (Pgmq :> es) => BatchSendTopic -> Eff es [TopicSendResult]
+batchSendTopic = send . BatchSendTopic
+
+-- | Batch send messages via topic routing for later (pgmq 1.11.0+)
+batchSendTopicForLater :: (Pgmq :> es) => BatchSendTopicForLater -> Eff es [TopicSendResult]
+batchSendTopicForLater = send . BatchSendTopicForLater
+
+-- | Batch send messages via topic routing with headers (pgmq 1.11.0+)
+batchSendTopicWithHeaders :: (Pgmq :> es) => BatchSendTopicWithHeaders -> Eff es [TopicSendResult]
+batchSendTopicWithHeaders = send . BatchSendTopicWithHeaders
+
+-- | Batch send messages via topic routing with headers for later (pgmq 1.11.0+)
+batchSendTopicWithHeadersForLater :: (Pgmq :> es) => BatchSendTopicWithHeadersForLater -> Eff es [TopicSendResult]
+batchSendTopicWithHeadersForLater = send . BatchSendTopicWithHeadersForLater
+
+-- Notification Management (pgmq 1.11.0+)
+
+-- | List all notification insert throttle settings (pgmq 1.11.0+)
+listNotifyInsertThrottles :: (Pgmq :> es) => Eff es [NotifyInsertThrottle]
+listNotifyInsertThrottles = send ListNotifyInsertThrottles
+
+-- | Update the throttle interval for a queue's insert notifications (pgmq 1.11.0+)
+updateNotifyInsert :: (Pgmq :> es) => UpdateNotifyInsert -> Eff es ()
+updateNotifyInsert = send . UpdateNotifyInsert
 
 -- Queue Observability
 

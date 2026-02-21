@@ -55,7 +55,7 @@ import Pgmq.Effectful.Effect (Pgmq (..))
 import Pgmq.Effectful.Telemetry
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types qualified as Types
-import Pgmq.Types (MessageId (..), QueueName, queueNameToText)
+import Pgmq.Types (MessageId (..), QueueName, RoutingKey, queueNameToText, routingKeyToText)
 
 -- | Configuration for OpenTelemetry tracing.
 data TracingConfig = TracingConfig
@@ -198,6 +198,54 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
   BatchSetVisibilityTimeoutAt query@(Types.BatchVisibilityTimeoutAtQuery qn msgIds _) ->
     withTracedSessionWithCount config "pgmq set_vt_at_batch" OTel.Internal qn (length msgIds) pool $
       Sessions.batchSetVisibilityTimeoutAt query
+  -- Topic Management (Internal spans, pgmq 1.11.0+)
+  BindTopic params@(Types.BindTopic _ qn) ->
+    withTracedSession config "pgmq bind_topic" OTel.Internal qn pool $
+      Sessions.bindTopic params
+  UnbindTopic params@(Types.UnbindTopic _ qn) ->
+    withTracedSession config "pgmq unbind_topic" OTel.Internal qn pool $
+      Sessions.unbindTopic params
+  ValidateRoutingKey key ->
+    withTracedSessionWithRoutingKey config "pgmq validate_routing_key" OTel.Internal key pool $
+      Sessions.validateRoutingKey key
+  ValidateTopicPattern _pat ->
+    withTracedSessionNoQueue config "pgmq validate_topic_pattern" OTel.Internal pool $
+      Sessions.validateTopicPattern _pat
+  TestRouting key ->
+    withTracedSessionWithRoutingKey config "pgmq test_routing" OTel.Internal key pool $
+      Sessions.testRouting key
+  ListTopicBindings ->
+    withTracedSessionNoQueue config "pgmq list_topic_bindings" OTel.Internal pool $
+      Sessions.listTopicBindings
+  ListTopicBindingsForQueue q ->
+    withTracedSession config "pgmq list_topic_bindings" OTel.Internal q pool $
+      Sessions.listTopicBindingsForQueue q
+  -- Topic Sending (Producer spans, pgmq 1.11.0+)
+  SendTopic msg@(Types.SendTopic rk _ _) ->
+    withTracedSessionWithRoutingKey config "pgmq send_topic" OTel.Producer rk pool $
+      Sessions.sendTopic msg
+  SendTopicWithHeaders msg@(Types.SendTopicWithHeaders rk _ _ _) ->
+    withTracedSessionWithRoutingKey config "pgmq send_topic" OTel.Producer rk pool $
+      Sessions.sendTopicWithHeaders msg
+  BatchSendTopic msg@(Types.BatchSendTopic rk bodies _) ->
+    withTracedSessionWithRoutingKeyAndCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+      Sessions.batchSendTopic msg
+  BatchSendTopicForLater msg@(Types.BatchSendTopicForLater rk bodies _) ->
+    withTracedSessionWithRoutingKeyAndCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+      Sessions.batchSendTopicForLater msg
+  BatchSendTopicWithHeaders msg@(Types.BatchSendTopicWithHeaders rk bodies _ _) ->
+    withTracedSessionWithRoutingKeyAndCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+      Sessions.batchSendTopicWithHeaders msg
+  BatchSendTopicWithHeadersForLater msg@(Types.BatchSendTopicWithHeadersForLater rk bodies _ _) ->
+    withTracedSessionWithRoutingKeyAndCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+      Sessions.batchSendTopicWithHeadersForLater msg
+  -- Notification Management (Internal spans, pgmq 1.11.0+)
+  ListNotifyInsertThrottles ->
+    withTracedSessionNoQueue config "pgmq list_notify_insert_throttles" OTel.Internal pool $
+      Sessions.listNotifyInsertThrottles
+  UpdateNotifyInsert params@(Types.UpdateNotifyInsert qn _) ->
+    withTracedSession config "pgmq update_notify_insert" OTel.Internal qn pool $
+      Sessions.updateNotifyInsert params
   -- Queue Observability (Internal spans)
   ListQueues ->
     withTracedSessionNoQueue config "pgmq list_queues" OTel.Internal pool $
@@ -321,3 +369,41 @@ addMessageIdAttribute s (MessageId msgId) =
 addBatchCountAttribute :: OTel.Span -> Int -> IO ()
 addBatchCountAttribute s count =
   OTel.addAttribute s messagingBatchMessageCount count
+
+addRoutingKeyAttribute :: OTel.Span -> RoutingKey -> IO ()
+addRoutingKeyAttribute s rk =
+  OTel.addAttribute s messagingRoutingKey (routingKeyToText rk)
+
+withTracedSessionWithRoutingKey ::
+  (IOE :> es) =>
+  TracingConfig ->
+  Text ->
+  OTel.SpanKind ->
+  RoutingKey ->
+  Pool ->
+  Hasql.Session.Session a ->
+  Eff es a
+withTracedSessionWithRoutingKey config spanName kind routingKey pool session = do
+  let args = OTel.defaultSpanArguments {OTel.kind = kind}
+  Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
+    addBaseAttributes s
+    addRoutingKeyAttribute s routingKey
+    runSessionIO config s pool session
+
+withTracedSessionWithRoutingKeyAndCount ::
+  (IOE :> es) =>
+  TracingConfig ->
+  Text ->
+  OTel.SpanKind ->
+  RoutingKey ->
+  Int ->
+  Pool ->
+  Hasql.Session.Session a ->
+  Eff es a
+withTracedSessionWithRoutingKeyAndCount config spanName kind routingKey count pool session = do
+  let args = OTel.defaultSpanArguments {OTel.kind = kind}
+  Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
+    addBaseAttributes s
+    addRoutingKeyAttribute s routingKey
+    addBatchCountAttribute s count
+    runSessionIO config s pool session

@@ -67,6 +67,24 @@ runPgmq pool = interpret $ \_ -> \case
   -- Round-robin FIFO Read (pgmq 1.9.0+)
   ReadGroupedRoundRobin query -> runSession pool $ Sessions.readGroupedRoundRobin query
   ReadGroupedRoundRobinWithPoll query -> runSession pool $ Sessions.readGroupedRoundRobinWithPoll query
+  -- Topic Management (pgmq 1.11.0+)
+  BindTopic params -> runSession pool $ Sessions.bindTopic params
+  UnbindTopic params -> runSession pool $ Sessions.unbindTopic params
+  ValidateRoutingKey key -> runSession pool $ Sessions.validateRoutingKey key
+  ValidateTopicPattern pat -> runSession pool $ Sessions.validateTopicPattern pat
+  TestRouting key -> runSession pool $ Sessions.testRouting key
+  ListTopicBindings -> runSession pool Sessions.listTopicBindings
+  ListTopicBindingsForQueue q -> runSession pool $ Sessions.listTopicBindingsForQueue q
+  -- Topic Sending (pgmq 1.11.0+)
+  SendTopic msg -> runSession pool $ Sessions.sendTopic msg
+  SendTopicWithHeaders msg -> runSession pool $ Sessions.sendTopicWithHeaders msg
+  BatchSendTopic msgs -> runSession pool $ Sessions.batchSendTopic msgs
+  BatchSendTopicForLater msgs -> runSession pool $ Sessions.batchSendTopicForLater msgs
+  BatchSendTopicWithHeaders msgs -> runSession pool $ Sessions.batchSendTopicWithHeaders msgs
+  BatchSendTopicWithHeadersForLater msgs -> runSession pool $ Sessions.batchSendTopicWithHeadersForLater msgs
+  -- Notification Management (pgmq 1.11.0+)
+  ListNotifyInsertThrottles -> runSession pool Sessions.listNotifyInsertThrottles
+  UpdateNotifyInsert params -> runSession pool $ Sessions.updateNotifyInsert params
   -- Queue Observability
   ListQueues -> runSession pool Sessions.listQueues
   QueueMetrics q -> runSession pool $ Sessions.queueMetrics q
