@@ -57,13 +57,13 @@ This provides GHC 9.12.2, cabal-install, PostgreSQL, and haskell-language-server
 
 ## Testing
 
-Tests use `tmp-postgres` to spin up temporary PostgreSQL instances. No external database setup is required.
+Tests use `ephemeral-pg` to spin up temporary PostgreSQL instances. No external database setup is required.
 
 ## Adding New pgmq Functions
 
 1. Add the SQL statement to `pgmq-hasql/src/Pgmq/Hasql/Statements.hs`
 2. Add the session wrapper to `pgmq-hasql/src/Pgmq/Hasql/Sessions.hs`
-3. Export from `pgmq-hasql/src/Pgmq/Hasql.hs`
+3. Export from `pgmq-hasql/src/Pgmq.hs`
 4. Add corresponding types to `pgmq-core` if needed
 5. Update the effectful wrapper in `pgmq-effectful` if needed
 
