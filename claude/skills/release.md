@@ -1,18 +1,22 @@
 ---
 name: release
-description: Release changed packages to Hackage following PVP
-argument-hint: "[major|minor|patch] [--all] [--package=PKG]"
+description: Release all packages to Hackage following PVP
+argument-hint: "[major|minor|patch]"
 disable-model-invocation: true
 allowed-tools: Read, Bash, Edit, Glob, Grep, Write, AskUserQuestion
 ---
 
 # Multi-Package Release Skill
 
-Release changed packages from this multi-package repository to Hackage.
+Release all packages from this multi-package repository to Hackage using a single shared version.
+
+## Versioning Strategy
+
+All packages share the **same version number** and are released together. A single git tag `v<version>` marks each release.
 
 ## Packages (in dependency order)
 
-The packages MUST be released in this order due to inter-package dependencies:
+The packages MUST be published in this order due to inter-package dependencies:
 
 1. **pgmq-core** — core types (no internal deps)
 2. **pgmq-hasql** — hasql implementation (depends on pgmq-core)
@@ -23,78 +27,61 @@ The packages MUST be released in this order due to inter-package dependencies:
 
 ## Arguments
 
-`$ARGUMENTS` is optional and supports:
-- `major`, `minor`, or `patch` — applies the same bump level to ALL changed packages
-- `--all` — release all packages regardless of changes
-- `--package=PKG` — release only the specified package (e.g., `--package=pgmq-core`)
-- Combinations are allowed, e.g., `patch --package=pgmq-core`
-
-If no bump level is given, determine it from the changes (see step 2).
+`$ARGUMENTS` is optional:
+- `major`, `minor`, or `patch` — specifies the bump level
+- If omitted, determine the bump level from the changes (see step 2).
 
 ## Steps
 
-### 1. Identify which packages have changes
+### 1. Determine what changed since the last release
 
-For EACH of the four packages (`pgmq-core`, `pgmq-hasql`, `pgmq-effectful`, `pgmq-migration`):
+- Read the current version from any package's `.cabal` file (they all share the same version).
+- Find the latest git tag matching `v*` to identify the last release point.
+- Run `git log --oneline <last-tag>..HEAD` to list commits since the last release.
+- If there are no commits since the last tag, inform the user there is nothing to release and stop.
 
-- Look for the latest git tag matching `<package-name>-v*` (e.g., `pgmq-core-v*`).
-- If a tag exists, run `git log --oneline <tag>..HEAD -- <package-dir>/` to find commits touching that package since its last release.
-- If NO tag exists for a package, treat it as a first release — ALL commits touching `<package-dir>/` are considered changes.
-- A package is considered "changed" if it has commits in its directory since its last tag.
-- Also check: if a dependency package is being released (e.g., pgmq-core), mark dependent packages (pgmq-hasql, pgmq-effectful) as needing at minimum a patch bump to update their dependency bounds, even if they have no direct changes. Ask the user whether they want to include these transitive releases.
-
-If `--all` was passed, mark all packages for release regardless.
-If `--package=PKG` was passed, only consider that single package.
-
-If NO packages have changes and `--all` was not passed, inform the user there is nothing to release and stop.
-
-Present a summary table to the user showing:
-- Package name
-- Current version (from `<pkg>/<pkg>.cabal`)
+Present a summary showing:
+- Current version
 - Last release tag (or "none")
 - Number of commits since last release
-- Whether it will be released
+- Which package directories have changes
 
-### 2. Determine the next version for each changed package using PVP
+### 2. Determine the next version using PVP
 
 The Haskell PVP version format is `A.B.C.D`:
 - `A.B` is the **major** version — bump for breaking API changes (removed/renamed exports, changed types, changed semantics)
 - `C` is the **minor** version — bump for backwards-compatible API additions (new exports, new modules, new type class instances)
 - `D` is the **patch** version — bump for bug fixes, documentation, internal-only changes, performance improvements
 
-For EACH package being released:
-
-- If `$ARGUMENTS` specifies a bump level (`major`, `minor`, `patch`), use that for all packages.
-- Otherwise, analyze that package's commits to determine the appropriate bump:
+Rules:
+- If `$ARGUMENTS` is `major`, `minor`, or `patch`, use that bump level.
+- Otherwise, analyze the commits to determine the appropriate bump:
   - Look for keywords like "breaking", "remove", "rename", "change type" → major
   - Look for keywords like "add", "new", "feature", "export" → minor
   - Look for keywords like "fix", "suppress", "docs", "refactor", "internal" → patch
-  - If the package is only being bumped due to a dependency update, default to patch.
-- Present the proposed bumps for ALL packages in a single table and ask for confirmation.
+- Present the proposed bump to the user and ask for confirmation before proceeding.
 
-Increment versions:
+Increment the version:
 - **major**: increment `B`, reset `C` and `D` to 0 (e.g., `0.2.0.1` → `0.3.0.0`)
 - **minor**: increment `C`, reset `D` to 0 (e.g., `0.2.0.1` → `0.2.1.0`)
 - **patch**: increment `D` (e.g., `0.2.0.1` → `0.2.0.2`)
 
-### 3. Update versions, dependency bounds, and changelogs
-
-For EACH package being released (in dependency order):
+### 3. Update versions and changelogs
 
 #### Version update
-- Edit `<pkg>/<pkg>.cabal` to set the new version.
+- Edit ALL four package cabal files to set the new version:
+  - `pgmq-core/pgmq-core.cabal`
+  - `pgmq-hasql/pgmq-hasql.cabal`
+  - `pgmq-migration/pgmq-migration.cabal`
+  - `pgmq-effectful/pgmq-effectful.cabal`
 
 #### Dependency bounds update
-- If pgmq-core is being released, update the `pgmq-core` dependency bound in:
-  - `pgmq-hasql/pgmq-hasql.cabal`
-  - `pgmq-effectful/pgmq-effectful.cabal`
-- If pgmq-hasql is being released, update the `pgmq-hasql` dependency bound in:
-  - `pgmq-effectful/pgmq-effectful.cabal`
-- Use PVP-compatible bounds: `>= X.Y.Z.W && < X.(Y+1)` for major version ranges, or match the existing bound style in the cabal files.
+- Update the `pgmq-core` dependency bound in `pgmq-hasql/pgmq-hasql.cabal` and `pgmq-effectful/pgmq-effectful.cabal`.
+- Update the `pgmq-hasql` dependency bound in `pgmq-effectful/pgmq-effectful.cabal`.
+- Use PVP-compatible bounds matching the existing style in the cabal files.
 
 #### Changelog update
-- If the package does not have a `CHANGELOG.md`, create one with the standard format.
-- Add a new section for the new version above any previous entries. Use today's date in `YYYY-MM-DD` format.
+- For each package that has a `CHANGELOG.md`, add a new section for the new version above any previous entries. Use today's date in `YYYY-MM-DD` format.
 - Move content from "Unreleased" section (if any) into the new version section.
 - Summarize commits since last release, grouped by:
   - **Breaking Changes** (if major)
@@ -102,9 +89,7 @@ For EACH package being released (in dependency order):
   - **Bug Fixes** (if any)
   - **Other Changes** (docs, refactoring, etc.)
   - Only include categories that have entries.
-
-#### Root CHANGELOG.md
-- Also update the root `CHANGELOG.md` to reflect the releases. Replace "Unreleased" with the version numbers and dates for each released package.
+- Also update the root `CHANGELOG.md`.
 
 Show the user ALL changes (version bumps, dependency bounds, changelog entries) for review before committing.
 
@@ -113,32 +98,19 @@ Show the user ALL changes (version bumps, dependency bounds, changelog entries) 
 - Run `nix fmt` to ensure code is properly formatted.
 - Run `cabal build all` to verify cabal build succeeds.
 - Run `nix build` to verify nix build succeeds.
-  - Note: newly created files (e.g., `CHANGELOG.md`) must be `git add`-ed before `nix build` will see them, since nix uses the git tree.
+  - Note: newly created files must be `git add`-ed before `nix build` will see them, since nix uses the git tree.
   - If the nix build fails, fix the issue before proceeding.
 
 ### 5. Commit, tag, and push
 
 - Stage all modified `.cabal` and `CHANGELOG.md` files.
-- Create a single commit with message:
-
-  ```
-  Release: <pkg1> <ver1>, <pkg2> <ver2>, ...
-
-  Released packages:
-  - <pkg1> <ver1>
-  - <pkg2> <ver2>
-  ...
-  ```
-
-- Create annotated git tags for EACH released package:
-  - `git tag -a <pkg>-v<version> -m "Release <pkg> <version>"`
-  - e.g., `git tag -a pgmq-core-v0.2.0.0 -m "Release pgmq-core 0.2.0.0"`
-
-- Push the commit and all tags: `git push && git push --tags`
+- Create a single commit with message: `Release <new-version>`
+- Create a single annotated git tag: `git tag -a v<version> -m "Release <version>"`
+- Push the commit and tag: `git push && git push --tags`
 
 ### 6. Publish to Hackage (in dependency order)
 
-For EACH package being released, in dependency order:
+For EACH package, in dependency order (pgmq-core → pgmq-hasql → pgmq-migration → pgmq-effectful):
 
 1. `cd <pkg-dir>`
 2. Run `cabal check` to verify no packaging issues.
@@ -154,14 +126,16 @@ After all packages are published, present a summary:
 | Package | Version | Hackage URL |
 |---------|---------|-------------|
 | pgmq-core | X.Y.Z.W | https://hackage.haskell.org/package/pgmq-core-X.Y.Z.W |
-| ... | ... | ... |
+| pgmq-hasql | X.Y.Z.W | https://hackage.haskell.org/package/pgmq-hasql-X.Y.Z.W |
+| pgmq-migration | X.Y.Z.W | https://hackage.haskell.org/package/pgmq-migration-X.Y.Z.W |
+| pgmq-effectful | X.Y.Z.W | https://hackage.haskell.org/package/pgmq-effectful-X.Y.Z.W |
 
 ## Important
 
-- Always ask the user to confirm the version bumps and changelogs before committing.
-- Always release in dependency order: pgmq-core → pgmq-hasql → pgmq-migration → pgmq-effectful.
+- Always ask the user to confirm the version bump and changelogs before committing.
+- Always publish in dependency order: pgmq-core → pgmq-hasql → pgmq-migration → pgmq-effectful.
 - Never skip `cabal check`, tests, or `nix build`.
 - If any step fails (including `nix build`), stop and report the error rather than continuing.
 - If a Hackage upload fails for one package, do NOT continue uploading subsequent packages that depend on it.
 - Run `nix fmt` before committing to ensure proper formatting.
-- The commit and tags should only be created AFTER user approval of all changes.
+- The commit and tag should only be created AFTER user approval of all changes.
