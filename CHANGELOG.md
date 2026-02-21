@@ -1,6 +1,12 @@
 # Revision history for pgmq-hs
 
-## Unreleased
+## 0.1.0.0 -- 2026-02-21
+
+Initial release of all packages:
+- **pgmq-core** 0.1.0.0
+- **pgmq-hasql** 0.1.0.0
+- **pgmq-effectful** 0.1.0.0
+- **pgmq-migration** 0.1.0.0
 
 ### Breaking Changes
 
@@ -43,6 +49,10 @@
 - Note: The `conditional` parameter was removed from FIFO functions in pgmq 1.9.0
   - pgmq commit: [9e9c3dc](https://github.com/tembo-io/pgmq/commit/9e9c3dc) "Remove `conditional` param from FIFO (#480)"
 
+#### pgmq 1.10.0+ Support
+- Timestamp-based `set_vt` API
+- `lastReadAt` field on `Message` type
+
 ### Deprecations
 
 - `detachArchive` is now deprecated (no-op in pgmq, will be removed in pgmq 2.0)
@@ -60,7 +70,5 @@
 | FIFO read_grouped | 1.8.0 | [730f679](https://github.com/tembo-io/pgmq/commit/730f679) |
 | FIFO indexes | 1.8.0 | [730f679](https://github.com/tembo-io/pgmq/commit/730f679) |
 | FIFO round-robin | 1.9.0 | [cb5dd01](https://github.com/tembo-io/pgmq/commit/cb5dd01) |
-
-## 0.1.0.0 -- YYYY-mm-dd
-
-* First version. Released on an unsuspecting world.
+| Timestamp set_vt | 1.10.0 | - |
+| lastReadAt | 1.10.0 | - |

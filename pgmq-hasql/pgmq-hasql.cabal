@@ -1,21 +1,22 @@
 cabal-version:   3.4
 name:            pgmq-hasql
 version:         0.1.0.0
+synopsis:        Hasql-based client for PGMQ (PostgreSQL Message Queue)
+description:
+  A Haskell client library for PGMQ (PostgreSQL Message Queue) built
+  on hasql. Provides queue management, message sending\/receiving,
+  visibility timeout, archival, FIFO reads, and more. Supports
+  pgmq 1.5.0 through 1.10.0 features including message headers,
+  conditional reads, notifications, and round-robin FIFO.
 
--- synopsis:
--- description:
 homepage:        https://github.com/topagentnetwork/pgmq-hs
 license:         MIT
 license-file:    LICENSE
 author:          Nadeem Bitar
 maintainer:      nadeem@topagentnetwork.com
-
--- copyright:
 category:        Database
 build-type:      Simple
 extra-doc-files: CHANGELOG.md
-
--- extra-source-files:
 
 common warnings
   ghc-options:
@@ -50,12 +51,12 @@ library
 
   build-depends:
     , aeson              ^>=2.2
-    , base               >=4.18  && <5.0
+    , base               >=4.18  && <5
     , generic-lens       ^>=2.2  || ^>=2.3
     , hasql              ^>=1.10
     , hasql-transaction  ^>=1.2
     , lens               ^>=5.3
-    , pgmq-core
+    , pgmq-core          >=0.1   && <0.2
     , template-haskell   >=2.20  && <3
     , text               ^>=2.1
     , time               ^>=1.14
@@ -90,7 +91,7 @@ test-suite pgmq-hasql-test
 
   build-depends:
     , aeson
-    , base            >=4.18  && <5.0
+    , base            >=4.18  && <5
     , ephemeral-pg    >=0.2.1
     , hasql
     , hasql-pool      ^>=1.4
