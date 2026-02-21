@@ -3,7 +3,8 @@
 -- | Tests for topic routing operations (pgmq 1.11.0+):
 -- - bind/unbind topic
 -- - send_topic / send_topic with headers
--- - batch send_topic
+-- - batch send_topic (immediate, delayed, with headers)
+-- - validate_routing_key / validate_topic_pattern
 -- - test_routing
 -- - list_topic_bindings
 -- - list_notify_insert_throttles / update_notify_insert
@@ -11,11 +12,15 @@ module TopicSpec (tests) where
 
 import Data.Aeson (object, (.=))
 import Data.Text qualified as T
+import Data.Time.Clock (addUTCTime, getCurrentTime)
 import EphemeralDb (TestFixture (..), withTestFixture)
 import Hasql.Pool qualified as Pool
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types
   ( BatchSendTopic (..),
+    BatchSendTopicForLater (..),
+    BatchSendTopicWithHeaders (..),
+    BatchSendTopicWithHeadersForLater (..),
     BindTopic (..),
     EnableNotifyInsert (..),
     SendTopic (..),
@@ -45,7 +50,12 @@ tests p =
       testSendTopic p,
       testSendTopicWithHeaders p,
       testBatchSendTopic p,
+      testBatchSendTopicForLater p,
+      testBatchSendTopicWithHeaders p,
+      testBatchSendTopicWithHeadersForLater p,
       testTestRouting p,
+      testValidateRoutingKey p,
+      testValidateTopicPattern p,
       testListTopicBindings p,
       testListTopicBindingsForQueue p,
       testNotifyInsertThrottle p
@@ -162,6 +172,99 @@ testBatchSendTopic p = testCase "batchSendTopic routes batch to matching queues"
             }
     assertEqual "Should return 2 results (2 msgs to 1 queue)" 2 (length results)
     unbindAndCleanup pool pat queueName
+
+-- | Test batchSendTopicForLater with a scheduled time
+testBatchSendTopicForLater :: Pool.Pool -> TestTree
+testBatchSendTopicForLater p = testCase "batchSendTopicForLater schedules batch via topic" $ do
+  withTestFixture p $ \TestFixture {pool, queueName} -> do
+    assertSession pool (Sessions.createQueue queueName)
+    let pat = mkTopicPattern "batchlater.*"
+    assertSession pool $
+      Sessions.bindTopic
+        BindTopic {topicPattern = pat, queueName = queueName}
+    futureTime <- addUTCTime 60 <$> getCurrentTime
+    results <-
+      assertSession pool $
+        Sessions.batchSendTopicForLater
+          BatchSendTopicForLater
+            { routingKey = mkRoutingKey "batchlater.info",
+              messageBodies =
+                [ MessageBody (object ["msg" .= (1 :: Int)]),
+                  MessageBody (object ["msg" .= (2 :: Int)])
+                ],
+              scheduledAt = futureTime
+            }
+    assertEqual "Should return 2 results (2 msgs to 1 queue)" 2 (length results)
+    unbindAndCleanup pool pat queueName
+
+-- | Test batchSendTopicWithHeaders
+testBatchSendTopicWithHeaders :: Pool.Pool -> TestTree
+testBatchSendTopicWithHeaders p = testCase "batchSendTopicWithHeaders routes batch with headers" $ do
+  withTestFixture p $ \TestFixture {pool, queueName} -> do
+    assertSession pool (Sessions.createQueue queueName)
+    let pat = mkTopicPattern "batchhdrs.*"
+    assertSession pool $
+      Sessions.bindTopic
+        BindTopic {topicPattern = pat, queueName = queueName}
+    results <-
+      assertSession pool $
+        Sessions.batchSendTopicWithHeaders
+          BatchSendTopicWithHeaders
+            { routingKey = mkRoutingKey "batchhdrs.warn",
+              messageBodies =
+                [ MessageBody (object ["msg" .= (1 :: Int)]),
+                  MessageBody (object ["msg" .= (2 :: Int)])
+                ],
+              messageHeaders =
+                [ MessageHeaders (object ["priority" .= ("high" :: String)]),
+                  MessageHeaders (object ["priority" .= ("low" :: String)])
+                ],
+              delay = Nothing
+            }
+    assertEqual "Should return 2 results (2 msgs to 1 queue)" 2 (length results)
+    unbindAndCleanup pool pat queueName
+
+-- | Test batchSendTopicWithHeadersForLater
+testBatchSendTopicWithHeadersForLater :: Pool.Pool -> TestTree
+testBatchSendTopicWithHeadersForLater p = testCase "batchSendTopicWithHeadersForLater schedules batch with headers" $ do
+  withTestFixture p $ \TestFixture {pool, queueName} -> do
+    assertSession pool (Sessions.createQueue queueName)
+    let pat = mkTopicPattern "batchhdrslater.*"
+    assertSession pool $
+      Sessions.bindTopic
+        BindTopic {topicPattern = pat, queueName = queueName}
+    futureTime <- addUTCTime 60 <$> getCurrentTime
+    results <-
+      assertSession pool $
+        Sessions.batchSendTopicWithHeadersForLater
+          BatchSendTopicWithHeadersForLater
+            { routingKey = mkRoutingKey "batchhdrslater.error",
+              messageBodies =
+                [ MessageBody (object ["msg" .= (1 :: Int)]),
+                  MessageBody (object ["msg" .= (2 :: Int)])
+                ],
+              messageHeaders =
+                [ MessageHeaders (object ["source" .= ("app" :: String)]),
+                  MessageHeaders (object ["source" .= ("sys" :: String)])
+                ],
+              scheduledAt = futureTime
+            }
+    assertEqual "Should return 2 results (2 msgs to 1 queue)" 2 (length results)
+    unbindAndCleanup pool pat queueName
+
+-- | Test validateRoutingKey
+testValidateRoutingKey :: Pool.Pool -> TestTree
+testValidateRoutingKey p = testCase "validateRoutingKey validates on server" $ do
+  withTestFixture p $ \TestFixture {pool} -> do
+    result <- assertSession pool $ Sessions.validateRoutingKey (mkRoutingKey "orders.created")
+    assertBool "Valid routing key should return True" result
+
+-- | Test validateTopicPattern
+testValidateTopicPattern :: Pool.Pool -> TestTree
+testValidateTopicPattern p = testCase "validateTopicPattern validates on server" $ do
+  withTestFixture p $ \TestFixture {pool} -> do
+    result <- assertSession pool $ Sessions.validateTopicPattern (mkTopicPattern "orders.#")
+    assertBool "Valid topic pattern should return True" result
 
 -- | Test testRouting dry-run
 testTestRouting :: Pool.Pool -> TestTree
