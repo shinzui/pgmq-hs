@@ -56,6 +56,14 @@ clean:
 db-status:
     pg_isready -h $PGHOST && echo "PostgreSQL is running" || echo "PostgreSQL is not running"
 
+# --- Claude ---
+
+# Symlink claude skills into .claude/commands
+[group("claude")]
+setup-skills:
+    mkdir -p .claude
+    ln -sfn ../claude/skills .claude/skills
+
 # --- Nix ---
 
 # Build all packages with Nix

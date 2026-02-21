@@ -13,7 +13,7 @@ homepage:        https://github.com/topagentnetwork/pgmq-hs
 license:         MIT
 license-file:    LICENSE
 author:          Nadeem Bitar
-maintainer:      nadeem@topagentnetwork.com
+maintainer:      Nadeem Bitar
 category:        Database
 build-type:      Simple
 extra-doc-files: CHANGELOG.md
