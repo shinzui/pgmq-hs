@@ -1,5 +1,16 @@
 # Revision history for pgmq-hasql
 
+## 0.1.1.0 -- 2026-02-23
+
+### New Features
+
+#### pgmq 1.11.0+ Support
+
+* Topic management: `bindTopic`, `unbindTopic`, `validateRoutingKey`, `validateTopicPattern`, `testRouting`, `listTopicBindings`, `listTopicBindingsForQueue`
+* Topic sending: `sendTopic`, `sendTopicWithHeaders`, `batchSendTopic`, `batchSendTopicForLater`, `batchSendTopicWithHeaders`, `batchSendTopicWithHeadersForLater`
+* Notification management: `listNotifyInsertThrottles`, `updateNotifyInsert`
+* New parameter types: `BindTopic`, `UnbindTopic`, `SendTopic`, `SendTopicWithHeaders`, `BatchSendTopic`, `BatchSendTopicForLater`, `BatchSendTopicWithHeaders`, `BatchSendTopicWithHeadersForLater`, `UpdateNotifyInsert`
+
 ## 0.1.0.0 -- 2026-02-21
 
 ### New Features

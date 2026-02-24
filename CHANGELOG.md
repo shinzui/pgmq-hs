@@ -1,5 +1,28 @@
 # Revision history for pgmq-hs
 
+## 0.1.1.0 -- 2026-02-23
+
+### New Features
+
+#### pgmq 1.11.0+ Support
+
+* **pgmq-core**: Topic routing types (`RoutingKey`, `TopicPattern`, `TopicBinding`, `RoutingMatch`, `TopicSendResult`, `NotifyInsertThrottle`); extended `PgmqError` with new constructors
+* **pgmq-hasql**: Topic management, topic sending, and notification management functions
+* **pgmq-effectful**: Effectful effects and interpreters for all pgmq 1.11.0 operations
+* **pgmq-migration**: v1.11.0 schema installation and v1.10.0 → v1.11.0 migration path
+
+### Other Changes
+
+* Improved README with usage example and cleaner structure
+
+### Upstream Compatibility
+
+| pgmq-hs Feature | Minimum pgmq Version |
+|-----------------|---------------------|
+| Topic routing | 1.11.0 |
+| Topic sending | 1.11.0 |
+| Notification throttle management | 1.11.0 |
+
 ## 0.1.0.0 -- 2026-02-21
 
 Initial release of all packages:

@@ -1,6 +1,6 @@
 cabal-version:      3.4
 name:               pgmq-migration
-version:            0.1.0.0
+version:            0.1.1.0
 synopsis:           PGMQ schema migrations without PostgreSQL extension
 description:
   Installs the PGMQ schema into PostgreSQL without requiring the pgmq extension.

@@ -1,6 +1,6 @@
 cabal-version:   3.4
 name:            pgmq-hasql
-version:         0.1.0.0
+version:         0.1.1.0
 synopsis:        Hasql-based client for PGMQ (PostgreSQL Message Queue)
 description:
   A Haskell client library for PGMQ (PostgreSQL Message Queue) built
@@ -57,7 +57,7 @@ library
     , hasql              ^>=1.10
     , hasql-transaction  ^>=1.2
     , lens               ^>=5.3
-    , pgmq-core          >=0.1   && <0.2
+    , pgmq-core          >=0.1.1 && <0.2
     , template-haskell   >=2.20  && <3
     , text               ^>=2.1
     , time               ^>=1.14
