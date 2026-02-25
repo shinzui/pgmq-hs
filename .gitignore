@@ -8,6 +8,7 @@ cabal-dev
 .pre-commit-config.yaml
 
 cabal.project.local
+mori.local.dhall
 .claude/
 
 # Development database
