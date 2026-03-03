@@ -1,5 +1,12 @@
 # Changelog for pgmq-migration
 
+## 0.1.2.0 -- 2026-03-03
+
+### Other Changes
+
+* Vendor upstream pgmq SQL via git subtree, replacing hand-written SQL files
+* SQL is now embedded from `vendor/pgmq/pgmq-extension/sql/` instead of local `database/` directory
+
 ## 0.1.1.0 -- 2026-02-23
 
 ### New Features
