@@ -1,0 +1,17 @@
+[project]
+name = "pgmq"
+version = "0.1.0"
+description = "Dependencies for PGMQ MkDocs"
+authors = [{ name = "PGMQ" }]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "markdown-include>=0.8.1",
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.5.0",
+    "mdx-include>=1.4.1",
+    "mkdocs-markdownextradata-plugin>=0.2.4",
+    "mkdocstrings>=0.24.0",
+    "pymdown-extensions>=10.0",
+    "mike>=2.0.0",
+]
