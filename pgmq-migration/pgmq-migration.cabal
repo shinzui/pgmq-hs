@@ -6,7 +6,7 @@ description:
   Installs the PGMQ schema into PostgreSQL without requiring the pgmq extension.
   Uses hasql-migration for tracking applied migrations.
 
-homepage:           https://github.com/topagentnetwork/pgmq-hs
+homepage:           https://github.com/shinzui/pgmq-hs
 license:            MIT
 license-file:       LICENSE
 author:             Nadeem Bitar

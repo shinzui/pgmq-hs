@@ -9,7 +9,7 @@ description:
   pgmq 1.5.0 through 1.11.0 features including message headers,
   conditional reads, notifications, round-robin FIFO, and topic routing.
 
-homepage:        https://github.com/topagentnetwork/pgmq-hs
+homepage:        https://github.com/shinzui/pgmq-hs
 license:         MIT
 license-file:    LICENSE
 author:          Nadeem Bitar

@@ -2,7 +2,7 @@ cabal-version: 3.4
 name:          pgmq-bench
 version:       0.1.0.0
 synopsis:      Benchmarks for pgmq-hs library
-homepage:      https://github.com/topagentnetwork/pgmq-hs
+homepage:      https://github.com/shinzui/pgmq-hs
 license:       MIT
 license-file:  LICENSE
 author:        Nadeem Bitar

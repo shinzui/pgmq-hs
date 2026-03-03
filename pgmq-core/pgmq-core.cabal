@@ -7,7 +7,7 @@ description:
   for PGMQ (PostgreSQL Message Queue). Provides Message, Queue,
   QueueName, and related types used across pgmq-hs packages.
 
-homepage:        https://github.com/topagentnetwork/pgmq-hs
+homepage:        https://github.com/shinzui/pgmq-hs
 license:         MIT
 license-file:    LICENSE
 author:          Nadeem Bitar

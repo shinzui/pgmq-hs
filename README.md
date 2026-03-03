@@ -154,7 +154,7 @@ cabal test all
 
 ```nix
 {
-  inputs.pgmq-hs.url = "github:topagentnetwork/pgmq-hs";
+  inputs.pgmq-hs.url = "github:shinzui/pgmq-hs";
 
   outputs = { self, pgmq-hs, ... }: {
     # Access packages

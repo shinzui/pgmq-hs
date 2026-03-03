@@ -7,7 +7,7 @@ description:
   library for PGMQ (PostgreSQL Message Queue). Includes OpenTelemetry
   instrumentation for tracing pgmq operations.
 
-homepage:        https://github.com/topagentnetwork/pgmq-hs
+homepage:        https://github.com/shinzui/pgmq-hs
 license:         MIT
 license-file:    LICENSE
 author:          Nadeem Bitar
