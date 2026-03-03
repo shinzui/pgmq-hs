@@ -69,9 +69,14 @@ Tests use `ephemeral-pg` to spin up temporary PostgreSQL instances. No external 
 
 ## pgmq-migration
 
+SQL is vendored from upstream pgmq via git subtree at `vendor/pgmq/`.
+Do not hand-write SQL — all SQL comes from the vendored source.
+
 When updating the pgmq schema version:
 
-1. Create a new version directory under `pgmq-migration/database/`
-2. Add SQL files following the numbered naming convention
-3. Create a new version module under `Pgmq.Migration.Migrations`
-4. Update `Pgmq.Migration.Migrations` to export the new version
+1. `git subtree pull --prefix vendor/pgmq https://github.com/tembo-io/pgmq.git <new-tag> --squash`
+2. Verify the new migration file has no extension-specific patterns (`ALTER EXTENSION`, `@extschema@`)
+3. Create a new version module that embeds `vendor/pgmq/pgmq-extension/sql/pgmq.sql`
+4. Create an upgrade module that embeds the upstream migration file
+5. Update `Pgmq.Migration.Migrations` to chain the new upgrade step
+6. Run `cabal test pgmq-migration`

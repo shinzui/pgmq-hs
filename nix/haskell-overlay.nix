@@ -69,7 +69,16 @@ final: prev: {
 
   pgmq-effectful = doJailbreak (final.callCabal2nix "pgmq-effectful" ../pgmq-effectful { });
 
-  pgmq-migration = dontCheck (doJailbreak (final.callCabal2nix "pgmq-migration" ../pgmq-migration { }));
+  pgmq-migration =
+    let
+      combinedSrc = pkgs.runCommand "pgmq-migration-src" { } ''
+        cp -r ${../pgmq-migration} $out
+        chmod -R u+w $out
+        mkdir -p $out/vendor/pgmq/pgmq-extension
+        cp -r ${../vendor/pgmq/pgmq-extension/sql} $out/vendor/pgmq/pgmq-extension/sql
+      '';
+    in
+    dontCheck (doJailbreak (final.callCabal2nix "pgmq-migration" combinedSrc { }));
 
   pgmq-bench = dontCheck (doJailbreak (final.callCabal2nix "pgmq-bench" ../pgmq-bench { }));
 }

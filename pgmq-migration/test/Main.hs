@@ -2,24 +2,18 @@
 
 module Main (main) where
 
-import Control.Monad (foldM)
-import Data.List (isInfixOf)
 import EphemeralPg
-  ( StartError,
-    connectionSettings,
+  ( connectionSettings,
     withCached,
   )
 import Hasql.Connection qualified as Connection
 import Hasql.Decoders qualified as Decoders
 import Hasql.Encoders qualified as Encoders
-import Hasql.Migration (MigrationCommand, MigrationError)
 import Hasql.Session (Session)
 import Hasql.Session qualified as Session
 import Hasql.Statement (preparable)
 import Hasql.Statement qualified as Statement
 import Pgmq.Migration qualified as Migration
-import Pgmq.Migration.Migrations.V1_9_0 qualified as V1_9_0
-import Pgmq.Migration.Sessions qualified as Sessions
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -49,9 +43,8 @@ tests conn =
         ],
       testGroup
         "upgrade"
-        [ testCase "upgrade from v1.9.0 succeeds" (testUpgradeFromV1_9_0 conn),
-          testCase "upgrade is idempotent" (testUpgradeIdempotent conn),
-          testCase "upgrade adds last_read_at column" (testUpgradeAddsLastReadAt conn)
+        [ testCase "upgrade is idempotent" (testUpgradeIdempotent conn),
+          testCase "upgrade after migrate succeeds" (testUpgradeAfterMigrate conn)
         ]
     ]
 
@@ -123,57 +116,23 @@ testGetMigrations conn = withCleanDb conn $ \c -> do
   case migrationsResult of
     Left sessionErr -> assertFailure $ "Session error: " <> show sessionErr
     Right appliedMigrations -> do
-      -- Should have applied the initialization + 10 SQL migrations
-      assertBool "Should have applied migrations" (length appliedMigrations >= 10)
+      -- Should have applied at least the pgmq_v1.11.0 SQL migration
+      assertBool "Should have applied migrations" (length appliedMigrations >= 1)
 
 testVersion :: IO ()
 testVersion =
   Migration.version @?= "v1.11.0"
 
--- | Helper to run a list of migrations
-runMigrations :: [MigrationCommand] -> Session (Either MigrationError ())
-runMigrations cmds = foldM runIfOk (Right ()) cmds
-  where
-    runIfOk :: Either MigrationError () -> MigrationCommand -> Session (Either MigrationError ())
-    runIfOk (Left err) _ = pure (Left err)
-    runIfOk (Right ()) cmd = Sessions.runMigrationSession cmd
-
--- | Install v1.9.0 schema
-installV1_9_0 :: Session (Either MigrationError ())
-installV1_9_0 = runMigrations V1_9_0.migrations
-
-testUpgradeFromV1_9_0 :: Connection.Connection -> IO ()
-testUpgradeFromV1_9_0 conn = withCleanDb conn $ \c -> do
-  -- First install v1.9.0 schema
-  v190Result <- Connection.use c installV1_9_0
-  case v190Result of
-    Left sessionErr -> assertFailure $ "v1.9.0 install session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "v1.9.0 install migration error: " <> show migrationErr
-    Right (Right ()) -> pure ()
-
-  -- Now run upgrade
-  upgradeResult <- Connection.use c Migration.upgrade
-  case upgradeResult of
-    Left sessionErr -> assertFailure $ "Upgrade session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "Upgrade migration error: " <> show migrationErr
-    Right (Right ()) -> pure ()
-
-  -- Verify upgrade migration was applied
-  migrationsResult <- Connection.use c Migration.getMigrations
-  case migrationsResult of
-    Left sessionErr -> assertFailure $ "getMigrations session error: " <> show sessionErr
-    Right appliedMigrations -> do
-      let migrationNames = map show appliedMigrations
-          hasUpgrade = any ("v1.9.0_to_v1.10.0" `isInfixOf`) migrationNames
-      assertBool "Should have applied upgrade migration" hasUpgrade
-
+-- | Run upgrade twice after a fresh install - second run should be a no-op.
+-- Upgrade migrations assume the pgmq schema already exists, so we install
+-- the base schema first.
 testUpgradeIdempotent :: Connection.Connection -> IO ()
 testUpgradeIdempotent conn = withCleanDb conn $ \c -> do
-  -- First install v1.9.0 schema
-  v190Result <- Connection.use c installV1_9_0
-  case v190Result of
-    Left sessionErr -> assertFailure $ "v1.9.0 install session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "v1.9.0 install migration error: " <> show migrationErr
+  -- First install the base schema
+  migResult <- Connection.use c Migration.migrate
+  case migResult of
+    Left sessionErr -> assertFailure $ "Migrate session error: " <> show sessionErr
+    Right (Left migrationErr) -> assertFailure $ "Migrate error: " <> show migrationErr
     Right (Right ()) -> pure ()
 
   -- Run upgrade first time
@@ -190,61 +149,20 @@ testUpgradeIdempotent conn = withCleanDb conn $ \c -> do
     Right (Left migrationErr) -> assertFailure $ "Second upgrade migration error: " <> show migrationErr
     Right (Right ()) -> pure ()
 
-testUpgradeAddsLastReadAt :: Connection.Connection -> IO ()
-testUpgradeAddsLastReadAt conn = withCleanDb conn $ \c -> do
-  -- First install v1.9.0 schema
-  v190Result <- Connection.use c installV1_9_0
-  case v190Result of
-    Left sessionErr -> assertFailure $ "v1.9.0 install session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "v1.9.0 install migration error: " <> show migrationErr
+-- | Run migrate then upgrade - tests that CREATE OR REPLACE FUNCTION
+-- makes re-applying safe
+testUpgradeAfterMigrate :: Connection.Connection -> IO ()
+testUpgradeAfterMigrate conn = withCleanDb conn $ \c -> do
+  -- First do a fresh install
+  migResult <- Connection.use c Migration.migrate
+  case migResult of
+    Left sessionErr -> assertFailure $ "Migrate session error: " <> show sessionErr
+    Right (Left migrationErr) -> assertFailure $ "Migrate error: " <> show migrationErr
     Right (Right ()) -> pure ()
 
-  -- Create a queue to test the schema
-  createQueueResult <- Connection.use c createTestQueue
-  case createQueueResult of
-    Left sessionErr -> assertFailure $ "Create queue session error: " <> show sessionErr
-    Right () -> pure ()
-
-  -- Run upgrade
+  -- Now run upgrade - should succeed (migrations are safe to re-apply)
   upgradeResult <- Connection.use c Migration.upgrade
   case upgradeResult of
     Left sessionErr -> assertFailure $ "Upgrade session error: " <> show sessionErr
     Right (Left migrationErr) -> assertFailure $ "Upgrade migration error: " <> show migrationErr
     Right (Right ()) -> pure ()
-
-  -- Verify last_read_at column exists in the queue table
-  checkResult <- Connection.use c checkLastReadAtColumn
-  case checkResult of
-    Left sessionErr -> assertFailure $ "Check column session error: " <> show sessionErr
-    Right hasColumn ->
-      assertBool "Queue table should have last_read_at column after upgrade" hasColumn
-
--- | Create a test queue using pgmq.create
-createTestQueue :: Session ()
-createTestQueue = Session.statement () createQueueStmt
-  where
-    createQueueStmt :: Statement.Statement () ()
-    createQueueStmt =
-      preparable sql encoder decoder
-      where
-        sql = "SELECT pgmq.create('test_upgrade_queue')"
-        encoder = Encoders.noParams
-        decoder = Decoders.noResult
-
--- | Check if last_read_at column exists in the test queue table
-checkLastReadAtColumn :: Session Bool
-checkLastReadAtColumn = Session.statement () checkColumnStmt
-  where
-    checkColumnStmt :: Statement.Statement () Bool
-    checkColumnStmt =
-      preparable sql encoder decoder
-      where
-        sql =
-          "SELECT EXISTS ( \
-          \  SELECT 1 FROM information_schema.columns \
-          \  WHERE table_schema = 'pgmq' \
-          \  AND table_name = 'q_test_upgrade_queue' \
-          \  AND column_name = 'last_read_at' \
-          \)"
-        encoder = Encoders.noParams
-        decoder = Decoders.singleRow (Decoders.column (Decoders.nonNullable Decoders.bool))

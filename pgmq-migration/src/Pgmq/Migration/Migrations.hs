@@ -21,13 +21,23 @@
 -- @
 -- import Pgmq.Migration.Migrations (upgradeMigrations)
 --
--- -- Apply only upgrade migrations (v1.9.0 -> v1.10.0 -> v1.11.0, etc.)
+-- -- Apply only upgrade migrations (v1.10.0 -> v1.10.1 -> v1.11.0)
 -- runMigrations conn upgradeMigrations
 -- @
 --
 -- The hasql-migration library tracks which migrations have been applied,
--- so running 'upgradeMigrations' on a database with v1.9.0 installed will
+-- so running 'upgradeMigrations' on a database with v1.10.0 installed will
 -- only apply the delta migrations needed to reach the current version.
+--
+-- == Compatibility Note
+--
+-- Existing deployments that ran the old hand-written upgrade migrations
+-- (e.g., @pgmq_v1.9.0_to_v1.10.0_upgrade@, @pgmq_v1.10.0_to_v1.11.0_upgrade@)
+-- have those names recorded in @schema_migrations@. The vendored migrations use
+-- different names, so @hasql-migration@ will treat them as new, unapplied migrations.
+-- This is correct — the vendored migrations re-apply upstream function definitions
+-- using @CREATE OR REPLACE FUNCTION@ and @IF NOT EXISTS@ guards, which are safe
+-- to re-run.
 module Pgmq.Migration.Migrations
   ( version,
     migrations,
@@ -36,9 +46,9 @@ module Pgmq.Migration.Migrations
 where
 
 import Hasql.Migration (MigrationCommand (..))
-import Pgmq.Migration.Migrations.V1_10_0_to_V1_11_0 qualified as V1_10_0_to_V1_11_0
+import Pgmq.Migration.Migrations.V1_10_0_to_V1_10_1 qualified as V1_10_0_to_V1_10_1
+import Pgmq.Migration.Migrations.V1_10_1_to_V1_11_0 qualified as V1_10_1_to_V1_11_0
 import Pgmq.Migration.Migrations.V1_11_0 qualified as V1_11_0
-import Pgmq.Migration.Migrations.V1_9_0_to_V1_10_0 qualified as V1_9_0_to_V1_10_0
 
 -- | Current version of the PGMQ schema
 version :: String
@@ -53,7 +63,7 @@ migrations = V1_11_0.migrations
 -- | Incremental upgrade migrations.
 --
 -- Use this to upgrade existing installations that were set up via this package.
--- Contains only the delta migrations (e.g., v1.9.0 -> v1.10.0 -> v1.11.0).
+-- Contains only the delta migrations (v1.10.0 -> v1.10.1 -> v1.11.0).
 --
 -- The hasql-migration library will skip migrations that have already been applied,
 -- so this is safe to run on any database regardless of its current version.
@@ -61,5 +71,5 @@ upgradeMigrations :: [MigrationCommand]
 upgradeMigrations =
   [ MigrationInitialization
   ]
-    ++ V1_9_0_to_V1_10_0.migrations
-    ++ V1_10_0_to_V1_11_0.migrations
+    ++ V1_10_0_to_V1_10_1.migrations
+    ++ V1_10_1_to_V1_11_0.migrations

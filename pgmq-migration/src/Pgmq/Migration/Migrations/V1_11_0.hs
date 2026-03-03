@@ -1,14 +1,15 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | PGMQ v1.11.0 migrations
--- Main change: AMQP-like topic-based routing, notification management functions
+--
+-- Embeds the upstream pgmq.sql directly from the vendored git subtree.
+-- This is the single source of truth for the full PGMQ schema.
 module Pgmq.Migration.Migrations.V1_11_0
   ( version,
     migrations,
   )
 where
 
-import Data.ByteString (ByteString)
 import Data.FileEmbed (embedFile)
 import Hasql.Migration (MigrationCommand (..))
 
@@ -17,51 +18,12 @@ version :: String
 version = "v1.11.0"
 
 -- | All migration commands for v1.11.0
+--
+-- Uses the upstream pgmq.sql directly. The file is already ordered correctly
+-- (types before functions, tables before references) and PostgreSQL executes
+-- it as one transaction.
 migrations :: [MigrationCommand]
 migrations =
   [ MigrationInitialization,
-    MigrationScript "pgmq_v1.11.0_01_schema" schema,
-    MigrationScript "pgmq_v1.11.0_02_tables" tables,
-    MigrationScript "pgmq_v1.11.0_03_types" types,
-    MigrationScript "pgmq_v1.11.0_04_core_functions" coreFunctions,
-    MigrationScript "pgmq_v1.11.0_05_queue_management" queueManagement,
-    MigrationScript "pgmq_v1.11.0_06_message_ops" messageOps,
-    MigrationScript "pgmq_v1.11.0_07_metrics" metrics,
-    MigrationScript "pgmq_v1.11.0_08_partitioning" partitioning,
-    MigrationScript "pgmq_v1.11.0_09_notifications" notifications,
-    MigrationScript "pgmq_v1.11.0_10_fifo" fifo,
-    MigrationScript "pgmq_v1.11.0_11_topics" topics
+    MigrationScript "pgmq_v1.11.0" $(embedFile "vendor/pgmq/pgmq-extension/sql/pgmq.sql")
   ]
-
-schema :: ByteString
-schema = $(embedFile "database/v1.11.0/01_schema.sql")
-
-tables :: ByteString
-tables = $(embedFile "database/v1.11.0/02_tables.sql")
-
-types :: ByteString
-types = $(embedFile "database/v1.11.0/03_types.sql")
-
-coreFunctions :: ByteString
-coreFunctions = $(embedFile "database/v1.11.0/04_core_functions.sql")
-
-queueManagement :: ByteString
-queueManagement = $(embedFile "database/v1.11.0/05_queue_management.sql")
-
-messageOps :: ByteString
-messageOps = $(embedFile "database/v1.11.0/06_message_ops.sql")
-
-metrics :: ByteString
-metrics = $(embedFile "database/v1.11.0/07_metrics.sql")
-
-partitioning :: ByteString
-partitioning = $(embedFile "database/v1.11.0/08_partitioning.sql")
-
-notifications :: ByteString
-notifications = $(embedFile "database/v1.11.0/09_notifications.sql")
-
-fifo :: ByteString
-fifo = $(embedFile "database/v1.11.0/10_fifo.sql")
-
-topics :: ByteString
-topics = $(embedFile "database/v1.11.0/11_topics.sql")

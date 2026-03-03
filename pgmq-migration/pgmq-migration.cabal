@@ -14,7 +14,10 @@ maintainer:         Nadeem Bitar
 category:           Database
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
-extra-source-files: database/**/*.sql
+extra-source-files:
+  vendor/pgmq/pgmq-extension/sql/pgmq--1.10.0--1.10.1.sql
+  vendor/pgmq/pgmq-extension/sql/pgmq--1.10.1--1.11.0.sql
+  vendor/pgmq/pgmq-extension/sql/pgmq.sql
 
 common warnings
   ghc-options:
@@ -28,11 +31,9 @@ library
   exposed-modules:
     Pgmq.Migration
     Pgmq.Migration.Migrations
-    Pgmq.Migration.Migrations.V1_10_0
-    Pgmq.Migration.Migrations.V1_10_0_to_V1_11_0
+    Pgmq.Migration.Migrations.V1_10_0_to_V1_10_1
+    Pgmq.Migration.Migrations.V1_10_1_to_V1_11_0
     Pgmq.Migration.Migrations.V1_11_0
-    Pgmq.Migration.Migrations.V1_9_0
-    Pgmq.Migration.Migrations.V1_9_0_to_V1_10_0
     Pgmq.Migration.Sessions
     Pgmq.Migration.Statements
     Pgmq.Migration.Transactions

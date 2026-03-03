@@ -25,7 +25,7 @@
 --
 -- == Upgrading Existing Installations
 --
--- For projects that previously installed PGMQ via this package (e.g., at v1.9.0),
+-- For projects that previously installed PGMQ via this package (e.g., at v1.10.0),
 -- use 'upgrade' to apply only the incremental changes:
 --
 -- @
@@ -91,7 +91,7 @@ migrations = Migrations.migrations
 -- | Incremental upgrade migrations.
 --
 -- Use this to upgrade existing installations that were set up via this package.
--- Contains only the delta migrations (e.g., v1.9.0 -> v1.10.0).
+-- Contains only the delta migrations (e.g., v1.10.0 -> v1.10.1 -> v1.11.0).
 upgradeMigrations :: [MigrationCommand]
 upgradeMigrations = Migrations.upgradeMigrations
 
@@ -107,7 +107,7 @@ migrate = runMigrations migrations
 -- | Run upgrade migrations for existing installations.
 --
 -- This function applies only the incremental migrations needed to upgrade
--- from a previous version installed via this package (e.g., v1.9.0 -> v1.10.0).
+-- from a previous version installed via this package (e.g., v1.10.0 -> v1.10.1 -> v1.11.0).
 --
 -- It is idempotent and safe to run on any database - migrations that have
 -- already been applied will be skipped.
