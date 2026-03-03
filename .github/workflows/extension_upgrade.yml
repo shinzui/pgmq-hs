@@ -1,0 +1,104 @@
+name: PGMQ Extension Upgrade
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "pgmq-extension/**"
+      - ".github/workflows/extension_upgrade.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "pgmq-extension/**"
+      - ".github/workflows/extension_upgrade.yml"
+  release:
+    types:
+      - created
+
+jobs:
+  test:
+    name: Upgrade Test (pg ${{ matrix.pg }}) - partman ${{ matrix.partman }}
+    runs-on: ubuntu-latest
+    container: pgxn/pgxn-tools
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: [14, 15, 16, 17, 18]
+        partman: [5.1.0]
+    env:
+      DATABASE_URL: postgresql://postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get current branch
+        id: current-version
+        run: echo "CI_BRANCH=$(git name-rev --name-only HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Start PostgreSQL ${{ matrix.pg }}
+        run: pg-start ${{ matrix.pg }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      # upgrade_test.py may not exist on earlier branches, so copy it to a
+      # temp location that survives the git checkout to the old tag.
+      - name: Stash test files from CI branch
+        run: cp -r pgmq-extension/client-tests /tmp/upgrade-client-tests
+
+      - name: Checkout old version (v1.5.0)
+        run: git checkout tags/v1.5.0
+
+      - name: Install pg_partman
+        run: |
+          pgxn install "pg_partman=${{ matrix.partman }}"
+          psql -c "CREATE EXTENSION pg_partman;"
+
+      - name: Install pgmq v1.5.0
+        working-directory: ./pgmq-extension
+        run: |
+          make clean || true
+          make
+          make install
+          psql -c "CREATE EXTENSION pgmq;"
+
+      - name: Run SQL tests
+        working-directory: ./pgmq-extension
+        run: pg-build-test
+
+      - name: Run pre-upgrade tests
+        working-directory: /tmp/upgrade-client-tests
+        run: UPGRADE_PHASE=pre uv run pytest upgrade_test.py -v
+
+      - name: Checkout CI branch
+        env:
+          CI_BRANCH: ${{ steps.current-version.outputs.CI_BRANCH }}
+        run: git checkout $CI_BRANCH
+
+      - name: Install and upgrade pgmq to CI branch version
+        working-directory: ./pgmq-extension
+        run: |
+          make clean || true
+          make
+          make install
+          psql -c "ALTER EXTENSION pgmq UPDATE;"
+
+      - name: Run post-upgrade tests
+        working-directory: ./pgmq-extension/client-tests
+        run: UPGRADE_PHASE=post uv run pytest upgrade_test.py -v
+
+      - name: Run SQL tests
+        working-directory: ./pgmq-extension
+        run: pg-build-test
+
+      - name: Show regression diffs
+        if: failure()
+        working-directory: ./pgmq-extension
+        run: cat regression.diffs
