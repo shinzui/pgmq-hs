@@ -1,5 +1,12 @@
 # Revision history for pgmq-core
 
+## 0.1.3.0 -- 2026-03-12
+
+### Other Changes
+
+* Update documentation URLs from tembo.io to pgmq.github.io
+* Update repository homepage URL to shinzui/pgmq-hs
+
 ## 0.1.2.0 -- 2026-03-03
 
 * Version bump only (no changes)

@@ -1,5 +1,16 @@
 # Revision history for pgmq-hs
 
+## 0.1.3.0 -- 2026-03-12
+
+### New Features
+
+* **pgmq-config**: New package for declarative queue configuration DSL — define queue topology as Haskell values and call a single function at startup to ensure all queues exist with desired settings
+
+### Other Changes
+
+* Update documentation URLs from tembo.io to pgmq.github.io
+* Update repository homepage URLs to shinzui/pgmq-hs
+
 ## 0.1.2.0 -- 2026-03-03
 
 ### Other Changes
