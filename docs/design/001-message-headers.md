@@ -37,7 +37,7 @@ pgmq.send_batch(queue_name, msgs[], headers[], delay INTEGER) -> SETOF BIGINT
 Add `headers` field to `Message`:
 
 ```haskell
--- | https://tembo.io/pgmq/api/sql/types/
+-- | https://pgmq.github.io/pgmq/api/sql/types/
 data Message = Message
   { messageId :: !MessageId,
     visibilityTime :: !UTCTime,

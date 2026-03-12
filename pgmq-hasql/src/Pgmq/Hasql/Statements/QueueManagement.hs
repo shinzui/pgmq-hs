@@ -23,33 +23,33 @@ import Pgmq.Hasql.Encoders (createPartitionedQueueEncoder, enableNotifyInsertEnc
 import Pgmq.Hasql.Statements.Types (CreatePartitionedQueue, EnableNotifyInsert, UpdateNotifyInsert)
 import Pgmq.Types (NotifyInsertThrottle, QueueName)
 
--- https://tembo.io/pgmq/api/sql/functions/#create
+-- https://pgmq.github.io/pgmq/api/sql/functions/#create
 createQueue :: Statement QueueName ()
 createQueue = preparable sql queueNameEncoder D.noResult
   where
     sql = "select from pgmq.create($1)"
 
--- https://tembo.io/pgmq/api/sql/functions/#drop_queue
+-- https://pgmq.github.io/pgmq/api/sql/functions/#drop_queue
 dropQueue :: Statement QueueName Bool
 dropQueue = preparable sql queueNameEncoder decoder
   where
     sql = "select * from pgmq.drop_queue($1)"
     decoder = D.singleRow (D.column (D.nonNullable D.bool))
 
--- | https://tembo.io/pgmq/api/sql/functions/#create_partitioned
+-- | https://pgmq.github.io/pgmq/api/sql/functions/#create_partitioned
 createPartitionedQueue :: Statement CreatePartitionedQueue ()
 createPartitionedQueue = preparable sql createPartitionedQueueEncoder D.noResult
   where
     sql = "select from pgmq.create_partitioned($1,$2,$3)"
 
--- | https://tembo.io/pgmq/api/sql/functions/#create_unlogged
+-- | https://pgmq.github.io/pgmq/api/sql/functions/#create_unlogged
 createUnloggedQueue :: Statement QueueName ()
 createUnloggedQueue = preparable sql queueNameEncoder D.noResult
   where
     sql = "select from pgmq.create_unlogged($1)"
 
 -- | DEPRECATED: detach_archive is a no-op in pgmq and will be removed in pgmq 2.0
--- https://tembo.io/pgmq/api/sql/functions/#detach_archive
+-- https://pgmq.github.io/pgmq/api/sql/functions/#detach_archive
 detachArchive :: Statement QueueName ()
 detachArchive = preparable sql queueNameEncoder D.noResult
   where

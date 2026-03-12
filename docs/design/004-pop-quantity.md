@@ -65,7 +65,7 @@ Update `pop` statement to use new type and return vector:
 
 ```haskell
 -- | Pop messages from a queue (atomic read + delete)
--- https://tembo.io/pgmq/api/sql/functions/#pop
+-- https://pgmq.github.io/pgmq/api/sql/functions/#pop
 -- Note: qty parameter added in pgmq 1.7.0
 pop :: Statement PopMessage (Vector Message)
 pop = Statement sql popMessageEncoder decoder True
