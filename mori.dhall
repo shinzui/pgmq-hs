@@ -2,8 +2,8 @@
 -- Project identity manifest for pgmq-hs
 -- See: https://github.com/shinzui/mori
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/4412469f2960b8faa48c123451bf90c0d3400db3/package.dhall
-        sha256:2e416c2d8c28c0b3b217cab47cc6d9e8bb9bec34b87d476edbb0d6d0863d1401
+      https://raw.githubusercontent.com/shinzui/mori-schema/85a34b7f21a33405a76d29a149a8883c168d3777/package.dhall
+        sha256:968eb05bdde9e4a7695c71d44fc4224d56bd512826e9cc8d849f367d42e04b86
 
 let emptyDeps = [] : List Schema.Dependency
 
@@ -39,6 +39,7 @@ in  { project =
             , language = Schema.Language.Haskell
             , path = Some "./pgmq-core"
             , description = Some "Core types and type classes"
+            , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
             , dependencies = emptyDeps
@@ -50,6 +51,7 @@ in  { project =
             , language = Schema.Language.Haskell
             , path = Some "./pgmq-hasql"
             , description = Some "Hasql-based pgmq implementation"
+            , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
             , dependencies = emptyDeps
@@ -61,6 +63,7 @@ in  { project =
             , language = Schema.Language.Haskell
             , path = Some "./pgmq-effectful"
             , description = Some "Effectful effects for pgmq"
+            , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
             , dependencies = emptyDeps
@@ -72,6 +75,20 @@ in  { project =
             , language = Schema.Language.Haskell
             , path = Some "./pgmq-migration"
             , description = Some "Schema migrations without pgmq extension"
+            , lifecycle = None Schema.Lifecycle
+            , visibility = Schema.Visibility.Public
+            , runtime = noRuntime
+            , dependencies = emptyDeps
+            , docs = emptyDocs
+            , config = emptyConfig
+            }
+          , { name = "pgmq-config"
+            , type = Schema.PackageType.Library
+            , language = Schema.Language.Haskell
+            , path = Some "./pgmq-config"
+            , description = Some
+                "Declarative queue configuration and reconciliation"
+            , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
             , dependencies = emptyDeps
@@ -83,6 +100,7 @@ in  { project =
             , language = Schema.Language.Haskell
             , path = Some "./pgmq-bench"
             , description = Some "Benchmarks"
+            , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Internal
             , runtime = noRuntime
             , dependencies = emptyDeps
@@ -94,15 +112,22 @@ in  { project =
     , bundles =
       [ { name = "pgmq-hs"
         , description = Some
-            "pgmq-core + pgmq-hasql + pgmq-effectful + pgmq-migration"
+            "pgmq-core + pgmq-hasql + pgmq-effectful + pgmq-migration + pgmq-config"
         , packages =
-          [ "pgmq-core", "pgmq-hasql", "pgmq-effectful", "pgmq-migration" ]
+          [ "pgmq-core"
+          , "pgmq-hasql"
+          , "pgmq-effectful"
+          , "pgmq-migration"
+          , "pgmq-config"
+          ]
         , primary = "pgmq-hasql"
         }
       ]
     , dependencies = [ "pgmq/pgmq" ]
     , apis = [] : List Schema.Api
     , agents = [] : List Schema.AgentHint
+    , skills = [] : List Schema.Skill
+    , subagents = [] : List Schema.Subagent
     , standards = [] : List Text
     , docs =
           [ { key = "readme"
@@ -118,6 +143,15 @@ in  { project =
             , location =
                 Schema.DocLocation.LocalFile
                   "./docs/OPENTELEMETRY_INSTRUMENTATION.md"
+            }
+          , { key = "queue-configuration"
+            , kind = Schema.DocKind.Guide
+            , audience = Schema.DocAudience.User
+            , description = Some
+                "Declarative queue configuration with pgmq-config"
+            , location =
+                Schema.DocLocation.LocalFile
+                  "./docs/user/queue-configuration.md"
             }
           ]
         : List Schema.DocRef
