@@ -14,5 +14,8 @@ mori.local.dhall
 # Development database
 .dev/
 
+# Seihou
+.seihou/manifest.json.tmp
+
 # Nix build output
 result
