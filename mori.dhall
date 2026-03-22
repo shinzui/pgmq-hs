@@ -2,8 +2,8 @@
 -- Project identity manifest for pgmq-hs
 -- See: https://github.com/shinzui/mori
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/85a34b7f21a33405a76d29a149a8883c168d3777/package.dhall
-        sha256:968eb05bdde9e4a7695c71d44fc4224d56bd512826e9cc8d849f367d42e04b86
+      https://raw.githubusercontent.com/shinzui/mori-schema/58523ea11e120f3be1c978e509d67f51311a8280/package.dhall
+        sha256:e4acbb565c9f4e4b3831dabf084e50f8687dda780b7874ced90ae88d6f349f4f
 
 let emptyDeps = [] : List Schema.Dependency
 
@@ -42,6 +42,7 @@ in  { project =
             , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
+            , runtimeEnvironment = None Schema.RuntimeEnvironment
             , dependencies = emptyDeps
             , docs = emptyDocs
             , config = emptyConfig
@@ -54,6 +55,7 @@ in  { project =
             , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
+            , runtimeEnvironment = None Schema.RuntimeEnvironment
             , dependencies = emptyDeps
             , docs = emptyDocs
             , config = emptyConfig
@@ -66,6 +68,7 @@ in  { project =
             , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
+            , runtimeEnvironment = None Schema.RuntimeEnvironment
             , dependencies = emptyDeps
             , docs = emptyDocs
             , config = emptyConfig
@@ -78,6 +81,7 @@ in  { project =
             , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
+            , runtimeEnvironment = None Schema.RuntimeEnvironment
             , dependencies = emptyDeps
             , docs = emptyDocs
             , config = emptyConfig
@@ -91,6 +95,7 @@ in  { project =
             , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
+            , runtimeEnvironment = None Schema.RuntimeEnvironment
             , dependencies = emptyDeps
             , docs = emptyDocs
             , config = emptyConfig
@@ -103,6 +108,7 @@ in  { project =
             , lifecycle = None Schema.Lifecycle
             , visibility = Schema.Visibility.Internal
             , runtime = noRuntime
+            , runtimeEnvironment = None Schema.RuntimeEnvironment
             , dependencies = emptyDeps
             , docs = emptyDocs
             , config = emptyConfig
