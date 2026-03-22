@@ -13,6 +13,26 @@ let emptyConfig = [] : List Schema.ConfigItem
 
 let noRuntime = { deployable = False, exposesApi = False }
 
+let internalDep =
+      \(name : Text) ->
+        Schema.Dependency.WithAugmentation
+          { name
+          , extraDocs = emptyDocs
+          , localPathOverride = None Text
+          , kind = Some Schema.DependencyKind.Internal
+          , source = None Schema.DependencySource
+          }
+
+let thirdPartyDep =
+      \(name : Text) ->
+        Schema.Dependency.WithAugmentation
+          { name
+          , extraDocs = emptyDocs
+          , localPathOverride = None Text
+          , kind = Some Schema.DependencyKind.ThirdParty
+          , source = Some Schema.DependencySource.Hackage
+          }
+
 in  { project =
       { name = "pgmq-hs"
       , namespace = "shinzui"
@@ -56,7 +76,8 @@ in  { project =
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
             , runtimeEnvironment = None Schema.RuntimeEnvironment
-            , dependencies = emptyDeps
+            , dependencies =
+              [ internalDep "pgmq-core", thirdPartyDep "hasql" ]
             , docs = emptyDocs
             , config = emptyConfig
             }
@@ -69,7 +90,12 @@ in  { project =
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
             , runtimeEnvironment = None Schema.RuntimeEnvironment
-            , dependencies = emptyDeps
+            , dependencies =
+              [ internalDep "pgmq-core"
+              , internalDep "pgmq-hasql"
+              , thirdPartyDep "effectful-core"
+              , thirdPartyDep "hasql"
+              ]
             , docs = emptyDocs
             , config = emptyConfig
             }
@@ -82,7 +108,11 @@ in  { project =
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
             , runtimeEnvironment = None Schema.RuntimeEnvironment
-            , dependencies = emptyDeps
+            , dependencies =
+              [ thirdPartyDep "hasql"
+              , thirdPartyDep "hasql-migration"
+              , thirdPartyDep "hasql-transaction"
+              ]
             , docs = emptyDocs
             , config = emptyConfig
             }
@@ -96,7 +126,13 @@ in  { project =
             , visibility = Schema.Visibility.Public
             , runtime = noRuntime
             , runtimeEnvironment = None Schema.RuntimeEnvironment
-            , dependencies = emptyDeps
+            , dependencies =
+              [ internalDep "pgmq-core"
+              , internalDep "pgmq-hasql"
+              , internalDep "pgmq-effectful"
+              , thirdPartyDep "hasql"
+              , thirdPartyDep "effectful-core"
+              ]
             , docs = emptyDocs
             , config = emptyConfig
             }
@@ -109,7 +145,14 @@ in  { project =
             , visibility = Schema.Visibility.Internal
             , runtime = noRuntime
             , runtimeEnvironment = None Schema.RuntimeEnvironment
-            , dependencies = emptyDeps
+            , dependencies =
+              [ internalDep "pgmq-core"
+              , internalDep "pgmq-hasql"
+              , internalDep "pgmq-effectful"
+              , internalDep "pgmq-migration"
+              , thirdPartyDep "hasql"
+              , thirdPartyDep "effectful-core"
+              ]
             , docs = emptyDocs
             , config = emptyConfig
             }
