@@ -19,3 +19,4 @@ mori.local.dhall
 
 # Nix build output
 result
+CLAUDE.local.md

@@ -13,7 +13,27 @@ user-invocable: true
 
 You are managing execution plans (ExecPlans) — self-contained living documents that guide implementation of features and system changes. Before doing anything, read the full specification at [PLANS.md](PLANS.md) and follow it to the letter.
 
-ExecPlans live in the `docs/plans/` directory at the repository root. Each plan is a single Markdown file named with a slug derived from its title (e.g., `docs/plans/add-template-engine.md`).
+ExecPlans live in the `docs/plans/` directory at the repository root. Each plan is a single Markdown file named with a sequential number prefix followed by a slug derived from its title (e.g., `docs/plans/1-add-template-engine.md`).
+
+To determine the next number, scan `docs/plans/` for existing `.md` files, extract the leading integer from each filename, and use one greater than the highest found. If the directory is empty or does not exist, start at 1.
+
+
+## Git Trailers
+
+Every commit made while working on an ExecPlan **must** include a git trailer linking back to the plan:
+
+    ExecPlan: docs/plans/<N>-<slug>.md
+
+Add the trailer to the end of the commit message body, separated by a blank line:
+
+    Implement health-check endpoint
+
+    Add GET /health route that returns 200 OK with uptime info.
+    Wire into the existing router module.
+
+    ExecPlan: docs/plans/3-add-health-check.md
+
+If a single commit spans multiple plans (rare — prefer not to), include one trailer per plan.
 
 
 ## Modes of Operation
@@ -29,7 +49,7 @@ Create a new ExecPlan. The remaining arguments describe the feature or change.
 
 2. Start from the skeleton below and flesh it out section by section as you research. Do not write the plan from memory or assumptions; ground every claim in what you find in the codebase.
 
-3. Write the ExecPlan to `docs/plans/<slug>.md`. The plan must be fully self-contained per PLANS.md: a novice with only the plan file and the working tree must be able to implement the feature end-to-end.
+3. Write the ExecPlan to `docs/plans/<N>-<slug>.md`, where `<N>` is the next sequential number (see naming convention above). The plan must be fully self-contained per PLANS.md: a novice with only the plan file and the working tree must be able to implement the feature end-to-end.
 
 4. Define every term of art in plain language. Name files by full repository-relative path. Show exact commands with working directories and expected output.
 
@@ -42,7 +62,7 @@ Create a new ExecPlan. The remaining arguments describe the feature or change.
 
 ### Mode: implement
 
-Implement an existing ExecPlan. The argument is the plan file path (e.g., `docs/plans/add-template-engine.md`).
+Implement an existing ExecPlan. The argument is the plan file path (e.g., `docs/plans/1-add-template-engine.md`).
 
 1. Read the entire ExecPlan file. This is your sole source of truth. Do not rely on any context outside the plan and the working tree.
 
@@ -59,7 +79,7 @@ Implement an existing ExecPlan. The argument is the plan file path (e.g., `docs/
 
 5. Resolve ambiguities autonomously. When you make a judgment call, record it in the Decision Log.
 
-6. Commit frequently. Each commit should leave the codebase in a working state.
+6. Commit frequently. Each commit should leave the codebase in a working state. Every commit must include an `ExecPlan:` git trailer linking to the plan file (see Git Trailers above).
 
 7. After completing each milestone, run the validation steps described in the plan and record the results.
 
@@ -202,3 +222,42 @@ When creating a new plan, use this structure. Every section is mandatory.
         In src/Seihou/Core/Template.hs, define:
 
             renderTemplate :: TemplatePath -> Variables -> IO Text
+# --- seihou:exec-plan#bfa0a336 ---
+
+
+## Intention Tracking
+
+When starting work in **create** or **implement** mode, use the `AskUserQuestion` tool to ask the user if they want to associate this work with an intention. Provide two options:
+
+- **Yes** — "I have an Intention ID to associate with this work"
+- **Skip** — "Proceed without linking an intention"
+
+If the user selects "Yes", they will provide the Intention ID via the "Other" free-text input or as a follow-up.
+
+If the user provides an Intention ID, store it for the duration of the session and:
+
+1. **Add it to the top of the plan.** When creating a new ExecPlan, include the Intention ID immediately after the title heading:
+
+        # <Short, action-oriented title>
+
+        Intention: <IntentionId>
+
+        This ExecPlan is a living document. ...
+
+    When implementing an existing plan that does not yet have an `Intention:` line, insert it in the same position (after the title, before the living-document preamble).
+
+2. **Include an `Intention:` git trailer on every commit:**
+
+        Intention: <IntentionId>
+
+When both an ExecPlan and an Intention are active, commits must include both trailers:
+
+    Implement health-check endpoint
+
+    Add GET /health route that returns 200 OK with uptime info.
+
+    ExecPlan: docs/plans/add-health-check.md
+    Intention: INTENT-42
+
+Ask once at the start of a session. Do not ask again on subsequent commits within the same session. If the user skips or declines, proceed without the trailer.
+# --- /seihou:exec-plan#bfa0a336 ---
