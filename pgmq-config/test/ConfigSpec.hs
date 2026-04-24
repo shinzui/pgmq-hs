@@ -8,9 +8,13 @@ where
 import Control.Lens ((^.))
 import Data.Generics.Labels ()
 import Data.Text qualified as T
+import Data.Time (UTCTime)
 import Data.Word (Word32)
+import Hasql.Decoders qualified as D
+import Hasql.Encoders qualified as E
 import Hasql.Pool qualified as Pool
 import Hasql.Session qualified
+import Hasql.Statement (Statement, preparable)
 import Pgmq.Config
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Types (QueueName, parseQueueName, parseTopicPattern, queueNameToText, topicPatternToText)
@@ -28,7 +32,8 @@ tests pool =
       testEnsureQueuesIncremental pool,
       testEnsureQueuesWithNotify pool,
       testEnsureQueuesWithFifo pool,
-      testEnsureQueuesWithTopicBinding pool
+      testEnsureQueuesWithTopicBinding pool,
+      testEnsureQueuesIsTrulyIdempotent pool
     ]
 
 -- | Helper to run a session and fail on error
@@ -202,3 +207,57 @@ actionForQueue qn (CreatedFifoIndex q) = q == qn
 actionForQueue qn (SkippedFifoIndex q) = q == qn
 actionForQueue qn (BoundTopic q _) = q == qn
 actionForQueue qn (SkippedTopicBinding q _) = q == qn
+
+-- | Assert that calling the silent 'ensureQueues' a second time for a queue with
+-- notify-insert configured does NOT reset 'last_notified_at' to the epoch.
+--
+-- Under the pre-fix behaviour, 'ensureQueues' unconditionally calls
+-- 'pgmq.enable_notify_insert', which first runs 'pgmq.disable_notify_insert'
+-- (DELETE FROM pgmq.notify_insert_throttle) and then re-inserts the row with
+-- the default 'last_notified_at = to_timestamp(0)'. After the fix, the second
+-- call queries existing state and skips the notify mutation entirely, so a
+-- timestamp bumped between the two calls is preserved.
+testEnsureQueuesIsTrulyIdempotent :: Pool.Pool -> TestTree
+testEnsureQueuesIsTrulyIdempotent pool = testCase "ensureQueues is truly idempotent for notify" $ do
+  qn <- genQueueName
+  let configs = [withNotifyInsert (Just 500) (standardQueue qn)]
+  -- First run creates the queue and enables notify. Fresh throttle row has
+  -- last_notified_at = to_timestamp(0) (the table default).
+  runSession pool (ensureQueues configs)
+  -- Bump last_notified_at to a recent timestamp so a reset would be observable.
+  bumped <- runSession pool (Hasql.Session.statement (queueNameToText qn) bumpLastNotifiedAtStmt)
+  assertBool "bumped timestamp should be post-epoch" (bumped > epochUtc)
+  -- Second run must be a no-op for notify (i.e., must not rewrite the row).
+  runSession pool (ensureQueues configs)
+  after <- runSession pool (Hasql.Session.statement (queueNameToText qn) pgNotifyLastAt)
+  assertBool
+    ( "last_notified_at must not be reset by second ensureQueues; was "
+        <> show after
+    )
+    (after > epochUtc)
+  after @?= bumped
+  cleanupQueue pool qn
+
+-- | Read 'last_notified_at' for a queue. One-off statement for tests only.
+pgNotifyLastAt :: Statement T.Text UTCTime
+pgNotifyLastAt = preparable sql encoder decoder
+  where
+    sql = "SELECT last_notified_at FROM pgmq.notify_insert_throttle WHERE queue_name = $1"
+    encoder = E.param (E.nonNullable E.text)
+    decoder = D.singleRow (D.column (D.nonNullable D.timestamptz))
+
+-- | Bump 'last_notified_at' to clock_timestamp() and return the new value.
+-- Used to observe whether a subsequent ensureQueues resets it.
+bumpLastNotifiedAtStmt :: Statement T.Text UTCTime
+bumpLastNotifiedAtStmt = preparable sql encoder decoder
+  where
+    sql =
+      "UPDATE pgmq.notify_insert_throttle \
+      \SET last_notified_at = clock_timestamp() \
+      \WHERE queue_name = $1 RETURNING last_notified_at"
+    encoder = E.param (E.nonNullable E.text)
+    decoder = D.singleRow (D.column (D.nonNullable D.timestamptz))
+
+-- | Postgres epoch as a UTCTime, i.e. 'to_timestamp(0)'.
+epochUtc :: UTCTime
+epochUtc = read "1970-01-01 00:00:00 UTC"

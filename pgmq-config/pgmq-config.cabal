@@ -102,3 +102,4 @@ test-suite pgmq-config-test
     , tasty           ^>=1.5
     , tasty-hunit     ^>=0.10
     , text
+    , time            ^>=1.14
