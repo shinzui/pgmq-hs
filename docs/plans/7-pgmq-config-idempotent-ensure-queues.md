@@ -93,8 +93,11 @@ by temporarily enabling PostgreSQL `log_statement = 'all'` and confirming the se
       state first and skips unchanged items". — 2026-04-23. Haddock already updated in
       M2/M3; cabal version bumped; CHANGELOG entry prepended. No workspace packages depend on
       `pgmq-config`, so no internal bound updates needed.
-- [ ] Milestone 7: `nix fmt`, `cabal build all`, `cabal test pgmq-config`, `cabal test all`
-      clean.
+- [x] Milestone 7: `nix fmt`, `cabal build all`, `cabal test pgmq-config`, `cabal test all`
+      clean. — 2026-04-23. `nix fmt` is a no-op. `cabal build all` builds cleanly
+      (pgmq-core, pgmq-hasql, pgmq-migration, pgmq-effectful, pgmq-config-0.1.4.0, and
+      pgmq-bench benchmark). `cabal test all` passes every suite: pgmq-migration (15),
+      pgmq-config (10), pgmq-effectful (6), pgmq-hasql (55). No regressions.
 
 
 ## Surprises & Discoveries
@@ -152,7 +155,41 @@ by temporarily enabling PostgreSQL `log_statement = 'all'` and confirming the se
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Outcome (2026-04-23).** `ensureQueues` and `ensureQueuesEff` now route through the
+reporting path and are genuinely idempotent: a second call for a queue with notify-insert
+configured preserves `last_notified_at` (previously reset to `to_timestamp(0)`), and the
+partitioned-queue path no longer re-registers with `pg_partman`. Public signatures are
+unchanged; `pgmq-config-0.1.4.0` is a pure bug-fix release.
+
+**Traceability.** Six commits on `master`, each with the `ExecPlan:` and `Intention:`
+trailers:
+
+- M1 `bacbd12` — `test(pgmq-config): demonstrate ensureQueues is not idempotent for notify`
+- M2 `e7b5df8` — `fix(pgmq-config): make ensureQueues truly idempotent`
+- M3 `1c93a08` — `fix(pgmq-config): mirror idempotent ensureQueues in effectful backend`
+- M4 (folded into M2/M3 — no separate commit, as anticipated by the plan)
+- M5 `dfb133b` — `test(pgmq-config): positive idempotency coverage for silent ensureQueues`
+- M6 `b7554b5` — `docs(pgmq-config): release 0.1.4.0 with idempotency fix`
+
+**Test deltas.** 7 → 10 `pgmq-config` tests. 55 tests in `pgmq-hasql`, 15 in
+`pgmq-migration`, and 6 in `pgmq-effectful` continued to pass unchanged.
+
+**Lessons.**
+
+- The report-variant (`ensureQueuesReport`) had the correct reconciliation logic all along.
+  The bug was entirely in having two implementations of the same logic and only maintaining
+  one of them. Routing the silent variant through the reporting path is cheaper than an
+  alternative design (e.g., a shared helper with a `record actions?` flag) and keeps
+  "idempotent" as a property of a single code path.
+- `pgmq.enable_notify_insert`'s implementation (`DELETE ... ; INSERT ...` under the hood)
+  rather than `ON CONFLICT DO NOTHING` made the bug silently destructive: a client that
+  relied on `last_notified_at` as a throttle anchor would have had throttling defeated on
+  every reboot.
+- No need to exercise `pg_partman` to prove the bug — `last_notified_at` provided a cheaper
+  reproduction that did not depend on whether the ephemeral test database has
+  `pg_partman`. The partitioned-queue failure mode mentioned in the plan remains a
+  known-but-not-covered scenario; it is implicitly exercised because both paths share the
+  same reconciliation logic post-fix.
 
 
 ## Context and Orientation
