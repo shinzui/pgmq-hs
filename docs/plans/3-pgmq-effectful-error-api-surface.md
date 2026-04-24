@@ -51,28 +51,37 @@ And in a usage example:
 
 ## Progress
 
-- [ ] Verify EP-1 and EP-2 have landed (read the interpreter and traced
-  interpreter files). If not, stop.
-- [ ] Add `isTransient :: PgmqRuntimeError -> Bool` to
-  `Pgmq.Effectful.Interpreter`, with a precise rule derived from hasql's
-  error documentation (see Decision Log and the Context section).
-- [ ] Decide deprecation policy for `PgmqError`/`PgmqPoolError` (Decision Log
-  entry); apply `{-# DEPRECATED #-}` pragmas.
-- [ ] Curate `Pgmq.Effectful`'s export list: add a visible "Errors" section
-  comment; move the new exports; deprecate-annotate the legacy ones.
-- [ ] `cabal build pgmq-effectful` passes with no unexpected warnings.
-  (Deprecation warnings are expected if anything internal still uses the
-  legacy names; fix those uses to use the new names.)
-- [ ] `cabal haddock pgmq-effectful` renders successfully; inspect the
-  generated HTML under `dist-newstyle/build/*/pgmq-effectful-*/doc/html/`
-  to confirm the errors section reads well.
-- [ ] `nix fmt` passes.
-- [ ] Commit with the three required trailers.
+- [x] Verify EP-1 and EP-2 have landed. (2026-04-23)
+- [x] Add `isTransient :: PgmqRuntimeError -> Bool` to
+  `Pgmq.Effectful.Interpreter` with the rule described in the Decision Log.
+  (2026-04-23)
+- [x] Apply `{-# DEPRECATED PgmqError, PgmqPoolError ... #-}` pragma in
+  `Pgmq.Effectful.Interpreter`. (2026-04-23)
+- [x] Curate `Pgmq.Effectful`'s export list: split out "Errors" and
+  "Deprecated Error Types" subsections. (2026-04-23)
+- [x] `cabal build pgmq-effectful` passes — no deprecation warnings fire
+  because nothing internal uses the legacy names. (2026-04-23)
+- [x] `cabal build all` passes. (2026-04-23)
+- [x] `cabal haddock pgmq-effectful` renders successfully; documentation
+  created under
+  `dist-newstyle/build/aarch64-osx/ghc-9.12.2/pgmq-effectful-0.1.3.0/doc/html/pgmq-effectful`.
+  (2026-04-23)
+- [x] In ghci, `let _ = undefined :: PgmqError` emits the deprecation
+  warning as expected. (2026-04-23)
+- [x] `nix fmt` passes.
+- [x] Commit with the three required trailers.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- As already noted in the MasterPlan and EP-1, `Hasql.Session` does not
+  re-export `ConnectionError` / `SessionError` and their constructors. The
+  plan's Concrete Step 3 showed
+  `import Hasql.Session qualified as Hasql (ConnectionError (..),
+  SessionError (..))`. The implementation uses
+  `import Hasql.Errors qualified as HasqlErrors` instead (EP-1 already had
+  the `HasqlErrors` import in place, so `isTransient`'s pattern matches
+  reuse it). (2026-04-23)
 
 
 ## Decision Log
@@ -129,7 +138,22 @@ And in a usage example:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Outcome (2026-04-23): `Pgmq.Effectful` is now a one-stop import for the
+full error-handling surface. The new "Errors" section exports
+`PgmqRuntimeError (..)`, `fromUsageError`, and `isTransient`. The
+"Deprecated Error Types" subsection exports the legacy `PgmqError (..)`
+with a `DEPRECATED` pragma that fires a compile-time warning pointing at
+`PgmqRuntimeError` and mentioning removal in 0.3.0.
+
+Gaps vs. plan: the plan's import sketch used `Hasql.Session qualified as
+Hasql (ConnectionError (..), SessionError (..))`; the implementation uses
+`Hasql.Errors qualified as HasqlErrors` because that is the actual public
+module.
+
+Lessons: the deprecation pragma fires even when the legacy name is
+re-exported via `Pgmq.Effectful` (verified in ghci). No code path inside
+the package itself still mentions the legacy names; the only remaining
+uses are the definition site and the re-export, exactly as EP-3 intends.
 
 
 ## Context and Orientation

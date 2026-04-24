@@ -4,15 +4,20 @@ module Pgmq.Effectful
 
     -- * Interpreters
     runPgmq,
-    PgmqRuntimeError (..),
-    fromUsageError,
-    PgmqError (..),
 
     -- ** Traced Interpreters
     runPgmqTraced,
     runPgmqTracedWith,
     TracingConfig (..),
     defaultTracingConfig,
+
+    -- * Errors
+    PgmqRuntimeError (..),
+    fromUsageError,
+    isTransient,
+
+    -- ** Deprecated Error Types
+    PgmqError (..),
 
     -- ** Traced Operations
     sendMessageTraced,
@@ -191,6 +196,7 @@ import Pgmq.Effectful.Interpreter
   ( PgmqError (..),
     PgmqRuntimeError (..),
     fromUsageError,
+    isTransient,
     runPgmq,
   )
 import Pgmq.Effectful.Interpreter.Traced

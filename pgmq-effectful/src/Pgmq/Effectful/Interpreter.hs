@@ -5,8 +5,9 @@ module Pgmq.Effectful.Interpreter
     -- * Error Types
     PgmqRuntimeError (..),
     fromUsageError,
+    isTransient,
 
-    -- * Legacy Error Type (deprecated; remove in a future release)
+    -- * Legacy Error Types (deprecated; will be removed in 0.3.0)
     PgmqError (..),
   )
 where
@@ -49,10 +50,38 @@ fromUsageError = \case
   Pool.ConnectionUsageError e -> PgmqConnectionError e
   Pool.SessionUsageError e -> PgmqSessionError e
 
--- | Legacy error type. Retained for one release cycle to ease migration.
--- Prefer 'PgmqRuntimeError' for new code.
+-- | Is this error plausibly transient — i.e., worth retrying?
+--
+-- Returns 'True' for acquisition timeouts, networking connection errors,
+-- uncategorized libpq connection errors, and session-level connection
+-- drops. All other errors (authentication failure, compatibility
+-- mismatches, missing types, statement errors, driver bugs) are treated
+-- as permanent.
+--
+-- Note: 'HasqlErrors.OtherConnectionError' is classed as transient here
+-- despite hasql's documentation calling it \"not transient by default\",
+-- because it is the catch-all for unrecognized libpq errors and classing
+-- the unknown as transient errs toward letting retries happen.
+isTransient :: PgmqRuntimeError -> Bool
+isTransient = \case
+  PgmqAcquisitionTimeout -> True
+  PgmqConnectionError e -> case e of
+    HasqlErrors.NetworkingConnectionError _ -> True
+    HasqlErrors.AuthenticationConnectionError _ -> False
+    HasqlErrors.CompatibilityConnectionError _ -> False
+    HasqlErrors.OtherConnectionError _ -> True
+  PgmqSessionError e -> case e of
+    HasqlErrors.ConnectionSessionError _ -> True
+    HasqlErrors.StatementSessionError {} -> False
+    HasqlErrors.ScriptSessionError {} -> False
+    HasqlErrors.MissingTypesSessionError _ -> False
+    HasqlErrors.DriverSessionError _ -> False
+
+-- | Legacy error type. Retained for one release cycle; migrate to
+-- 'PgmqRuntimeError'. Will be removed in pgmq-effectful 0.3.0.
 newtype PgmqError = PgmqPoolError UsageError
   deriving stock (Show)
+{-# DEPRECATED PgmqError, PgmqPoolError "Use PgmqRuntimeError instead (available from Pgmq.Effectful). The legacy types will be removed in pgmq-effectful 0.3.0." #-}
 
 -- | Run the Pgmq effect using a connection pool.
 -- Errors are thrown via the 'Error' effect as 'PgmqRuntimeError'.

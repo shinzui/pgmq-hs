@@ -119,7 +119,7 @@ Alternatives considered and rejected:
 |------|------------------------------------------------|---------------------------------------------------------------|---------------|-----------|-------------|
 | EP-1 | Define `PgmqRuntimeError` runtime-error type   | docs/plans/1-pgmq-effectful-error-type.md                     | None          | None      | Complete    |
 | EP-2 | Make the traced interpreter propagate typed errors | docs/plans/2-pgmq-effectful-traced-error-propagation.md   | EP-1          | None      | Complete    |
-| EP-3 | Curate the pgmq-effectful error API surface    | docs/plans/3-pgmq-effectful-error-api-surface.md              | EP-1, EP-2    | None      | Not Started |
+| EP-3 | Curate the pgmq-effectful error API surface    | docs/plans/3-pgmq-effectful-error-api-surface.md              | EP-1, EP-2    | None      | Complete    |
 | EP-4 | Error-propagation test suite for pgmq-effectful | docs/plans/4-pgmq-effectful-error-tests.md                   | EP-2          | EP-1      | Not Started |
 | EP-5 | Document the error model and migration path    | docs/plans/5-pgmq-effectful-error-docs.md                     | EP-3          | EP-4      | Not Started |
 
@@ -208,10 +208,10 @@ names the child plan and the milestone.
 - [x] EP-2: OpenTelemetry span records the error (status + event) and
   propagates it — by code inspection; EP-4 will confirm at runtime with a
   stub tracer.
-- [ ] EP-3: `Pgmq.Effectful` module export list re-exports `PgmqRuntimeError`
-  and its constructors; old `PgmqError` export removed or aliased with a
-  `DEPRECATED` pragma.
-- [ ] EP-3: At least one classification helper (e.g., `isTransient`) exposed to
+- [x] EP-3: `Pgmq.Effectful` module export list re-exports `PgmqRuntimeError`
+  and its constructors; old `PgmqError` export retained with a `DEPRECATED`
+  pragma (removal planned for 0.3.0).
+- [x] EP-3: At least one classification helper (`isTransient`) exposed to
   help users decide retry policy without re-implementing error introspection.
 - [ ] EP-4: New `pgmq-effectful-test` test suite added to the cabal file and
   wired into `cabal test all`.
