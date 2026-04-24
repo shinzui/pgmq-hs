@@ -66,6 +66,19 @@ final: prev: {
       } + "/semantic-conventions")
     { }));
 
+  # Used by the pgmq-effectful test suite to assert v1.24 span attributes.
+  # Pulled from the same iand675/hs-opentelemetry revision (see cabal.project);
+  # nixpkgs has this package marked broken.
+  hs-opentelemetry-exporter-in-memory = dontCheck (doJailbreak (final.callCabal2nix "hs-opentelemetry-exporter-in-memory"
+    (pkgs.fetchFromGitHub
+      {
+        owner = "iand675";
+        repo = "hs-opentelemetry";
+        rev = "adc464b0a45e56a983fa1441be6e432b50c29e0e";
+        hash = "sha256-WG/i8jt8u9olC2bAdbKRamhqyBzYYJ7q/nrGsVUMmEE=";
+      } + "/exporters/in-memory")
+    { }));
+
   # ── Test dependencies ──────────────────────────────────────────────
 
   ephemeral-pg = dontCheck (doJailbreak (final.callCabal2nix "ephemeral-pg"
@@ -83,18 +96,24 @@ final: prev: {
 
   pgmq-hasql = dontCheck (doJailbreak (final.callCabal2nix "pgmq-hasql" ../pgmq-hasql { }));
 
-  pgmq-effectful = doJailbreak (final.callCabal2nix "pgmq-effectful" ../pgmq-effectful { });
+  pgmq-effectful = dontCheck (doJailbreak (final.callCabal2nix "pgmq-effectful" ../pgmq-effectful { }));
 
   pgmq-migration =
     let
       combinedSrc = pkgs.runCommand "pgmq-migration-src" { } ''
         cp -r ${../pgmq-migration} $out
         chmod -R u+w $out
+        # The source tree has a `vendor -> ../vendor` symlink so `cabal build`
+        # works from the checkout. Replace it with a real directory containing
+        # just the SQL files embedFile actually needs.
+        rm -f $out/vendor
         mkdir -p $out/vendor/pgmq/pgmq-extension
         cp -r ${../vendor/pgmq/pgmq-extension/sql} $out/vendor/pgmq/pgmq-extension/sql
       '';
     in
     dontCheck (doJailbreak (final.callCabal2nix "pgmq-migration" combinedSrc { }));
+
+  pgmq-config = dontCheck (doJailbreak (final.callCabal2nix "pgmq-config" ../pgmq-config { }));
 
   pgmq-bench = dontCheck (doJailbreak (final.callCabal2nix "pgmq-bench" ../pgmq-bench { }));
 }

@@ -35,6 +35,7 @@
           pgmq-hasql = haskellPackages.pgmq-hasql;
           pgmq-effectful = haskellPackages.pgmq-effectful;
           pgmq-migration = haskellPackages.pgmq-migration;
+          pgmq-config = haskellPackages.pgmq-config;
           default = haskellPackages.pgmq-hasql;
         };
 
@@ -47,9 +48,10 @@
               treefmt.enable = true;
             };
           };
-          inherit (haskellPackages) pgmq-core pgmq-hasql pgmq-effectful pgmq-migration;
+          inherit (haskellPackages) pgmq-core pgmq-hasql pgmq-effectful pgmq-migration pgmq-config;
           pgmq-hasql-tests = withTests haskellPackages.pgmq-hasql;
           pgmq-migration-tests = withTests haskellPackages.pgmq-migration;
+          pgmq-config-tests = withTests haskellPackages.pgmq-config;
         };
 
         devShells.default = pkgs.mkShell {
