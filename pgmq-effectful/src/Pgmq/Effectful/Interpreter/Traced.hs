@@ -22,7 +22,7 @@
 --   pool <- ...
 --
 --   runEff
---     . runError @PgmqError
+--     . runError @PgmqRuntimeError
 --     . runPgmqTraced pool tracer
 --     $ do
 --       createQueue "my-queue"
@@ -45,6 +45,7 @@ import Data.Text qualified as T
 import Effectful (Eff, IOE, (:>))
 import Effectful qualified
 import Effectful.Dispatch.Dynamic (interpret)
+import Effectful.Error.Static (Error, throwError)
 import Hasql.Pool (Pool, UsageError)
 import Hasql.Pool qualified as Pool
 import Hasql.Session qualified
@@ -52,6 +53,10 @@ import OpenTelemetry.Attributes (Attribute (..), PrimitiveAttribute (..))
 import OpenTelemetry.Attributes.Map qualified as AttrMap
 import OpenTelemetry.Trace.Core qualified as OTel
 import Pgmq.Effectful.Effect (Pgmq (..))
+import Pgmq.Effectful.Interpreter
+  ( PgmqRuntimeError,
+    fromUsageError,
+  )
 import Pgmq.Effectful.Telemetry
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types qualified as Types
@@ -78,7 +83,7 @@ defaultTracingConfig t =
 
 -- | Run the Pgmq effect with OpenTelemetry instrumentation.
 runPgmqTraced ::
-  (IOE :> es) =>
+  (IOE :> es, Error PgmqRuntimeError :> es) =>
   Pool ->
   OTel.Tracer ->
   Eff (Pgmq : es) a ->
@@ -87,7 +92,7 @@ runPgmqTraced pool t = runPgmqTracedWith pool (defaultTracingConfig t)
 
 -- | Run the Pgmq effect with custom tracing configuration.
 runPgmqTracedWith ::
-  (IOE :> es) =>
+  (IOE :> es, Error PgmqRuntimeError :> es) =>
   Pool ->
   TracingConfig ->
   Eff (Pgmq : es) a ->
@@ -260,7 +265,7 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
 -- Internal helpers
 
 withTracedSession ::
-  (IOE :> es) =>
+  (IOE :> es, Error PgmqRuntimeError :> es) =>
   TracingConfig ->
   Text ->
   OTel.SpanKind ->
@@ -270,12 +275,13 @@ withTracedSession ::
   Eff es a
 withTracedSession config spanName kind queueName pool session = do
   let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
+  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
     addQueueAttributes s queueName
     runSessionIO config s pool session
+  throwOnLeft result
 
 withTracedSessionNoQueue ::
-  (IOE :> es) =>
+  (IOE :> es, Error PgmqRuntimeError :> es) =>
   TracingConfig ->
   Text ->
   OTel.SpanKind ->
@@ -284,12 +290,13 @@ withTracedSessionNoQueue ::
   Eff es a
 withTracedSessionNoQueue config spanName kind pool session = do
   let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
+  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
     addBaseAttributes s
     runSessionIO config s pool session
+  throwOnLeft result
 
 withTracedSessionWithMsgId ::
-  (IOE :> es) =>
+  (IOE :> es, Error PgmqRuntimeError :> es) =>
   TracingConfig ->
   Text ->
   OTel.SpanKind ->
@@ -300,13 +307,14 @@ withTracedSessionWithMsgId ::
   Eff es a
 withTracedSessionWithMsgId config spanName kind queueName msgId pool session = do
   let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
+  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
     addQueueAttributes s queueName
     addMessageIdAttribute s msgId
     runSessionIO config s pool session
+  throwOnLeft result
 
 withTracedSessionWithCount ::
-  (IOE :> es) =>
+  (IOE :> es, Error PgmqRuntimeError :> es) =>
   TracingConfig ->
   Text ->
   OTel.SpanKind ->
@@ -317,27 +325,37 @@ withTracedSessionWithCount ::
   Eff es a
 withTracedSessionWithCount config spanName kind queueName count pool session = do
   let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
+  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
     addQueueAttributes s queueName
     addBatchCountAttribute s count
     runSessionIO config s pool session
+  throwOnLeft result
+
+-- | Rethrow a runtime error via the 'Error' effect when present.
+throwOnLeft ::
+  (Error PgmqRuntimeError :> es) =>
+  Either PgmqRuntimeError a ->
+  Eff es a
+throwOnLeft = \case
+  Left err -> throwError err
+  Right a -> pure a
 
 runSessionIO ::
   TracingConfig ->
   OTel.Span ->
   Pool ->
   Hasql.Session.Session a ->
-  IO a
+  IO (Either PgmqRuntimeError a)
 runSessionIO config s pool session = do
   result <- Pool.use pool session
   case result of
     Left err -> do
       when config.recordExceptions $ recordUsageError s err
       OTel.setStatus s (OTel.Error $ T.pack $ show err)
-      fail $ "PgmqPoolError: " <> show err
+      pure $ Left $ fromUsageError err
     Right a -> do
       OTel.setStatus s OTel.Ok
-      pure a
+      pure $ Right a
 
 recordUsageError :: OTel.Span -> UsageError -> IO ()
 recordUsageError s err = do
@@ -375,7 +393,7 @@ addRoutingKeyAttribute s rk =
   OTel.addAttribute s messagingRoutingKey (routingKeyToText rk)
 
 withTracedSessionWithRoutingKey ::
-  (IOE :> es) =>
+  (IOE :> es, Error PgmqRuntimeError :> es) =>
   TracingConfig ->
   Text ->
   OTel.SpanKind ->
@@ -385,13 +403,14 @@ withTracedSessionWithRoutingKey ::
   Eff es a
 withTracedSessionWithRoutingKey config spanName kind routingKey pool session = do
   let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
+  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
     addBaseAttributes s
     addRoutingKeyAttribute s routingKey
     runSessionIO config s pool session
+  throwOnLeft result
 
 withTracedSessionWithRoutingKeyAndCount ::
-  (IOE :> es) =>
+  (IOE :> es, Error PgmqRuntimeError :> es) =>
   TracingConfig ->
   Text ->
   OTel.SpanKind ->
@@ -402,8 +421,9 @@ withTracedSessionWithRoutingKeyAndCount ::
   Eff es a
 withTracedSessionWithRoutingKeyAndCount config spanName kind routingKey count pool session = do
   let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
+  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
     addBaseAttributes s
     addRoutingKeyAttribute s routingKey
     addBatchCountAttribute s count
     runSessionIO config s pool session
+  throwOnLeft result

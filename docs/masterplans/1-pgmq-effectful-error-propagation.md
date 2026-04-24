@@ -118,7 +118,7 @@ Alternatives considered and rejected:
 | #    | Title                                          | Path                                                          | Hard Deps     | Soft Deps | Status      |
 |------|------------------------------------------------|---------------------------------------------------------------|---------------|-----------|-------------|
 | EP-1 | Define `PgmqRuntimeError` runtime-error type   | docs/plans/1-pgmq-effectful-error-type.md                     | None          | None      | Complete    |
-| EP-2 | Make the traced interpreter propagate typed errors | docs/plans/2-pgmq-effectful-traced-error-propagation.md   | EP-1          | None      | Not Started |
+| EP-2 | Make the traced interpreter propagate typed errors | docs/plans/2-pgmq-effectful-traced-error-propagation.md   | EP-1          | None      | Complete    |
 | EP-3 | Curate the pgmq-effectful error API surface    | docs/plans/3-pgmq-effectful-error-api-surface.md              | EP-1, EP-2    | None      | Not Started |
 | EP-4 | Error-propagation test suite for pgmq-effectful | docs/plans/4-pgmq-effectful-error-tests.md                   | EP-2          | EP-1      | Not Started |
 | EP-5 | Document the error model and migration path    | docs/plans/5-pgmq-effectful-error-docs.md                     | EP-3          | EP-4      | Not Started |
@@ -203,11 +203,11 @@ names the child plan and the milestone.
   until EP-3 removes or hides the effectful-side name).
 - [x] EP-1: Plain `runPgmq` interpreter throws the new type (still in
   `Pgmq.Effectful.Interpreter`).
-- [ ] EP-2: `runPgmqTracedWith` and `runPgmqTraced` carry `Error
+- [x] EP-2: `runPgmqTracedWith` and `runPgmqTraced` carry `Error
   PgmqRuntimeError :> es` and call `throwError`, never `fail`.
-- [ ] EP-2: OpenTelemetry span records the error (status + event) and
-  propagates it — neither hides the other, verified by reading the test
-  from EP-4 once it lands.
+- [x] EP-2: OpenTelemetry span records the error (status + event) and
+  propagates it — by code inspection; EP-4 will confirm at runtime with a
+  stub tracer.
 - [ ] EP-3: `Pgmq.Effectful` module export list re-exports `PgmqRuntimeError`
   and its constructors; old `PgmqError` export removed or aliased with a
   `DEPRECATED` pragma.

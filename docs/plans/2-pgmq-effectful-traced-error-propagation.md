@@ -71,41 +71,42 @@ caller also sees it.
 
 ## Progress
 
-- [ ] Verify that EP-1 has landed by reading
-  `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs` and confirming
-  `PgmqRuntimeError`, `fromUsageError`, and the updated `runPgmq` signature
-  exist. If EP-1 is incomplete, stop — this plan cannot proceed.
-- [ ] Update `runPgmqTracedWith`'s type signature to add `Error
-  PgmqRuntimeError :> es` as a constraint.
-- [ ] Update `runPgmqTraced`'s type signature to match (it delegates to
-  `runPgmqTracedWith`).
-- [ ] Rewrite `runSessionIO` so it returns `Either PgmqRuntimeError a`
-  instead of `IO a`, letting the caller in the `Eff` context throw via the
-  `Error` effect.
-- [ ] Move the OTel recording calls (`setStatus`, `addEvent`) to happen on
-  the Left branch *before* the Eff-level caller throws — observability is
-  preserved.
-- [ ] Remove the `fail $ "PgmqPoolError: " <> show err` call entirely.
-- [ ] Update `withTracedSession`, `withTracedSessionNoQueue`,
-  `withTracedSessionWithMsgId`, `withTracedSessionWithCount`,
-  `withTracedSessionWithRoutingKey`, `withTracedSessionWithRoutingKeyAndCount`
-  to carry the `Error PgmqRuntimeError :> es` constraint and re-throw.
-- [ ] Update the docstring at the top of
-  `pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs` to reflect the new
-  signature (the example usage shows `runError @PgmqError`; change to
-  `PgmqRuntimeError`).
-- [ ] `cabal build pgmq-effectful` passes with no warnings.
-- [ ] `cabal build all` passes.
-- [ ] `nix fmt` passes; restage if needed.
-- [ ] Commit with `MasterPlan:`, `ExecPlan:`, `Intention:` trailers.
+- [x] Verify that EP-1 has landed — confirmed `PgmqRuntimeError`,
+  `fromUsageError`, and the updated `runPgmq` signature exist in
+  `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs`. (2026-04-23)
+- [x] Update `runPgmqTracedWith`'s type signature to add `Error
+  PgmqRuntimeError :> es`. (2026-04-23)
+- [x] Update `runPgmqTraced`'s type signature to match. (2026-04-23)
+- [x] Rewrite `runSessionIO` to return `IO (Either PgmqRuntimeError a)`
+  instead of `IO a`. (2026-04-23)
+- [x] OTel recording calls (`setStatus`, `addEvent`) remain on the Left
+  branch *before* the `pure $ Left ...` return. (2026-04-23)
+- [x] Remove the `fail $ "PgmqPoolError: " <> show err` call entirely.
+  (2026-04-23: confirmed by `grep -n "fail " ...` returning exit code 1 with
+  no matches.)
+- [x] Update all six `withTracedSession*` helpers to carry `Error
+  PgmqRuntimeError :> es` and rethrow via a shared `throwOnLeft` helper.
+  (2026-04-23: introduced `throwOnLeft :: Either PgmqRuntimeError a -> Eff
+  es a` to keep the six call sites tidy.)
+- [x] Update the module-level docstring example to `runError
+  @PgmqRuntimeError`. (2026-04-23)
+- [x] `cabal build pgmq-effectful` passes with no warnings. (2026-04-23)
+- [x] `cabal build all` passes. (2026-04-23)
+- [x] `nix fmt` passes. (2026-04-23: reported "formatted 4 files (0
+  changed)".)
+- [x] Commit with `MasterPlan:`, `ExecPlan:`, `Intention:` trailers.
 
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered
-during implementation. Provide concise evidence.
-
-(None yet.)
+- Introduced a small local helper `throwOnLeft :: (Error PgmqRuntimeError :>
+  es) => Either PgmqRuntimeError a -> Eff es a` in
+  `Pgmq.Effectful.Interpreter.Traced` to avoid duplicating the six-line
+  "case result of Left -> throwError; Right -> pure" block across all six
+  `withTracedSession*` helpers. Not strictly required by the plan — the
+  plan's Concrete Step 5 shows the case-of inlined — but cutting the
+  duplication kept every helper to two lines of post-`inSpan'` code.
+  (2026-04-23)
 
 
 ## Decision Log
@@ -152,7 +153,21 @@ during implementation. Provide concise evidence.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Outcome (2026-04-23): `runPgmqTraced` and `runPgmqTracedWith` now both carry
+`(IOE :> es, Error PgmqRuntimeError :> es)` — the exact same effect-row
+shape as the plain `runPgmq`. The traced interpreter no longer calls
+`fail`; instead, on a hasql-pool error it records status and the exception
+event on the active OTel span (subject to
+`TracingConfig.recordExceptions`), then returns `Left PgmqRuntimeError`
+from `runSessionIO`, which the caller throws via `throwError`.
+
+Gaps vs. plan: none. The only structural deviation is the introduction of
+a tiny `throwOnLeft` helper noted in Surprises & Discoveries.
+
+Lessons: separating "record on span" from "throw at the Eff layer" made
+the type story uniform (every traced helper has the same two-line
+post-`inSpan'` tail) and let observability and recoverability coexist
+without one hiding the other.
 
 
 ## Context and Orientation
