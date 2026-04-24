@@ -3,28 +3,61 @@ module Pgmq.Effectful.Interpreter
     runPgmq,
 
     -- * Error Types
+    PgmqRuntimeError (..),
+    fromUsageError,
+
+    -- * Legacy Error Type (deprecated; remove in a future release)
     PgmqError (..),
   )
 where
 
+import Control.Exception (Exception)
 import Effectful (Eff, IOE, (:>))
 import Effectful qualified
 import Effectful.Dispatch.Dynamic (interpret)
 import Effectful.Error.Static (Error, throwError)
+import GHC.Generics (Generic)
+import Hasql.Errors qualified as HasqlErrors
 import Hasql.Pool (Pool, UsageError)
 import Hasql.Pool qualified as Pool
 import Hasql.Session qualified
 import Pgmq.Effectful.Effect (Pgmq (..))
 import Pgmq.Hasql.Sessions qualified as Sessions
 
--- | Error type for pgmq operations.
+-- | Structured runtime error for pgmq-effectful operations.
+--
+-- Constructors mirror 'Hasql.Pool.UsageError' so the mapping is direct.
+-- The inner 'HasqlErrors.ConnectionError' and 'HasqlErrors.SessionError'
+-- types are sum types with detailed constructors; see the Hasql
+-- documentation for their full shapes.
+data PgmqRuntimeError
+  = -- | Timed out waiting for a connection from the pool.
+    PgmqAcquisitionTimeout
+  | -- | Failed to establish a connection to PostgreSQL.
+    PgmqConnectionError HasqlErrors.ConnectionError
+  | -- | Error during session execution (SQL statement, decoding, etc.).
+    PgmqSessionError HasqlErrors.SessionError
+  deriving stock (Show, Eq, Generic)
+
+instance Exception PgmqRuntimeError
+
+-- | Convert hasql-pool's 'UsageError' into the structured
+-- 'PgmqRuntimeError'.
+fromUsageError :: UsageError -> PgmqRuntimeError
+fromUsageError = \case
+  Pool.AcquisitionTimeoutUsageError -> PgmqAcquisitionTimeout
+  Pool.ConnectionUsageError e -> PgmqConnectionError e
+  Pool.SessionUsageError e -> PgmqSessionError e
+
+-- | Legacy error type. Retained for one release cycle to ease migration.
+-- Prefer 'PgmqRuntimeError' for new code.
 newtype PgmqError = PgmqPoolError UsageError
   deriving stock (Show)
 
 -- | Run the Pgmq effect using a connection pool.
--- Errors are thrown via the 'Error' effect.
+-- Errors are thrown via the 'Error' effect as 'PgmqRuntimeError'.
 runPgmq ::
-  (IOE :> es, Error PgmqError :> es) =>
+  (IOE :> es, Error PgmqRuntimeError :> es) =>
   Pool ->
   Eff (Pgmq : es) a ->
   Eff es a
@@ -92,12 +125,12 @@ runPgmq pool = interpret $ \_ -> \case
 
 -- Internal helper
 runSession ::
-  (IOE :> es, Error PgmqError :> es) =>
+  (IOE :> es, Error PgmqRuntimeError :> es) =>
   Pool ->
   Hasql.Session.Session a ->
   Eff es a
 runSession pool session = do
   result <- Effectful.liftIO $ Pool.use pool session
   case result of
-    Left err -> throwError $ PgmqPoolError err
+    Left err -> throwError $ fromUsageError err
     Right a -> pure a

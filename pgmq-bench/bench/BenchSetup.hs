@@ -44,7 +44,7 @@ import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as PoolConfig
 import Hasql.Session (Session)
 import Pgmq.Effectful.Effect (Pgmq)
-import Pgmq.Effectful.Interpreter (PgmqError (..), runPgmq)
+import Pgmq.Effectful.Interpreter (PgmqRuntimeError, runPgmq)
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types (BatchSendMessage (..))
 import Pgmq.Migration qualified as Migration
@@ -177,9 +177,9 @@ largePayload :: Int -> MessageBody
 largePayload = flip generatePayloadOfSize 100000
 
 -- | Run effectful action with pool
-runEffectful :: Pool -> Eff '[Pgmq, Error PgmqError, IOE] a -> IO a
+runEffectful :: Pool -> Eff '[Pgmq, Error PgmqRuntimeError, IOE] a -> IO a
 runEffectful pool action = do
-  result <- runEff . runErrorNoCallStack @PgmqError . runPgmq pool $ action
+  result <- runEff . runErrorNoCallStack @PgmqRuntimeError . runPgmq pool $ action
   case result of
     Left err -> error $ "Effectful error: " <> show err
     Right a -> pure a

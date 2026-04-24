@@ -4,6 +4,8 @@ module Pgmq.Effectful
 
     -- * Interpreters
     runPgmq,
+    PgmqRuntimeError (..),
+    fromUsageError,
     PgmqError (..),
 
     -- ** Traced Interpreters
@@ -185,7 +187,12 @@ import Pgmq.Effectful.Effect
     validateRoutingKey,
     validateTopicPattern,
   )
-import Pgmq.Effectful.Interpreter (PgmqError (..), runPgmq)
+import Pgmq.Effectful.Interpreter
+  ( PgmqError (..),
+    PgmqRuntimeError (..),
+    fromUsageError,
+    runPgmq,
+  )
 import Pgmq.Effectful.Interpreter.Traced
   ( TracingConfig (..),
     defaultTracingConfig,
