@@ -162,16 +162,36 @@ into a "done" row and a remaining row rather than overwriting.
       'OTel.Ok' on success. Raw Hasql error output (which can include
       SQL text and parameter values) no longer ends up on the span
       status description. (2026-04-23)
-- [ ] Milestone 5: Tests exercising the new conventions.
-    - [ ] Add an in-memory span exporter to
-      `pgmq-effectful/test/TracedInterpreterSpec.hs` (depends on
-      `hs-opentelemetry-sdk` and `hs-opentelemetry-exporter-in-memory` via
-      the test-suite only).
-    - [ ] Add tests that assert, for a successful publish and a successful
-      receive, the expected span name, span kind, and the presence of
-      v1.24-required attributes with correct values.
-    - [ ] Add a test that asserts error path emits an `exception` event via
-      `recordException` and sets span status to `Error`.
+- [x] Milestone 5: Tests exercising the new conventions. (2026-04-23)
+    - [x] Added `hs-opentelemetry-sdk`,
+      `hs-opentelemetry-exporter-in-memory`,
+      `hs-opentelemetry-propagator-w3c`, and
+      `hs-opentelemetry-semantic-conventions` to the test-suite stanza
+      (cabal.project already resolves the first three via the same
+      iand675 tag used by the library). `setupTracer` in the spec
+      builds a tracer provider with the in-memory list processor plus
+      the `defaultIdGenerator` and W3C propagator. (2026-04-23)
+    - [x] New `"publish emits messaging.* + db.* attributes"` test
+      asserts `"publish my-queue"` name, 'Producer' kind, and the
+      exact text values for `messaging.system`, `messaging.operation`,
+      `messaging.destination.name`, `db.system`, `db.operation`.
+      (2026-04-23)
+    - [x] New `"receive emits messaging.* + db.* attributes"` test
+      mirrors the above for `readMessage`: span name
+      `"receive my-queue"`, 'Consumer' kind, `messaging.operation`
+      `"receive"`, `db.operation` `"pgmq.read"`. (2026-04-23)
+    - [x] New `"error path records exception event and Error status"`
+      test confirms an exception event is attached (name
+      @"exception"@) and that the span status is `Error` with a
+      `"pool.session.statement"` description prefix (not raw Hasql
+      Show output). (2026-04-23)
+    - [x] New `"W3C traceparent round-trips through message headers"`
+      test: start a parent span, attach its context, call
+      `sendMessageTraced`, read the message back, extract context via
+      the propagator, and assert that `TraceId` equals the parent's.
+      Exercises both injection (through `sendMessageTraced` →
+      `mergeTraceHeaders` → pgmq jsonb) and extraction (`Pgmq.Effectful.Telemetry.jsonToTraceHeaders`
+      → propagator `extract`). (2026-04-23)
 - [ ] Milestone 6: Documentation and changelog.
     - [ ] Update the `Pgmq.Effectful.Telemetry` module haddock to link to the
       semantic-conventions guide and list the attributes emitted per span
