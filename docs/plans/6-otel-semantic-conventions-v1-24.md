@@ -192,12 +192,25 @@ into a "done" row and a remaining row rather than overwriting.
       Exercises both injection (through `sendMessageTraced` →
       `mergeTraceHeaders` → pgmq jsonb) and extraction (`Pgmq.Effectful.Telemetry.jsonToTraceHeaders`
       → propagator `extract`). (2026-04-23)
-- [ ] Milestone 6: Documentation and changelog.
-    - [ ] Update the `Pgmq.Effectful.Telemetry` module haddock to link to the
-      semantic-conventions guide and list the attributes emitted per span
-      kind.
-    - [ ] Add a bullet to `pgmq-effectful/CHANGELOG.md` for the next version
-      describing the attribute renames as a breaking observability change.
+- [x] Milestone 6: Documentation and changelog. (2026-04-23)
+    - [x] Rewrote the `Pgmq.Effectful.Telemetry` module haddock to
+      describe the propagator-based flow and list the re-exported
+      typed `AttributeKey` values. Rewrote the
+      `Pgmq.Effectful.Interpreter.Traced` module haddock with
+      sections for Semantic Conventions (attribute table), Span Names
+      (naming convention), and Span Kinds (per-operation rules).
+      (Done as part of M2 and M3; verified at M6.) (2026-04-23)
+    - [x] Added a prominent breaking-change section to
+      `pgmq-effectful/CHANGELOG.md` under 0.2.0.0 covering: the
+      attribute renames (`messaging.operation.type` →
+      `messaging.operation`, value shift from `"send"` to `"publish"`;
+      `db.operation.name` → `db.operation`; drop of
+      `messaging.destination.routing_key`), the span-name format shift
+      to `"<operation> <destination>"`, the queue-management span-kind
+      change from Producer to Internal, the error-status shift from
+      raw `show` to short category labels, and the propagator/API
+      reshape. Called out the need to update dashboards and alerts
+      keyed on the old names. (2026-04-23)
 
 
 ## Surprises & Discoveries
@@ -327,7 +340,75 @@ and the affected files or sections when relevant.
 Fill in as milestones complete. Compare actual behaviour against the Purpose
 section's description, and record any deltas.
 
-(To be filled during and after implementation.)
+### 2026-04-23 — All milestones complete
+
+Delivered behaviour matches the Purpose section:
+
+* A `sendMessage` from a publisher now emits a span named
+  `"publish my-queue"`, kind `Producer`, carrying
+  `messaging.system=pgmq`, `messaging.operation=publish`,
+  `messaging.destination.name=my-queue`, `db.system=postgresql`, and
+  `db.operation=pgmq.send` — verified by
+  `TracedInterpreterSpec.hs:"publish emits messaging.* + db.* attributes"`.
+* A `readMessage` produces `"receive my-queue"`, kind `Consumer`,
+  with `messaging.operation=receive` and `db.operation=pgmq.read` —
+  verified by the matching receive test.
+* Errors produce a standard `exception` event via
+  `OTel.recordException` and span status `Error` with a short non-PII
+  label (`"pool.session.statement" <...>`) — verified by the
+  error-path test.
+* W3C traceparent round-trips through pgmq message headers end-to-end:
+  a parent span's `TraceId` is recovered on the consumer side after
+  the propagator extracts from `Pgmq.headers msg` — verified by the
+  round-trip test.
+
+Final validation:
+
+* `cabal build pgmq-effectful` — succeeds.
+* `cabal test pgmq-effectful` — 15/15 pass (8 classifier +
+  2 plain-interpreter + 1 traced error propagation + 4 new v1.24).
+* `grep -rn 'messaging\.operation\.type\|db\.operation\.name\|messaging\.destination\.routing_key' pgmq-effectful/src` — 0 matches.
+* `nix fmt` — clean.
+
+### Deltas from the original plan
+
+* The plan sketched per-operation `withTracedSession*` helpers; the
+  final refactor collapses them into a single `withTracedOp` driven
+  by a per-dispatch `OpInfo` record. Cleaner and matches the Kafka
+  reference idiom (attributes assembled into an `AttributeMap` and
+  layered into `SpanArguments` via `addAttributesToSpanArguments`).
+* Milestone 1's plan kept `messaging.operation` carrying the old
+  value `"send"` pending M2 tightening. In practice we jumped
+  straight to the v1.24 vocabulary in M2 with no intermediate
+  committed state — the `"send"` placeholder was never on any commit.
+* The plan anticipated `hs-opentelemetry-semantic-conventions` being
+  available via the flake's pinned package set. It is not in nixpkgs
+  as of 2026-04-23; we added a matching `callCabal2nix` entry to
+  `nix/haskell-overlay.nix`. The Haskell-side build path
+  (`cabal build`) picks the package up via
+  `source-repository-package` in `cabal.project`.
+* Queue-management span-kind change (Producer → Internal) was not
+  anticipated in the plan's Milestone 2 checklist but follows
+  directly from the v1.24 span-kind guidance recorded in the
+  Decision Log. Called out in the CHANGELOG.
+* Span-status description shift to short category labels was added
+  beyond the plan's explicit scope, after noticing that Hasql's
+  `SessionError` `show` includes SQL text and parameters (PII risk).
+  Full detail stays on the `exception` event; only the status label
+  is abbreviated. Recorded as a Decision-Log entry.
+
+### Lessons
+
+* `OpenTelemetry.Attributes.Map.insertByKey` (type-safe) catches
+  Int/Int64 mistakes at compile time that `insertAttributeByKey`
+  (takes pre-wrapped `Attribute`) silently accepts. Prefer the typed
+  variant when the spec fixes the value type.
+* Propagator carrier types in `hs-opentelemetry` are uniformly
+  `Network.HTTP.Types.RequestHeaders`; pgmq-over-jsonb requires a
+  thin serialization shim (`traceHeadersToJson`/`jsonToTraceHeaders`)
+  but otherwise fits the ecosystem cleanly.
+* `SpanKind` has no `Eq` instance in `hs-opentelemetry-api`, so
+  assertions must pattern-match.
 
 
 ## Context and Orientation

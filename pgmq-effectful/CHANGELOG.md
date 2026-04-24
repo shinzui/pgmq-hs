@@ -4,6 +4,71 @@
 
 ### Breaking Changes
 
+* **OpenTelemetry semantic conventions updated to spec v1.24.** The
+  traced interpreter now emits attribute names compliant with
+  OpenTelemetry Semantic Conventions
+  [v1.24](https://github.com/open-telemetry/semantic-conventions/tree/v1.24.0),
+  sourced as typed `AttributeKey` values from the
+  [`hs-opentelemetry-semantic-conventions`](https://hackage.haskell.org/package/hs-opentelemetry-semantic-conventions)
+  library. Breaking consequences:
+
+  * `messaging.operation.type` → `messaging.operation`. Values change
+    from the post-v1.24 vocabulary (`"send"`, `"receive"`) to the
+    v1.24 vocabulary (`"publish"`, `"receive"`). Note the verb change:
+    `send` → `publish`.
+  * `db.operation.name` → `db.operation`. Values are the pgmq SQL
+    function name (`"pgmq.send"`, `"pgmq.read"`, `"pgmq.archive"`, …),
+    not the previous free-form label.
+  * `messaging.destination.routing_key` (ad-hoc, not in v1.24) is
+    gone. Topic-send operations now emit the routing key as
+    `messaging.destination.name`, since for pgmq topics the routing
+    key is the logical destination. `ValidateRoutingKey`,
+    `ValidateTopicPattern`, and `TestRouting` no longer emit a
+    routing-key attribute at all.
+  * Span names changed from `"pgmq <op>"` to the v1.24
+    `"<operation> <destination>"` form. Examples:
+    `"pgmq send"` → `"publish my-queue"`,
+    `"pgmq read"` → `"receive my-queue"`,
+    `"pgmq archive"` → `"pgmq.archive my-queue"`,
+    `"pgmq list_queues"` → `"pgmq.list_queues"`.
+  * Queue management operations (`createQueue`, `dropQueue`,
+    `createPartitionedQueue`, `createUnloggedQueue`) moved from
+    `Producer` span kind to `Internal`. v1.24 reserves `Producer` for
+    message publishes; queue administration is not a publish.
+  * Span status on failure now carries a short non-PII label
+    (`"pool.acquisition_timeout"`, `"pool.connection.networking"`,
+    `"pool.session.statement"`, …) instead of the raw `show` of
+    `UsageError` (which bakes in SQL text and parameter values).
+    Full detail remains on the standard `exception` event via
+    `OpenTelemetry.Trace.Core.recordException`.
+
+  Dashboards, saved queries, and alerts keyed on the old attribute
+  names or span-name format need to be updated.
+
+* **Trace context propagation now uses the tracer provider's
+  configured propagator** (W3C by default, but B3 / Datadog / … work
+  out of the box when the provider is configured with them). The old
+  implementation hard-wired `hs-opentelemetry-propagator-w3c`.
+
+  * `Pgmq.Effectful.Telemetry.injectTraceContext` / `extractTraceContext`
+    take a `TracerProvider` (previously an `OTel.Span` / raw carrier).
+  * `Pgmq.Effectful.Telemetry.TraceHeaders` is now
+    `Network.HTTP.Types.RequestHeaders` (case-insensitive header names),
+    matching the carrier type every propagator uses. The previous
+    `[(ByteString, ByteString)]` alias is gone.
+  * `Pgmq.Effectful.Traced.sendMessageTraced` takes a `TracerProvider`.
+  * `Pgmq.Effectful.Traced.readMessageWithContext` takes a
+    `TracerProvider` and now returns
+    `Vector (Message, OpenTelemetry.Context.Context)`.
+    Callers that specifically need the raw `SpanContext` can recover
+    it via `Context.lookupSpan >>= getSpanContext`.
+  * Two new helpers, `traceHeadersToJson` and `jsonToTraceHeaders`,
+    handle the pgmq-over-jsonb serialization boundary.
+
+  The `hs-opentelemetry-propagator-w3c` dependency was dropped from
+  the library; the SDK still installs the W3C propagator as the
+  default.
+
 * Renamed the interpreter error type from `PgmqError` to
   `PgmqRuntimeError` and replaced its opaque `PgmqPoolError UsageError`
   constructor with three structured constructors:
