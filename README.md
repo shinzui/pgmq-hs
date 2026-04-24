@@ -12,7 +12,8 @@ The API may evolve before 1.0.
 |---------|-------------|
 | `pgmq-core` | Core types and type classes |
 | `pgmq-hasql` | Hasql-based implementation |
-| `pgmq-effectful` | Effectful effects for pgmq |
+| `pgmq-effectful` | Effectful effects for pgmq, with OpenTelemetry-traced interpreters |
+| `pgmq-config` | Declarative queue configuration (idempotent reconciliation at startup) |
 | `pgmq-migration` | Schema migrations without pgmq extension |
 
 ## pgmq-hasql
@@ -45,7 +46,9 @@ main = do
 
 ## pgmq-effectful
 
-The `pgmq-effectful` package provides an [Effectful](https://hackage.haskell.org/package/effectful) effect layer over `pgmq-hasql`. It includes traced interpreters with OpenTelemetry support for distributed tracing across message producers and consumers.
+The `pgmq-effectful` package provides an [Effectful](https://hackage.haskell.org/package/effectful) effect layer over `pgmq-hasql`. It ships a plain interpreter (`runPgmq`) and a traced interpreter (`runPgmqTraced`) that emits OpenTelemetry spans conforming to [Semantic Conventions v1.24](https://github.com/open-telemetry/semantic-conventions/tree/v1.24.0), with trace-context propagation pluggable through whichever propagator the `TracerProvider` is configured with (W3C, B3, Datadog, …).
+
+See [`pgmq-effectful/CHANGELOG.md`](pgmq-effectful/CHANGELOG.md) for the 0.2.0.0 migration notes — attribute names, span-name format, and the error-type rename all changed.
 
 ### Error handling
 
@@ -68,6 +71,36 @@ run pool = do
 ```
 
 `PgmqRuntimeError` has three constructors — `PgmqAcquisitionTimeout`, `PgmqConnectionError`, `PgmqSessionError` — each exposing the full hasql context (SQL state, connection-error kind, etc.) so applications can pattern-match on whatever granularity they need. See [`docs/design/013-pgmq-effectful-error-model.md`](docs/design/013-pgmq-effectful-error-model.md) for the rationale.
+
+## pgmq-config
+
+Declare your queue topology as Haskell values and reconcile it at startup. Every operation is idempotent, so `ensureQueues` is safe to call on every boot:
+
+```haskell
+import Data.Function ((&))
+import Pgmq.Config
+import Pgmq.Types (parseQueueName, parseTopicPattern)
+
+myQueues :: [QueueConfig]
+myQueues =
+  let Right orders = parseQueueName "order_events"
+      Right tasks  = parseQueueName "background_tasks"
+      Right pat    = parseTopicPattern "orders.*"
+   in [ standardQueue orders
+          & withNotifyInsert (Just 1000)
+          & withFifoIndex
+          & withTopicBinding pat
+      , unloggedQueue tasks
+      ]
+
+main :: IO ()
+main = do
+  pool <- acquirePool
+  Right () <- ensureQueuesWithPool pool myQueues
+  startWorkers pool
+```
+
+Supports standard, unlogged, and partitioned queues; `LISTEN/NOTIFY` throttles; FIFO indexes; and topic bindings. `ensureQueuesReport` returns a list of `ReconcileAction` values so you can log exactly what changed. An `effectful` integration (`Pgmq.Config.Effectful`) is enabled by default via a cabal flag. See [`docs/user/queue-configuration.md`](docs/user/queue-configuration.md) for the full reference.
 
 ## pgmq-migration
 
@@ -132,6 +165,7 @@ All packages can be built with Nix via `callCabal2nix`. This provides reproducib
 nix build .#pgmq-core
 nix build .#pgmq-hasql
 nix build .#pgmq-effectful
+nix build .#pgmq-config
 nix build .#pgmq-migration
 
 # Build the default package (pgmq-hasql)
@@ -154,10 +188,12 @@ Individual checks can be built directly:
 nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-core
 nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-hasql
 nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-effectful
+nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-config
 nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-migration
 
 # Test suites (compile + run tests with ephemeral PostgreSQL)
 nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-hasql-tests
+nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-config-tests
 nix build .#checks.$(nix eval --impure --raw --expr builtins.currentSystem).pgmq-migration-tests
 ```
 
