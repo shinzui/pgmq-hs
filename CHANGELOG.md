@@ -1,5 +1,52 @@
 # Revision history for pgmq-hs
 
+## 0.2.0.0 -- 2026-04-23
+
+### Breaking Changes
+
+* **pgmq-effectful**: OpenTelemetry semantic conventions updated to
+  spec v1.24. Attribute names, span names, and values all change
+  (`messaging.operation.type` → `messaging.operation`, `"send"` →
+  `"publish"`, `"pgmq <op>"` → `"<operation> <destination>"`, etc.).
+  Queue management operations move from `Producer` to `Internal` span
+  kind. Dashboards and alerts keyed on the old names need updating.
+* **pgmq-effectful**: Trace context propagation now routes through the
+  tracer provider's configured propagator (W3C, B3, Datadog, …)
+  instead of being hard-wired to W3C. `injectTraceContext` /
+  `extractTraceContext` take a `TracerProvider`. `TraceHeaders` is
+  now `Network.HTTP.Types.RequestHeaders`. `readMessageWithContext`
+  returns `Vector (Message, OpenTelemetry.Context.Context)`.
+* **pgmq-effectful**: Renamed interpreter error type from `PgmqError`
+  to `PgmqRuntimeError`. Replaced the opaque `PgmqPoolError UsageError`
+  constructor with three structured constructors
+  (`PgmqAcquisitionTimeout`, `PgmqConnectionError`,
+  `PgmqSessionError`). Legacy names are deprecated and will be removed
+  in 0.3.0.0.
+* **pgmq-effectful**: `runPgmqTraced` / `runPgmqTracedWith` now require
+  an `Error PgmqRuntimeError` effect. Previously they silently swallowed
+  errors as `IOError`s outside the Error channel; code that relied on
+  that behaviour must now wrap with `runError @PgmqRuntimeError`.
+
+### New Features
+
+* **pgmq-effectful**: `fromUsageError` converter and `isTransient`
+  classification helper for retry logic.
+
+### Bug Fixes
+
+* **pgmq-config**: `ensureQueues` and `ensureQueuesEff` are now truly
+  idempotent. They previously re-issued queue creation, notify-insert,
+  FIFO-index, and topic-bind SQL on every call, which broke partitioned
+  queues outright (because `pg_partman.create_parent` raises on
+  re-registration) and caused trigger recreation on every boot for
+  standard queues.
+
+### Other Changes
+
+* **pgmq-core**, **pgmq-hasql**, **pgmq-migration**: Version bumps only
+  to keep the shared-version / single-tag release model. No
+  source-level changes since 0.1.3.0.
+
 ## 0.1.3.0 -- 2026-03-12
 
 ### New Features

@@ -1,8 +1,13 @@
 # Revision history for pgmq-config
 
-## 0.1.4.0 -- 2026-04-23
+## 0.2.0.0 -- 2026-04-23
 
-* Fix: `ensureQueues` and `ensureQueuesEff` are now truly idempotent. Previously they
+Version unified with the rest of the pgmq-hs packages; no pgmq-config
+0.1.4.0 was published to Hackage.
+
+### Bug Fixes
+
+* `ensureQueues` and `ensureQueuesEff` are now truly idempotent. Previously they
   issued `pgmq.create`, `pgmq.enable_notify_insert`, `pgmq.create_fifo_index`, and
   `pgmq.bind_topic` unconditionally on every call, which worked by accident for
   standard/unlogged queues but caused trigger recreation on every boot and failed outright
