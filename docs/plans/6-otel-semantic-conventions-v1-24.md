@@ -148,13 +148,20 @@ into a "done" row and a remaining row rather than overwriting.
     - [x] Added `traceHeadersToJson` / `jsonToTraceHeaders` for the
       pgmq-over-jsonb serialization step, since pgmq stores headers as
       a JSON object rather than as HTTP headers. (2026-04-23)
-- [ ] Milestone 4: Error recording via `recordException` and span status.
-    - [ ] In `Pgmq.Effectful.Interpreter.Traced`, replace the hand-rolled
-      `exception` event with `OpenTelemetry.Trace.Core.recordException` for
-      `Hasql.Pool.UsageError` failures.
-    - [ ] Ensure span status is set to `Error` with a short, non-PII
-      description (`T.pack $ show (classifyError err)`) and to `Ok` on
-      success.
+- [x] Milestone 4: Error recording via `recordException` and span status. (2026-04-23)
+    - [x] Replaced the hand-rolled @"exception"@ event with
+      `OpenTelemetry.Trace.Core.recordException` on the raw
+      'Hasql.Pool.UsageError' (which is an 'Exception'). The helper
+      attaches standard @exception.type@, @exception.message@, and
+      @exception.stacktrace@ attributes so every backend that
+      special-cases the event lights up. (2026-04-23)
+    - [x] Span status now: 'OTel.Error' on failure (with a short,
+      non-PII category label built by a new `errorStatusDescription`
+      helper — @"pool.acquisition_timeout"@,
+      @"pool.connection.networking"@, @"pool.session.statement"@, …),
+      'OTel.Ok' on success. Raw Hasql error output (which can include
+      SQL text and parameter values) no longer ends up on the span
+      status description. (2026-04-23)
 - [ ] Milestone 5: Tests exercising the new conventions.
     - [ ] Add an in-memory span exporter to
       `pgmq-effectful/test/TracedInterpreterSpec.hs` (depends on
@@ -279,6 +286,19 @@ and the affected files or sections when relevant.
   `messaging_batch_messageCount :: AttributeKey Int64` refuses an `Int`
   and forces a conversion — surfaced as a compile-time error during M2
   and fixed by using `fromIntegral n :: Int64`.
+  Date: 2026-04-23.
+
+- Decision: Set span-status error descriptions to short category labels
+  (`"pool.acquisition_timeout"`, `"pool.connection.networking"`,
+  `"pool.session.statement"`, …) rather than `show`-ing the raw
+  'UsageError'.
+  Rationale: Hasql's 'SessionError' shows its SQL text and parameter
+  values when it 'show's itself. Stuffing that into the span-status
+  description risks leaking query text and credentials into backend
+  dashboards (which routinely index span status descriptions for
+  grouping). The exception event still carries the full show via
+  `recordException`, so debug detail is not lost — only its reach is
+  scoped.
   Date: 2026-04-23.
 
 

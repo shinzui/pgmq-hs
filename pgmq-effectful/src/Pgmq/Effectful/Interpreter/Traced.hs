@@ -82,16 +82,15 @@ import Effectful (Eff, IOE, (:>))
 import Effectful qualified
 import Effectful.Dispatch.Dynamic (interpret)
 import Effectful.Error.Static (Error, throwError)
-import Hasql.Pool (Pool, UsageError)
+import Hasql.Errors qualified as HasqlErrors
+import Hasql.Pool (Pool)
 import Hasql.Pool qualified as Pool
 import Hasql.Session qualified
-import OpenTelemetry.Attributes (Attribute (..), PrimitiveAttribute (..))
 import OpenTelemetry.Attributes.Map (AttributeMap, insertByKey)
-import OpenTelemetry.Attributes.Map qualified as AttrMap
 import OpenTelemetry.Trace.Core qualified as OTel
 import Pgmq.Effectful.Effect (Pgmq (..))
 import Pgmq.Effectful.Interpreter
-  ( PgmqRuntimeError,
+  ( PgmqRuntimeError (..),
     fromUsageError,
   )
 import Pgmq.Effectful.Telemetry
@@ -447,22 +446,36 @@ runSessionIO config s pool session = do
   result <- Pool.use pool session
   case result of
     Left err -> do
-      when config.recordExceptions $ recordUsageError s err
-      OTel.setStatus s (OTel.Error $ T.pack $ show err)
-      pure $ Left $ fromUsageError err
+      let runtimeErr = fromUsageError err
+      when config.recordExceptions $
+        OTel.recordException s mempty Nothing err
+      OTel.setStatus s (OTel.Error (errorStatusDescription runtimeErr))
+      pure $ Left runtimeErr
     Right a -> do
       OTel.setStatus s OTel.Ok
       pure $ Right a
 
-recordUsageError :: OTel.Span -> UsageError -> IO ()
-recordUsageError s err = do
-  OTel.addEvent s $
-    OTel.NewEvent
-      { OTel.newEventName = "exception",
-        OTel.newEventTimestamp = Nothing,
-        OTel.newEventAttributes =
-          AttrMap.fromList
-            [ ("exception.type", AttributeValue $ TextAttribute "UsageError"),
-              ("exception.message", AttributeValue $ TextAttribute $ T.pack $ show err)
-            ]
-      }
+-- | Short, non-PII span-status description derived from a
+-- 'PgmqRuntimeError'. The detail lives inside the 'recordException'
+-- event; the span status description is a coarse label that backends
+-- can group on without risking query text or credentials leaking into
+-- dashboards.
+errorStatusDescription :: PgmqRuntimeError -> Text
+errorStatusDescription = \case
+  PgmqAcquisitionTimeout -> "pool.acquisition_timeout"
+  PgmqConnectionError e -> "pool.connection." <> connectionLabel e
+  PgmqSessionError e -> "pool.session." <> sessionLabel e
+  where
+    connectionLabel :: HasqlErrors.ConnectionError -> Text
+    connectionLabel = \case
+      HasqlErrors.NetworkingConnectionError _ -> "networking"
+      HasqlErrors.AuthenticationConnectionError _ -> "authentication"
+      HasqlErrors.CompatibilityConnectionError _ -> "compatibility"
+      HasqlErrors.OtherConnectionError _ -> "other"
+    sessionLabel :: HasqlErrors.SessionError -> Text
+    sessionLabel = \case
+      HasqlErrors.ConnectionSessionError _ -> "connection"
+      HasqlErrors.StatementSessionError {} -> "statement"
+      HasqlErrors.ScriptSessionError {} -> "script"
+      HasqlErrors.MissingTypesSessionError _ -> "missing_types"
+      HasqlErrors.DriverSessionError _ -> "driver"
