@@ -116,17 +116,38 @@ into a "done" row and a remaining row rather than overwriting.
       `addAttributesToSpanArguments` (matching the Kafka reference
       idiom). Replaces the prior per-operation helper-function fleet
       (`withTracedSession*`) with a single `withTracedOp`. (2026-04-23)
-- [ ] Milestone 3: Pluggable propagator and real context linking.
-    - [ ] Replace direct `OpenTelemetry.Propagator.W3CTraceContext` calls in
-      `pgmq-effectful/src/Pgmq/Effectful/Telemetry.hs` with the tracer
+- [x] Milestone 3: Pluggable propagator and real context linking. (2026-04-23)
+    - [x] Replaced direct `OpenTelemetry.Propagator.W3CTraceContext`
+      calls in `pgmq-effectful/src/Pgmq/Effectful/Telemetry.hs` with
+      `OpenTelemetry.Propagator.inject` / `extract` keyed on the tracer
       provider's configured propagator via
-      `OpenTelemetry.Propagator.inject` / `extract`.
-    - [ ] Rework `pgmq-effectful/src/Pgmq/Effectful/Traced.hs`
-      (`sendMessageTraced`, `readMessageWithContext`) to use the pluggable
-      propagator API against a user-supplied (or global) tracer provider, so
-      B3 / Datadog / W3C users all work.
-    - [ ] Make `readMessageWithContext` return a form that lets callers start
-      a `process` span linked to the extracted parent context.
+      `getTracerProviderPropagators`. (2026-04-23)
+    - [x] Reworked `pgmq-effectful/src/Pgmq/Effectful/Traced.hs`.
+      `sendMessageTraced` and `readMessageWithContext` now take a
+      `TracerProvider` (not a `Tracer`), fetch its propagator, and
+      inject/extract through it. W3C is the default (the SDK installs
+      it); B3 / Datadog users get correct behaviour by configuring
+      their propagator on the provider. (2026-04-23)
+    - [x] `readMessageWithContext` now returns
+      @Vector (Message, OTel.Context)@. The 'OTel.Context' is the
+      propagator-extracted context, ready to be passed to
+      `OpenTelemetry.Context.ThreadLocal.attachContext` or to an
+      @inSpan''@-shaped helper when the caller opens its @process@
+      span. The previous @Maybe SpanContext@ shape is gone — callers
+      that specifically need the raw 'SpanContext' can recover it via
+      `OpenTelemetry.Context.lookupSpan >>= OTel.getSpanContext`.
+      (2026-04-23)
+    - [x] Swapped the `TraceHeaders` carrier from
+      @[(ByteString, ByteString)]@ to the ecosystem-standard
+      @Network.HTTP.Types.RequestHeaders@ (case-insensitive header
+      names). Propagators emit and consume this shape natively, so we
+      no longer convert between two carrier types. Added `http-types`
+      and `case-insensitive` to the library `build-depends` and
+      dropped the now-unused `hs-opentelemetry-propagator-w3c`.
+      (2026-04-23)
+    - [x] Added `traceHeadersToJson` / `jsonToTraceHeaders` for the
+      pgmq-over-jsonb serialization step, since pgmq stores headers as
+      a JSON object rather than as HTTP headers. (2026-04-23)
 - [ ] Milestone 4: Error recording via `recordException` and span status.
     - [ ] In `Pgmq.Effectful.Interpreter.Traced`, replace the hand-rolled
       `exception` event with `OpenTelemetry.Trace.Core.recordException` for

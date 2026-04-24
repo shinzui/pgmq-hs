@@ -1,20 +1,29 @@
--- | Traced operations for PGMQ with automatic trace context propagation.
+-- | Traced operations for PGMQ with automatic trace-context propagation.
 --
--- This module provides higher-level operations that automatically inject
--- W3C Trace Context into message headers (for producers) and extract
--- trace context from received messages (for consumers).
+-- Higher-level helpers layered on top of the Pgmq effect:
+--
+-- * 'sendMessageTraced' writes the current trace context onto the
+--   outgoing message headers using the tracer provider's /configured/
+--   propagator (W3C Trace Context by default; swap in B3, Datadog, or
+--   any other propagator by configuring the provider).
+-- * 'readMessageWithContext' extracts the trace context from each
+--   received message and returns an 'OTel.Context' suitable for
+--   starting a child @process@ span that links back to the producer's
+--   trace.
 --
 -- == Usage
 --
 -- @
--- -- Producer: Send with trace context
--- sendMessageTraced tracer queueName body Nothing
+-- -- Producer
+-- provider <- OTel.getGlobalTracerProvider
+-- sendMessageTraced provider queueName body Nothing
 --
--- -- Consumer: Read with trace context extraction
--- messagesWithCtx <- readMessageWithContext readQuery
--- forM_ messagesWithCtx $ \(msg, maybeParentCtx) ->
---   -- maybeParentCtx contains the SpanContext from the producer
---   processMessage msg maybeParentCtx
+-- -- Consumer
+-- messagesWithCtx <- readMessageWithContext provider readQuery
+-- forM_ messagesWithCtx $ \\(msg, parentCtx) ->
+--   -- parentCtx carries the propagated parent context
+--   OTel.inSpan tracer \"process\" OTel.defaultSpanArguments
+--     (processMessage msg)
 -- @
 module Pgmq.Effectful.Traced
   ( -- * Traced Send Operations
@@ -27,10 +36,6 @@ module Pgmq.Effectful.Traced
 where
 
 import Data.Aeson (Value (..))
-import Data.Aeson.Key qualified as Key
-import Data.Aeson.KeyMap qualified as KM
-import Data.Text (Text)
-import Data.Text.Encoding qualified as TE
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Effectful (Eff, IOE, (:>))
@@ -40,34 +45,39 @@ import OpenTelemetry.Context.ThreadLocal qualified as CtxtLocal
 import OpenTelemetry.Trace.Core qualified as OTel
 import Pgmq.Effectful.Effect (Pgmq, readMessage, sendMessageWithHeaders)
 import Pgmq.Effectful.Telemetry
+  ( extractTraceContext,
+    injectTraceContext,
+    jsonToTraceHeaders,
+    mergeTraceHeaders,
+  )
 import Pgmq.Hasql.Statements.Types qualified as Types
 import Pgmq.Types
 
--- | A message paired with its extracted trace context (if present).
-type MessageWithContext = (Message, Maybe OTel.SpanContext)
+-- | A message paired with the trace context extracted from its
+-- headers. Use 'OpenTelemetry.Context.ThreadLocal.attachContext' (or
+-- pass it to an @inSpan''@-shaped primitive that lets you set the
+-- parent) to start a @process@ span linked to the producer's trace.
+type MessageWithContext = (Message, Ctxt.Context)
 
--- | Send a message with trace context automatically injected into headers.
+-- | Send a message with trace context injected into its headers.
 --
--- This creates traceparent and tracestate headers from the current span
--- context, which can be extracted by consumers to link traces.
---
--- If existing headers are provided, the trace headers are merged in.
+-- The current 'Ctxt.Context' is fetched via
+-- 'OpenTelemetry.Context.ThreadLocal.getContext' and handed to the
+-- tracer provider's configured propagator, which writes the propagated
+-- fields (traceparent/tracestate for W3C, x-b3-* for B3, etc.) onto
+-- the message headers. Any user-supplied headers win against
+-- propagator-written ones (the merge is additive).
 sendMessageTraced ::
   (Pgmq :> es, IOE :> es) =>
-  OTel.Tracer ->
+  OTel.TracerProvider ->
   QueueName ->
   MessageBody ->
   Maybe Value ->
   Eff es MessageId
-sendMessageTraced _tracer queueName body existingHeaders = do
-  -- Get current span context and inject into headers
+sendMessageTraced provider queueName body existingHeaders = do
   ctx <- Effectful.liftIO CtxtLocal.getContext
-  traceHeaders <- case Ctxt.lookupSpan ctx of
-    Just s -> Effectful.liftIO $ injectTraceContext s
-    Nothing -> pure []
-
+  traceHeaders <- injectTraceContext provider ctx
   let mergedHeaders = MessageHeaders $ mergeTraceHeaders traceHeaders existingHeaders
-
   sendMessageWithHeaders $
     Types.SendMessageWithHeaders
       { queueName = queueName,
@@ -76,51 +86,23 @@ sendMessageTraced _tracer queueName body existingHeaders = do
         delay = Nothing
       }
 
--- | Read messages and extract trace context from headers.
+-- | Read messages and extract trace context from their headers.
 --
--- Returns messages paired with their extracted SpanContext (if present).
--- The SpanContext can be used to create a child span that links to the
--- producer's trace.
---
--- @
--- messagesWithCtx <- readMessageWithContext readQuery
--- forM_ messagesWithCtx $ \(msg, maybeParentCtx) ->
---   inSpan' tracer "process" (linkToParent maybeParentCtx) $ do
---     processMessage msg
--- @
+-- The returned 'Ctxt.Context' for each message is the
+-- 'Ctxt.empty' context updated with whatever fields the tracer
+-- provider's propagator was able to parse from the headers — so a
+-- caller can open a child @process@ span linked to the producer's
+-- trace without knowing which propagator is in use.
 readMessageWithContext ::
-  (Pgmq :> es) =>
+  (Pgmq :> es, IOE :> es) =>
+  OTel.TracerProvider ->
   Types.ReadMessage ->
   Eff es (Vector MessageWithContext)
-readMessageWithContext readQuery = do
+readMessageWithContext provider readQuery = do
   messages <- readMessage readQuery
-  pure $ V.map extractContext messages
-  where
-    extractContext :: Message -> MessageWithContext
-    extractContext msg =
-      let ctx = extractTraceContextFromMessage msg
-       in (msg, ctx)
-
-    extractTraceContextFromMessage :: Message -> Maybe OTel.SpanContext
-    extractTraceContextFromMessage msg = do
-      hdrs <- msg.headers
-      traceHeaders <- parseTraceHeaders hdrs
-      extractTraceContext traceHeaders
-
-    parseTraceHeaders :: Value -> Maybe TraceHeaders
-    parseTraceHeaders (Object obj) = do
-      traceparent <- KM.lookup (Key.fromText "traceparent") obj >>= asText
-      let tracestate = KM.lookup (Key.fromText "tracestate") obj >>= asText
-      pure $
-        catMaybes
-          [ Just ("traceparent", TE.encodeUtf8 traceparent),
-            ("tracestate",) . TE.encodeUtf8 <$> tracestate
-          ]
-    parseTraceHeaders _ = Nothing
-
-    asText :: Value -> Maybe Text
-    asText (String t) = Just t
-    asText _ = Nothing
-
-    catMaybes :: [Maybe a] -> [a]
-    catMaybes = foldr (\x acc -> maybe acc (: acc) x) []
+  Effectful.liftIO $
+    V.forM messages $ \msg -> do
+      parentCtx <- case msg.headers of
+        Just hdrs -> extractTraceContext provider (jsonToTraceHeaders hdrs) Ctxt.empty
+        Nothing -> pure Ctxt.empty
+      pure (msg, parentCtx)

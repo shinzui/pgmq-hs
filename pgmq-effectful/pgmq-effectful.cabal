@@ -50,12 +50,13 @@ library
     , aeson                                  >=2.0   && <2.3
     , base                                   >=4.18  && <5
     , bytestring                             >=0.11  && <0.13
+    , case-insensitive                       >=1.2   && <1.3
     , effectful-core                         ^>=2.5  || ^>=2.6
     , hasql                                  ^>=1.10
     , hasql-pool                             ^>=1.4
     , hs-opentelemetry-api                   >=0.2   && <0.4
-    , hs-opentelemetry-propagator-w3c        >=0.0   && <0.2
     , hs-opentelemetry-semantic-conventions  >=0.1   && <0.2
+    , http-types                             >=0.12  && <0.13
     , pgmq-core                              >=0.1.3 && <0.2
     , pgmq-hasql                             >=0.1.3 && <0.2
     , text                                   >=2.0   && <2.2
