@@ -78,19 +78,44 @@ into a "done" row and a remaining row rather than overwriting.
       `withTracedTopicSendWithCount` helpers; `ValidateRoutingKey`,
       `ValidateTopicPattern`, and `TestRouting` now route through
       `withTracedSessionNoQueue` (no routing-key attribute). (2026-04-23)
-- [ ] Milestone 2: Conform to v1.24 required attributes and span-name form.
-    - [ ] Populate `messaging_operation` on every messaging span with one of
-      `publish`, `receive`, `process` (v1.24 vocabulary; see Decision Log for
-      the pgmq-to-OTel mapping).
-    - [ ] Populate `db_operation` on every span with the pgmq SQL function
-      name (for example, `pgmq.send`, `pgmq.read`).
-    - [ ] Change span names from `"pgmq <op>"` to
-      `"<operation_name> <destination_name>"` where a destination exists, and
-      `"<operation_name>"` otherwise (for example, `publish my-queue`,
-      `receive my-queue`, `pgmq.create_queue my-queue`, `pgmq.list_queues`).
-    - [ ] Ensure span `kind` stays consistent with the v1.24 guidance:
-      producer spans for publishes, consumer spans for receives/pop, internal
-      spans for lifecycle/observability operations.
+- [x] Milestone 2: Conform to v1.24 required attributes and span-name form. (2026-04-23)
+    - [x] Populated `messaging_operation` on every messaging span:
+      @"publish"@ for every @send*@ / @send_topic*@ variant, @"receive"@
+      for every @read*@ and @pop@ variant. Lifecycle and observability
+      ops do not carry a @messaging.operation@ attribute (Decision Log
+      entry confirmed). (2026-04-23)
+    - [x] Populated `db_operation` on every span with the pgmq SQL
+      function name — @"pgmq.send"@, @"pgmq.send_batch"@, @"pgmq.read"@,
+      @"pgmq.read_with_poll"@, @"pgmq.pop"@, @"pgmq.read_grouped"@,
+      @"pgmq.read_grouped_rr"@, @"pgmq.archive"@, @"pgmq.delete"@,
+      @"pgmq.set_vt"@, @"pgmq.purge_queue"@, @"pgmq.create"@,
+      @"pgmq.create_partitioned"@, @"pgmq.create_unlogged"@,
+      @"pgmq.drop_queue"@, @"pgmq.bind_topic"@, @"pgmq.unbind_topic"@,
+      @"pgmq.send_topic"@, @"pgmq.send_batch_topic"@,
+      @"pgmq.list_queues"@, @"pgmq.metrics"@, @"pgmq.metrics_all"@, …
+      (see `operationInfo` dispatch in
+      `pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs`).
+      (2026-04-23)
+    - [x] Span names now follow
+      @"<operation_name> <destination_name>"@: for example
+      @"publish my-queue"@ / @"receive my-queue"@ for messaging spans,
+      @"pgmq.archive my-queue"@ / @"pgmq.set_vt my-queue"@ for
+      single-queue lifecycle spans, and @"pgmq.list_queues"@ /
+      @"pgmq.metrics_all"@ / @"pgmq.validate_routing_key"@ for spans
+      without a destination. (2026-04-23)
+    - [x] Span `kind` aligned with v1.24 guidance. Notable behaviour
+      change: Queue Management (`CreateQueue`, `DropQueue`,
+      `CreatePartitionedQueue`, `CreateUnloggedQueue`) previously
+      emitted Producer spans. They are now Internal, per v1.24 — queue
+      creation is not a message publish. Message send variants stay
+      Producer; reads and @pop@ stay Consumer; everything else Internal.
+      (2026-04-23)
+    - [x] Refactor: the traced interpreter now computes one `OpInfo`
+      per dispatch and builds an @AttributeMap@ once via
+      `operationAttributes`, then layers it into 'SpanArguments' via
+      `addAttributesToSpanArguments` (matching the Kafka reference
+      idiom). Replaces the prior per-operation helper-function fleet
+      (`withTracedSession*`) with a single `withTracedOp`. (2026-04-23)
 - [ ] Milestone 3: Pluggable propagator and real context linking.
     - [ ] Replace direct `OpenTelemetry.Propagator.W3CTraceContext` calls in
       `pgmq-effectful/src/Pgmq/Effectful/Telemetry.hs` with the tracer
@@ -213,6 +238,26 @@ and the affected files or sections when relevant.
   it matches what
   `/Users/shinzui/Keikaku/hub/haskell/hs-opentelemetry-project/hs-opentelemetry/instrumentation/hw-kafka-client/src/OpenTelemetry/Instrumentation/Kafka.hs`
   does for Kafka.
+  Date: 2026-04-23.
+
+- Decision: Queue Management operations (`CreateQueue`, `DropQueue`,
+  `CreatePartitionedQueue`, `CreateUnloggedQueue`) move from
+  `OTel.Producer` span kind to `OTel.Internal`.
+  Rationale: The v1.24 convention reserves `Producer` for message
+  publishes. Creating, dropping, or altering a queue is administrative,
+  not a publish, and should not be counted by backends' producer-throughput
+  panels. This is a behaviour change visible to anyone filtering by span
+  kind; called out in the CHANGELOG entry (Milestone 6).
+  Date: 2026-04-23.
+
+- Decision: Use typed `OpenTelemetry.Attributes.Map.insertByKey` (type-safe
+  variant that accepts the value directly via 'ToAttribute') rather than
+  `insertAttributeByKey` (which takes a pre-wrapped 'Attribute').
+  Rationale: Values flow through the 'AttributeKey a' phantom type, which
+  catches accidental type mismatches at compile time. For example,
+  `messaging_batch_messageCount :: AttributeKey Int64` refuses an `Int`
+  and forces a conversion — surfaced as a compile-time error during M2
+  and fixed by using `fromIntegral n :: Int64`.
   Date: 2026-04-23.
 
 

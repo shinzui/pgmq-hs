@@ -3,11 +3,46 @@
 -- This module provides a traced version of the Pgmq interpreter that
 -- creates OpenTelemetry spans for all PGMQ operations.
 --
+-- == OpenTelemetry Semantic Conventions
+--
+-- Spans emitted by this interpreter follow OpenTelemetry
+-- [Semantic Conventions v1.24](https://github.com/open-telemetry/semantic-conventions/tree/v1.24.0)
+-- for messaging clients and database clients.
+--
+-- For every operation the interpreter emits:
+--
+-- * @db.system = "postgresql"@
+-- * @db.operation = "pgmq.<fn>"@ (for example @"pgmq.send"@, @"pgmq.read"@,
+--   @"pgmq.archive"@).
+--
+-- For /messaging/ operations (the publish and receive families) the
+-- interpreter additionally emits:
+--
+-- * @messaging.system = "pgmq"@
+-- * @messaging.operation@ — one of @"publish"@ (every @send*@ variant,
+--   including topic sends) or @"receive"@ (every @read*@ and @pop@
+--   variant). The @"process"@ operation is intentionally not emitted
+--   here — it belongs to the consumer, which should open its own
+--   @process@ span around application-level handling of a received
+--   message (see 'Pgmq.Effectful.Traced.readMessageWithContext').
+-- * @messaging.destination.name@ — the queue name, or for topic sends
+--   the routing key (which is the logical destination for pgmq topics).
+--
+-- == Span Names
+--
+-- Span names follow the v1.24 @"<operation> <destination>"@ form:
+--
+-- * Messaging spans: @"publish my-queue"@, @"receive my-queue"@.
+-- * Lifecycle and observability spans: @"pgmq.archive my-queue"@,
+--   @"pgmq.set_vt my-queue"@, @"pgmq.list_queues"@ (no destination).
+--
 -- == Span Kinds
 --
--- * Producer spans: Queue creation, message send operations
--- * Consumer spans: Message read operations
--- * Internal spans: Message lifecycle (delete, archive, visibility timeout)
+-- * 'OTel.Producer': every @send*@ / @send_topic*@ variant.
+-- * 'OTel.Consumer': every @read*@ variant and @pop@.
+-- * 'OTel.Internal': lifecycle (create, drop, archive, delete, set_vt,
+--   purge, bind_topic, …) and observability (metrics, list_queues,
+--   list_topic_bindings, validate_*).
 --
 -- == Usage
 --
@@ -40,6 +75,7 @@ module Pgmq.Effectful.Interpreter.Traced
 where
 
 import Control.Monad (when)
+import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Effectful (Eff, IOE, (:>))
@@ -49,7 +85,8 @@ import Effectful.Error.Static (Error, throwError)
 import Hasql.Pool (Pool, UsageError)
 import Hasql.Pool qualified as Pool
 import Hasql.Session qualified
-import OpenTelemetry.Attributes (Attribute (..), PrimitiveAttribute (..), unkey)
+import OpenTelemetry.Attributes (Attribute (..), PrimitiveAttribute (..))
+import OpenTelemetry.Attributes.Map (AttributeMap, insertByKey)
 import OpenTelemetry.Attributes.Map qualified as AttrMap
 import OpenTelemetry.Trace.Core qualified as OTel
 import Pgmq.Effectful.Effect (Pgmq (..))
@@ -81,6 +118,41 @@ defaultTracingConfig t =
       includeMessageBodies = False
     }
 
+-- | Describes how a 'Pgmq' operation maps onto OpenTelemetry semantic
+-- conventions v1.24.
+data OpInfo = OpInfo
+  { -- | The pgmq SQL function being invoked (@"pgmq.send"@ etc.).
+    opDbFunction :: !Text,
+    -- | The v1.24 @messaging.operation@ verb, if any. One of
+    -- @"publish"@ or @"receive"@; @Nothing@ for lifecycle/observability
+    -- operations.
+    opMessagingKind :: !(Maybe Text),
+    -- | The span kind.
+    opSpanKind :: !OTel.SpanKind,
+    -- | The logical destination (queue name, or the routing key for
+    -- topic sends). @Nothing@ for operations without a per-queue scope
+    -- (for example @list_queues@, @metrics_all@).
+    opDestination :: !(Maybe Text),
+    -- | A pre-known message id (for per-message operations like delete,
+    -- archive, set_vt).
+    opMessageId :: !(Maybe MessageId),
+    -- | Batch size, for batch operations.
+    opBatchCount :: !(Maybe Int)
+  }
+
+-- | An 'OpInfo' with no messaging verb, no destination, no message id,
+-- and no batch count.
+defaultOpInfo :: Text -> OTel.SpanKind -> OpInfo
+defaultOpInfo fn kind =
+  OpInfo
+    { opDbFunction = fn,
+      opMessagingKind = Nothing,
+      opSpanKind = kind,
+      opDestination = Nothing,
+      opMessageId = Nothing,
+      opBatchCount = Nothing
+    }
+
 -- | Run the Pgmq effect with OpenTelemetry instrumentation.
 runPgmqTraced ::
   (IOE :> es, Error PgmqRuntimeError :> es) =>
@@ -98,238 +170,263 @@ runPgmqTracedWith ::
   Eff (Pgmq : es) a ->
   Eff es a
 runPgmqTracedWith pool config = interpret $ \_ -> \case
-  -- Queue Management (Producer spans)
+  -- Queue Management (Internal spans)
   CreateQueue q ->
-    withTracedSession config "pgmq create_queue" OTel.Producer q pool $
+    withTracedOp config pool (queueOp "pgmq.create" OTel.Internal q) $
       Sessions.createQueue q
   DropQueue q ->
-    withTracedSession config "pgmq drop_queue" OTel.Producer q pool $
+    withTracedOp config pool (queueOp "pgmq.drop_queue" OTel.Internal q) $
       Sessions.dropQueue q
   CreatePartitionedQueue pq@(Types.CreatePartitionedQueue qn _ _) ->
-    withTracedSession config "pgmq create_partitioned_queue" OTel.Producer qn pool $
+    withTracedOp config pool (queueOp "pgmq.create_partitioned" OTel.Internal qn) $
       Sessions.createPartitionedQueue pq
   CreateUnloggedQueue q ->
-    withTracedSession config "pgmq create_unlogged_queue" OTel.Producer q pool $
+    withTracedOp config pool (queueOp "pgmq.create_unlogged" OTel.Internal q) $
       Sessions.createUnloggedQueue q
   DetachArchive _q ->
     pure ()
   EnableNotifyInsert cfg@(Types.EnableNotifyInsert qn _) ->
-    withTracedSession config "pgmq enable_notify_insert" OTel.Internal qn pool $
+    withTracedOp config pool (queueOp "pgmq.enable_notify_insert" OTel.Internal qn) $
       Sessions.enableNotifyInsert cfg
   DisableNotifyInsert q ->
-    withTracedSession config "pgmq disable_notify_insert" OTel.Internal q pool $
+    withTracedOp config pool (queueOp "pgmq.disable_notify_insert" OTel.Internal q) $
       Sessions.disableNotifyInsert q
   CreateFifoIndex q ->
-    withTracedSession config "pgmq create_fifo_index" OTel.Internal q pool $
+    withTracedOp config pool (queueOp "pgmq.create_fifo_index" OTel.Internal q) $
       Sessions.createFifoIndex q
   CreateFifoIndexesAll ->
-    withTracedSessionNoQueue config "pgmq create_fifo_indexes_all" OTel.Internal pool $
+    withTracedOp config pool (defaultOpInfo "pgmq.create_fifo_indexes_all" OTel.Internal) $
       Sessions.createFifoIndexesAll
-  -- Message Operations - Send (Producer spans)
+  -- Message Operations - Send (Producer spans, messaging.operation=publish)
   SendMessage msg@(Types.SendMessage qn _ _) ->
-    withTracedSession config "pgmq send" OTel.Producer qn pool $
+    withTracedOp config pool (publishOp "pgmq.send" qn) $
       Sessions.sendMessage msg
   SendMessageForLater msg@(Types.SendMessageForLater qn _ _) ->
-    withTracedSession config "pgmq send" OTel.Producer qn pool $
+    withTracedOp config pool (publishOp "pgmq.send" qn) $
       Sessions.sendMessageForLater msg
   BatchSendMessage msg@(Types.BatchSendMessage qn bodies _) ->
-    withTracedSessionWithCount config "pgmq send_batch" OTel.Producer qn (length bodies) pool $
+    withTracedOp config pool (publishBatchOp "pgmq.send_batch" qn (length bodies)) $
       Sessions.batchSendMessage msg
   BatchSendMessageForLater msg@(Types.BatchSendMessageForLater qn bodies _) ->
-    withTracedSessionWithCount config "pgmq send_batch" OTel.Producer qn (length bodies) pool $
+    withTracedOp config pool (publishBatchOp "pgmq.send_batch" qn (length bodies)) $
       Sessions.batchSendMessageForLater msg
   SendMessageWithHeaders msg@(Types.SendMessageWithHeaders qn _ _ _) ->
-    withTracedSession config "pgmq send" OTel.Producer qn pool $
+    withTracedOp config pool (publishOp "pgmq.send" qn) $
       Sessions.sendMessageWithHeaders msg
   SendMessageWithHeadersForLater msg@(Types.SendMessageWithHeadersForLater qn _ _ _) ->
-    withTracedSession config "pgmq send" OTel.Producer qn pool $
+    withTracedOp config pool (publishOp "pgmq.send" qn) $
       Sessions.sendMessageWithHeadersForLater msg
   BatchSendMessageWithHeaders msg@(Types.BatchSendMessageWithHeaders qn bodies _ _) ->
-    withTracedSessionWithCount config "pgmq send_batch" OTel.Producer qn (length bodies) pool $
+    withTracedOp config pool (publishBatchOp "pgmq.send_batch" qn (length bodies)) $
       Sessions.batchSendMessageWithHeaders msg
   BatchSendMessageWithHeadersForLater msg@(Types.BatchSendMessageWithHeadersForLater qn bodies _ _) ->
-    withTracedSessionWithCount config "pgmq send_batch" OTel.Producer qn (length bodies) pool $
+    withTracedOp config pool (publishBatchOp "pgmq.send_batch" qn (length bodies)) $
       Sessions.batchSendMessageWithHeadersForLater msg
-  -- Message Operations - Read (Consumer spans)
+  -- Message Operations - Read (Consumer spans, messaging.operation=receive)
   ReadMessage query@(Types.ReadMessage qn _ _ _) ->
-    withTracedSession config "pgmq read" OTel.Consumer qn pool $
+    withTracedOp config pool (receiveOp "pgmq.read" qn) $
       Sessions.readMessage query
   ReadWithPoll query@(Types.ReadWithPollMessage qn _ _ _ _ _) ->
-    withTracedSession config "pgmq read_with_poll" OTel.Consumer qn pool $
+    withTracedOp config pool (receiveOp "pgmq.read_with_poll" qn) $
       Sessions.readWithPoll query
   Pop query@(Types.PopMessage qn _) ->
-    withTracedSession config "pgmq pop" OTel.Consumer qn pool $
+    withTracedOp config pool (receiveOp "pgmq.pop" qn) $
       Sessions.pop query
   -- FIFO Read (Consumer spans)
   ReadGrouped query@(Types.ReadGrouped qn _ _) ->
-    withTracedSession config "pgmq read_grouped" OTel.Consumer qn pool $
+    withTracedOp config pool (receiveOp "pgmq.read_grouped" qn) $
       Sessions.readGrouped query
   ReadGroupedWithPoll query@(Types.ReadGroupedWithPoll qn _ _ _ _) ->
-    withTracedSession config "pgmq read_grouped_with_poll" OTel.Consumer qn pool $
+    withTracedOp config pool (receiveOp "pgmq.read_grouped_with_poll" qn) $
       Sessions.readGroupedWithPoll query
   -- Round-robin FIFO Read (Consumer spans)
   ReadGroupedRoundRobin query@(Types.ReadGrouped qn _ _) ->
-    withTracedSession config "pgmq read_grouped_rr" OTel.Consumer qn pool $
+    withTracedOp config pool (receiveOp "pgmq.read_grouped_rr" qn) $
       Sessions.readGroupedRoundRobin query
   ReadGroupedRoundRobinWithPoll query@(Types.ReadGroupedWithPoll qn _ _ _ _) ->
-    withTracedSession config "pgmq read_grouped_rr_with_poll" OTel.Consumer qn pool $
+    withTracedOp config pool (receiveOp "pgmq.read_grouped_rr_with_poll" qn) $
       Sessions.readGroupedRoundRobinWithPoll query
   -- Message Lifecycle (Internal spans)
   DeleteMessage query@(Types.MessageQuery qn msgId) ->
-    withTracedSessionWithMsgId config "pgmq delete" OTel.Internal qn msgId pool $
+    withTracedOp config pool ((queueOp "pgmq.delete" OTel.Internal qn) {opMessageId = Just msgId}) $
       Sessions.deleteMessage query
   BatchDeleteMessages query@(Types.BatchMessageQuery qn msgIds) ->
-    withTracedSessionWithCount config "pgmq delete_batch" OTel.Internal qn (length msgIds) pool $
+    withTracedOp config pool ((queueOp "pgmq.delete" OTel.Internal qn) {opBatchCount = Just (length msgIds)}) $
       Sessions.batchDeleteMessages query
   ArchiveMessage query@(Types.MessageQuery qn msgId) ->
-    withTracedSessionWithMsgId config "pgmq archive" OTel.Internal qn msgId pool $
+    withTracedOp config pool ((queueOp "pgmq.archive" OTel.Internal qn) {opMessageId = Just msgId}) $
       Sessions.archiveMessage query
   BatchArchiveMessages query@(Types.BatchMessageQuery qn msgIds) ->
-    withTracedSessionWithCount config "pgmq archive_batch" OTel.Internal qn (length msgIds) pool $
+    withTracedOp config pool ((queueOp "pgmq.archive" OTel.Internal qn) {opBatchCount = Just (length msgIds)}) $
       Sessions.batchArchiveMessages query
   DeleteAllMessagesFromQueue q ->
-    withTracedSession config "pgmq purge_queue" OTel.Internal q pool $
+    withTracedOp config pool (queueOp "pgmq.purge_queue" OTel.Internal q) $
       Sessions.deleteAllMessagesFromQueue q
   ChangeVisibilityTimeout query@(Types.VisibilityTimeoutQuery qn msgId _) ->
-    withTracedSessionWithMsgId config "pgmq set_vt" OTel.Internal qn msgId pool $
+    withTracedOp config pool ((queueOp "pgmq.set_vt" OTel.Internal qn) {opMessageId = Just msgId}) $
       Sessions.changeVisibilityTimeout query
   BatchChangeVisibilityTimeout query@(Types.BatchVisibilityTimeoutQuery qn msgIds _) ->
-    withTracedSessionWithCount config "pgmq set_vt_batch" OTel.Internal qn (length msgIds) pool $
+    withTracedOp config pool ((queueOp "pgmq.set_vt" OTel.Internal qn) {opBatchCount = Just (length msgIds)}) $
       Sessions.batchChangeVisibilityTimeout query
   -- Timestamp-based VT (pgmq 1.10.0+)
   SetVisibilityTimeoutAt query@(Types.VisibilityTimeoutAtQuery qn msgId _) ->
-    withTracedSessionWithMsgId config "pgmq set_vt_at" OTel.Internal qn msgId pool $
+    withTracedOp config pool ((queueOp "pgmq.set_vt" OTel.Internal qn) {opMessageId = Just msgId}) $
       Sessions.setVisibilityTimeoutAt query
   BatchSetVisibilityTimeoutAt query@(Types.BatchVisibilityTimeoutAtQuery qn msgIds _) ->
-    withTracedSessionWithCount config "pgmq set_vt_at_batch" OTel.Internal qn (length msgIds) pool $
+    withTracedOp config pool ((queueOp "pgmq.set_vt" OTel.Internal qn) {opBatchCount = Just (length msgIds)}) $
       Sessions.batchSetVisibilityTimeoutAt query
   -- Topic Management (Internal spans, pgmq 1.11.0+)
   BindTopic params@(Types.BindTopic _ qn) ->
-    withTracedSession config "pgmq bind_topic" OTel.Internal qn pool $
+    withTracedOp config pool (queueOp "pgmq.bind_topic" OTel.Internal qn) $
       Sessions.bindTopic params
   UnbindTopic params@(Types.UnbindTopic _ qn) ->
-    withTracedSession config "pgmq unbind_topic" OTel.Internal qn pool $
+    withTracedOp config pool (queueOp "pgmq.unbind_topic" OTel.Internal qn) $
       Sessions.unbindTopic params
   ValidateRoutingKey key ->
-    withTracedSessionNoQueue config "pgmq validate_routing_key" OTel.Internal pool $
+    withTracedOp config pool (defaultOpInfo "pgmq.validate_routing_key" OTel.Internal) $
       Sessions.validateRoutingKey key
-  ValidateTopicPattern _pat ->
-    withTracedSessionNoQueue config "pgmq validate_topic_pattern" OTel.Internal pool $
-      Sessions.validateTopicPattern _pat
+  ValidateTopicPattern pat ->
+    withTracedOp config pool (defaultOpInfo "pgmq.validate_topic_pattern" OTel.Internal) $
+      Sessions.validateTopicPattern pat
   TestRouting key ->
-    withTracedSessionNoQueue config "pgmq test_routing" OTel.Internal pool $
+    withTracedOp config pool (defaultOpInfo "pgmq.test_routing" OTel.Internal) $
       Sessions.testRouting key
   ListTopicBindings ->
-    withTracedSessionNoQueue config "pgmq list_topic_bindings" OTel.Internal pool $
+    withTracedOp config pool (defaultOpInfo "pgmq.list_topic_bindings" OTel.Internal) $
       Sessions.listTopicBindings
   ListTopicBindingsForQueue q ->
-    withTracedSession config "pgmq list_topic_bindings" OTel.Internal q pool $
+    withTracedOp config pool (queueOp "pgmq.list_topic_bindings" OTel.Internal q) $
       Sessions.listTopicBindingsForQueue q
   -- Topic Sending (Producer spans, pgmq 1.11.0+)
   SendTopic msg@(Types.SendTopic rk _ _) ->
-    withTracedTopicSend config "pgmq send_topic" OTel.Producer rk pool $
+    withTracedOp config pool (publishTopicOp "pgmq.send_topic" rk) $
       Sessions.sendTopic msg
   SendTopicWithHeaders msg@(Types.SendTopicWithHeaders rk _ _ _) ->
-    withTracedTopicSend config "pgmq send_topic" OTel.Producer rk pool $
+    withTracedOp config pool (publishTopicOp "pgmq.send_topic" rk) $
       Sessions.sendTopicWithHeaders msg
   BatchSendTopic msg@(Types.BatchSendTopic rk bodies _) ->
-    withTracedTopicSendWithCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+    withTracedOp config pool (publishTopicBatchOp "pgmq.send_batch_topic" rk (length bodies)) $
       Sessions.batchSendTopic msg
   BatchSendTopicForLater msg@(Types.BatchSendTopicForLater rk bodies _) ->
-    withTracedTopicSendWithCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+    withTracedOp config pool (publishTopicBatchOp "pgmq.send_batch_topic" rk (length bodies)) $
       Sessions.batchSendTopicForLater msg
   BatchSendTopicWithHeaders msg@(Types.BatchSendTopicWithHeaders rk bodies _ _) ->
-    withTracedTopicSendWithCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+    withTracedOp config pool (publishTopicBatchOp "pgmq.send_batch_topic" rk (length bodies)) $
       Sessions.batchSendTopicWithHeaders msg
   BatchSendTopicWithHeadersForLater msg@(Types.BatchSendTopicWithHeadersForLater rk bodies _ _) ->
-    withTracedTopicSendWithCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+    withTracedOp config pool (publishTopicBatchOp "pgmq.send_batch_topic" rk (length bodies)) $
       Sessions.batchSendTopicWithHeadersForLater msg
   -- Notification Management (Internal spans, pgmq 1.11.0+)
   ListNotifyInsertThrottles ->
-    withTracedSessionNoQueue config "pgmq list_notify_insert_throttles" OTel.Internal pool $
+    withTracedOp config pool (defaultOpInfo "pgmq.list_notify_insert_throttles" OTel.Internal) $
       Sessions.listNotifyInsertThrottles
   UpdateNotifyInsert params@(Types.UpdateNotifyInsert qn _) ->
-    withTracedSession config "pgmq update_notify_insert" OTel.Internal qn pool $
+    withTracedOp config pool (queueOp "pgmq.update_notify_insert" OTel.Internal qn) $
       Sessions.updateNotifyInsert params
   -- Queue Observability (Internal spans)
   ListQueues ->
-    withTracedSessionNoQueue config "pgmq list_queues" OTel.Internal pool $
+    withTracedOp config pool (defaultOpInfo "pgmq.list_queues" OTel.Internal) $
       Sessions.listQueues
   QueueMetrics q ->
-    withTracedSession config "pgmq metrics" OTel.Internal q pool $
+    withTracedOp config pool (queueOp "pgmq.metrics" OTel.Internal q) $
       Sessions.queueMetrics q
   AllQueueMetrics ->
-    withTracedSessionNoQueue config "pgmq metrics_all" OTel.Internal pool $
+    withTracedOp config pool (defaultOpInfo "pgmq.metrics_all" OTel.Internal) $
       Sessions.allQueueMetrics
 
--- Internal helpers
+-- ---------------------------------------------------------------------
+-- OpInfo constructors
+-- ---------------------------------------------------------------------
 
-withTracedSession ::
+-- | 'OpInfo' for a non-messaging operation scoped to a single queue.
+queueOp :: Text -> OTel.SpanKind -> QueueName -> OpInfo
+queueOp fn kind qn = (defaultOpInfo fn kind) {opDestination = Just (queueNameToText qn)}
+
+-- | 'OpInfo' for a @publish@ (send) on a queue.
+publishOp :: Text -> QueueName -> OpInfo
+publishOp fn qn =
+  (queueOp fn OTel.Producer qn) {opMessagingKind = Just "publish"}
+
+-- | 'OpInfo' for a batch @publish@ on a queue.
+publishBatchOp :: Text -> QueueName -> Int -> OpInfo
+publishBatchOp fn qn n = (publishOp fn qn) {opBatchCount = Just n}
+
+-- | 'OpInfo' for a topic send (publish to a routing key).
+publishTopicOp :: Text -> RoutingKey -> OpInfo
+publishTopicOp fn rk =
+  (defaultOpInfo fn OTel.Producer)
+    { opMessagingKind = Just "publish",
+      opDestination = Just (routingKeyToText rk)
+    }
+
+-- | 'OpInfo' for a batch topic send.
+publishTopicBatchOp :: Text -> RoutingKey -> Int -> OpInfo
+publishTopicBatchOp fn rk n = (publishTopicOp fn rk) {opBatchCount = Just n}
+
+-- | 'OpInfo' for a @receive@ (read, pop) on a queue.
+receiveOp :: Text -> QueueName -> OpInfo
+receiveOp fn qn =
+  (queueOp fn OTel.Consumer qn) {opMessagingKind = Just "receive"}
+
+-- ---------------------------------------------------------------------
+-- Span assembly
+-- ---------------------------------------------------------------------
+
+-- | Span name: @"<messaging.operation> <destination>"@ for messaging
+-- spans, else @"<db.operation> <destination>"@; if there is no
+-- destination, the operation name alone.
+spanNameFor :: OpInfo -> Text
+spanNameFor info =
+  let op = case info.opMessagingKind of
+        Just mk -> mk
+        Nothing -> info.opDbFunction
+   in case info.opDestination of
+        Just d -> op <> " " <> d
+        Nothing -> op
+
+operationAttributes :: OpInfo -> AttributeMap
+operationAttributes info =
+  let base =
+        insertByKey db_system ("postgresql" :: Text)
+          . insertByKey db_operation info.opDbFunction
+      withMsgKind = case info.opMessagingKind of
+        Just mk ->
+          insertByKey messaging_system ("pgmq" :: Text)
+            . insertByKey messaging_operation mk
+        Nothing -> id
+      withDest = case info.opDestination of
+        Just d -> insertByKey messaging_destination_name d
+        Nothing -> id
+      withMsgId = case info.opMessageId of
+        Just (MessageId mid) ->
+          insertByKey messaging_message_id (T.pack (show mid))
+        Nothing -> id
+      withCount = case info.opBatchCount of
+        Just n -> insertByKey messaging_batch_messageCount (fromIntegral n :: Int64)
+        Nothing -> id
+   in (withMsgId . withCount . withDest . withMsgKind . base) mempty
+
+withTracedOp ::
   (IOE :> es, Error PgmqRuntimeError :> es) =>
   TracingConfig ->
-  Text ->
-  OTel.SpanKind ->
-  QueueName ->
   Pool ->
+  OpInfo ->
   Hasql.Session.Session a ->
   Eff es a
-withTracedSession config spanName kind queueName pool session = do
-  let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
-    addQueueAttributes s queueName
-    runSessionIO config s pool session
+withTracedOp config pool info session = do
+  let args =
+        OTel.addAttributesToSpanArguments
+          (operationAttributes info)
+          OTel.defaultSpanArguments {OTel.kind = info.opSpanKind}
+  result <-
+    Effectful.liftIO $
+      OTel.inSpan' config.tracer (spanNameFor info) args $ \s ->
+        runSessionIO config s pool session
   throwOnLeft result
 
-withTracedSessionNoQueue ::
-  (IOE :> es, Error PgmqRuntimeError :> es) =>
-  TracingConfig ->
-  Text ->
-  OTel.SpanKind ->
-  Pool ->
-  Hasql.Session.Session a ->
-  Eff es a
-withTracedSessionNoQueue config spanName kind pool session = do
-  let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
-    addBaseAttributes s
-    runSessionIO config s pool session
-  throwOnLeft result
-
-withTracedSessionWithMsgId ::
-  (IOE :> es, Error PgmqRuntimeError :> es) =>
-  TracingConfig ->
-  Text ->
-  OTel.SpanKind ->
-  QueueName ->
-  MessageId ->
-  Pool ->
-  Hasql.Session.Session a ->
-  Eff es a
-withTracedSessionWithMsgId config spanName kind queueName msgId pool session = do
-  let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
-    addQueueAttributes s queueName
-    addMessageIdAttribute s msgId
-    runSessionIO config s pool session
-  throwOnLeft result
-
-withTracedSessionWithCount ::
-  (IOE :> es, Error PgmqRuntimeError :> es) =>
-  TracingConfig ->
-  Text ->
-  OTel.SpanKind ->
-  QueueName ->
-  Int ->
-  Pool ->
-  Hasql.Session.Session a ->
-  Eff es a
-withTracedSessionWithCount config spanName kind queueName count pool session = do
-  let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
-    addQueueAttributes s queueName
-    addBatchCountAttribute s count
-    runSessionIO config s pool session
-  throwOnLeft result
+-- ---------------------------------------------------------------------
+-- Session runner and error recording
+-- ---------------------------------------------------------------------
 
 -- | Rethrow a runtime error via the 'Error' effect when present.
 throwOnLeft ::
@@ -369,60 +466,3 @@ recordUsageError s err = do
               ("exception.message", AttributeValue $ TextAttribute $ T.pack $ show err)
             ]
       }
-
-addQueueAttributes :: OTel.Span -> QueueName -> IO ()
-addQueueAttributes s queueName = do
-  addBaseAttributes s
-  OTel.addAttribute s (unkey messaging_destination_name) (queueNameToText queueName)
-
-addBaseAttributes :: OTel.Span -> IO ()
-addBaseAttributes s = do
-  OTel.addAttribute s (unkey messaging_system) ("pgmq" :: Text)
-  OTel.addAttribute s (unkey db_system) ("postgresql" :: Text)
-
-addMessageIdAttribute :: OTel.Span -> MessageId -> IO ()
-addMessageIdAttribute s (MessageId msgId) =
-  OTel.addAttribute s (unkey messaging_message_id) (T.pack $ show msgId)
-
-addBatchCountAttribute :: OTel.Span -> Int -> IO ()
-addBatchCountAttribute s count =
-  OTel.addAttribute s (unkey messaging_batch_messageCount) count
-
--- | Topic-send producer span. The routing key is emitted as
--- @messaging.destination.name@ because, for pgmq topic routing, the
--- routing key /is/ the logical destination.
-withTracedTopicSend ::
-  (IOE :> es, Error PgmqRuntimeError :> es) =>
-  TracingConfig ->
-  Text ->
-  OTel.SpanKind ->
-  RoutingKey ->
-  Pool ->
-  Hasql.Session.Session a ->
-  Eff es a
-withTracedTopicSend config spanName kind routingKey pool session = do
-  let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
-    addBaseAttributes s
-    OTel.addAttribute s (unkey messaging_destination_name) (routingKeyToText routingKey)
-    runSessionIO config s pool session
-  throwOnLeft result
-
-withTracedTopicSendWithCount ::
-  (IOE :> es, Error PgmqRuntimeError :> es) =>
-  TracingConfig ->
-  Text ->
-  OTel.SpanKind ->
-  RoutingKey ->
-  Int ->
-  Pool ->
-  Hasql.Session.Session a ->
-  Eff es a
-withTracedTopicSendWithCount config spanName kind routingKey count pool session = do
-  let args = OTel.defaultSpanArguments {OTel.kind = kind}
-  result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
-    addBaseAttributes s
-    OTel.addAttribute s (unkey messaging_destination_name) (routingKeyToText routingKey)
-    addBatchCountAttribute s count
-    runSessionIO config s pool session
-  throwOnLeft result
