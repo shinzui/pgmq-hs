@@ -33,7 +33,9 @@ tests pool =
       testEnsureQueuesWithNotify pool,
       testEnsureQueuesWithFifo pool,
       testEnsureQueuesWithTopicBinding pool,
-      testEnsureQueuesIsTrulyIdempotent pool
+      testEnsureQueuesIsTrulyIdempotent pool,
+      testEnsureQueuesSilentIdempotent pool,
+      testEnsureQueuesSilentIncremental pool
     ]
 
 -- | Helper to run a session and fail on error
@@ -207,6 +209,36 @@ actionForQueue qn (CreatedFifoIndex q) = q == qn
 actionForQueue qn (SkippedFifoIndex q) = q == qn
 actionForQueue qn (BoundTopic q _) = q == qn
 actionForQueue qn (SkippedTopicBinding q _) = q == qn
+
+-- | Silent-variant version of 'testEnsureQueuesIdempotent': call 'ensureQueues'
+-- twice with the same standard-queue config and confirm the queue exists exactly
+-- once afterwards.
+testEnsureQueuesSilentIdempotent :: Pool.Pool -> TestTree
+testEnsureQueuesSilentIdempotent pool = testCase "silent ensureQueues is idempotent" $ do
+  qn <- genQueueName
+  let configs = [standardQueue qn]
+  runSession pool (ensureQueues configs)
+  runSession pool (ensureQueues configs)
+  queues <- runSession pool Sessions.listQueues
+  let matching = filter (\q -> (q ^. #name) == qn) queues
+  length matching @?= 1
+  cleanupQueue pool qn
+
+-- | Silent-variant version of 'testEnsureQueuesIncremental': after an initial
+-- single-queue reconcile, a second reconcile that adds a new queue must leave
+-- both queues in place.
+testEnsureQueuesSilentIncremental :: Pool.Pool -> TestTree
+testEnsureQueuesSilentIncremental pool = testCase "silent ensureQueues adds new queues incrementally" $ do
+  qn1 <- genQueueName
+  qn2 <- genQueueName
+  runSession pool (ensureQueues [standardQueue qn1])
+  runSession pool (ensureQueues [standardQueue qn1, standardQueue qn2])
+  queues <- runSession pool Sessions.listQueues
+  let names = map (^. #name) queues
+  assertBool "qn1 should exist" (qn1 `elem` names)
+  assertBool "qn2 should exist" (qn2 `elem` names)
+  cleanupQueue pool qn1
+  cleanupQueue pool qn2
 
 -- | Assert that calling the silent 'ensureQueues' a second time for a queue with
 -- notify-insert configured does NOT reset 'last_notified_at' to the epoch.

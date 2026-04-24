@@ -75,10 +75,19 @@ by temporarily enabling PostgreSQL `log_statement = 'all'` and confirming the se
 - [x] Milestone 3: Refactor `ensureQueuesEff` in `pgmq-config/src/Pgmq/Config/Effectful.hs` to
       share the reconciliation path with `ensureQueuesReportEff`. — 2026-04-23. Mirror of M2
       applied; `applyQueueConfigEff` deleted; no leftover warnings.
-- [ ] Milestone 4: Delete now-dead `applyQueueConfig` / `applyQueueConfigEff` helpers, remove the
-      stale "no way to query if index exists" comment in `Pgmq/Config.hs`, and tidy imports.
-- [ ] Milestone 5: Extend the test suite with positive idempotency coverage for
-      `ensureQueues` (not just `ensureQueuesReport`).
+- [x] Milestone 4: Delete now-dead `applyQueueConfig` / `applyQueueConfigEff` helpers, remove the
+      stale "no way to query if index exists" comment in `Pgmq/Config.hs`, and tidy imports. —
+      2026-04-23. Helpers were deleted as part of M2/M3. The FIFO comment is not stale — it
+      explains why `createFifoIndex` is still called unconditionally in the shared
+      `reconcileQueue` path — so it was kept in place at `Pgmq/Config.hs:122`. Import tidying
+      was folded into M2 (`Data.Foldable` removed). `cabal build --ghc-options="-Werror
+      -Wunused-imports"` passes. No separate commit needed.
+- [x] Milestone 5: Extend the test suite with positive idempotency coverage for
+      `ensureQueues` (not just `ensureQueuesReport`). — 2026-04-23. Added
+      `testEnsureQueuesSilentIdempotent` and `testEnsureQueuesSilentIncremental`. The
+      Milestone-1 test remains under its original name (`testEnsureQueuesIsTrulyIdempotent`);
+      it already covers the "silent notify idempotent" case so no rename was needed. 10/10
+      tests pass.
 - [ ] Milestone 6: Update `pgmq-config/CHANGELOG.md`, bump package version to `0.1.4.0`, and
       tighten the haddock on the two entry points so it accurately describes "queries existing
       state first and skips unchanged items".
