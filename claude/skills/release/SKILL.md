@@ -22,6 +22,7 @@ The packages MUST be published in this order due to inter-package dependencies:
 2. **pgmq-hasql** — hasql implementation (depends on pgmq-core)
 3. **pgmq-migration** — schema migrations (no internal deps, but released after core by convention)
 4. **pgmq-effectful** — effectful effects (depends on pgmq-core and pgmq-hasql)
+5. **pgmq-config** — declarative queue configuration (depends on pgmq-core, pgmq-hasql, and pgmq-effectful)
 
 **pgmq-bench** is NOT released to Hackage (it is a benchmark suite).
 
@@ -69,15 +70,17 @@ Increment the version:
 ### 3. Update versions and changelogs
 
 #### Version update
-- Edit ALL four package cabal files to set the new version:
+- Edit ALL five package cabal files to set the new version:
   - `pgmq-core/pgmq-core.cabal`
   - `pgmq-hasql/pgmq-hasql.cabal`
   - `pgmq-migration/pgmq-migration.cabal`
   - `pgmq-effectful/pgmq-effectful.cabal`
+  - `pgmq-config/pgmq-config.cabal`
 
 #### Dependency bounds update
-- Update the `pgmq-core` dependency bound in `pgmq-hasql/pgmq-hasql.cabal` and `pgmq-effectful/pgmq-effectful.cabal`.
-- Update the `pgmq-hasql` dependency bound in `pgmq-effectful/pgmq-effectful.cabal`.
+- Update the `pgmq-core` dependency bound in `pgmq-hasql/pgmq-hasql.cabal`, `pgmq-effectful/pgmq-effectful.cabal`, and `pgmq-config/pgmq-config.cabal`.
+- Update the `pgmq-hasql` dependency bound in `pgmq-effectful/pgmq-effectful.cabal` and `pgmq-config/pgmq-config.cabal`.
+- Update the `pgmq-effectful` dependency bound in `pgmq-config/pgmq-config.cabal`.
 - Use PVP-compatible bounds matching the existing style in the cabal files.
 
 #### Changelog update
@@ -110,7 +113,7 @@ Show the user ALL changes (version bumps, dependency bounds, changelog entries) 
 
 ### 6. Publish to Hackage (in dependency order)
 
-For EACH package, in dependency order (pgmq-core → pgmq-hasql → pgmq-migration → pgmq-effectful):
+For EACH package, in dependency order (pgmq-core → pgmq-hasql → pgmq-migration → pgmq-effectful → pgmq-config):
 
 1. `cd <pkg-dir>`
 2. Run `cabal check` to verify no packaging issues.
@@ -129,11 +132,12 @@ After all packages are published, present a summary:
 | pgmq-hasql | X.Y.Z.W | https://hackage.haskell.org/package/pgmq-hasql-X.Y.Z.W |
 | pgmq-migration | X.Y.Z.W | https://hackage.haskell.org/package/pgmq-migration-X.Y.Z.W |
 | pgmq-effectful | X.Y.Z.W | https://hackage.haskell.org/package/pgmq-effectful-X.Y.Z.W |
+| pgmq-config | X.Y.Z.W | https://hackage.haskell.org/package/pgmq-config-X.Y.Z.W |
 
 ## Important
 
 - Always ask the user to confirm the version bump and changelogs before committing.
-- Always publish in dependency order: pgmq-core → pgmq-hasql → pgmq-migration → pgmq-effectful.
+- Always publish in dependency order: pgmq-core → pgmq-hasql → pgmq-migration → pgmq-effectful → pgmq-config.
 - Never skip `cabal check`, tests, or `nix build`.
 - If any step fails (including `nix build`), stop and report the error rather than continuing.
 - If a Hackage upload fails for one package, do NOT continue uploading subsequent packages that depend on it.
