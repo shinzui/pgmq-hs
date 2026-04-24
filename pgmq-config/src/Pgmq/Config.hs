@@ -26,7 +26,6 @@ module Pgmq.Config
 where
 
 import Control.Lens ((^.))
-import Data.Foldable (for_)
 import Data.Generics.Labels ()
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -43,11 +42,15 @@ import Pgmq.Types
   )
 
 -- | Ensure all declared queues exist with the desired settings.
--- This is idempotent — safe to call on every application startup.
+--
+-- Queries existing queues, topic bindings, and notification throttles first,
+-- and only issues mutating calls for items that are missing. Safe to call on
+-- every application startup: a second run on an unchanged config is a no-op
+-- modulo the three list queries.
+--
 -- Operations are additive only: queues not in the config are left untouched.
 ensureQueues :: [QueueConfig] -> Session ()
-ensureQueues configs =
-  for_ configs applyQueueConfig
+ensureQueues configs = () <$ ensureQueuesReport configs
 
 -- | Convenience wrapper that runs 'ensureQueues' against a connection pool.
 ensureQueuesWithPool :: Pool.Pool -> [QueueConfig] -> IO (Either Pool.UsageError ())
@@ -71,45 +74,6 @@ ensureQueuesReport configs = do
       existingNotifySet = Set.fromList (map (\t -> t ^. #throttleQueueName) existingThrottles)
 
   concat <$> traverse (reconcileQueue existingQueueNames existingBindingSet existingNotifySet) configs
-
--- | Apply a single queue config without checking existing state.
-applyQueueConfig :: QueueConfig -> Session ()
-applyQueueConfig cfg = do
-  let qn = cfg ^. #queueName
-  -- Create the queue
-  case cfg ^. #queueType of
-    StandardQueue ->
-      Sessions.createQueue qn
-    UnloggedQueue ->
-      Sessions.createUnloggedQueue qn
-    PartitionedQueue pc ->
-      Sessions.createPartitionedQueue
-        StmtTypes.CreatePartitionedQueue
-          { queueName = qn,
-            partitionInterval = pc ^. #partitionInterval,
-            retentionInterval = pc ^. #retentionInterval
-          }
-
-  -- Enable notifications if configured
-  for_ (cfg ^. #notifyInsert) $ \nc ->
-    Sessions.enableNotifyInsert
-      StmtTypes.EnableNotifyInsert
-        { queueName = qn,
-          throttleIntervalMs = nc ^. #throttleMs
-        }
-
-  -- Create FIFO index if requested
-  if cfg ^. #fifoIndex
-    then Sessions.createFifoIndex qn
-    else pure ()
-
-  -- Bind topic patterns
-  for_ (cfg ^. #topicBindings) $ \pat ->
-    Sessions.bindTopic
-      StmtTypes.BindTopic
-        { topicPattern = pat,
-          queueName = qn
-        }
 
 -- | Reconcile a single queue config against existing state, returning actions taken.
 reconcileQueue ::

@@ -66,8 +66,12 @@ by temporarily enabling PostgreSQL `log_statement = 'all'` and confirming the se
       `testEnsureQueuesIsTrulyIdempotent` in `pgmq-config/test/ConfigSpec.hs`; it fails on HEAD
       with `last_notified_at must not be reset by second ensureQueues; was 1970-01-01 00:00:00
       UTC`, confirming the bug.
-- [ ] Milestone 2: Refactor `ensureQueues` in `pgmq-config/src/Pgmq/Config.hs` to share the
-      reconciliation path with `ensureQueuesReport`.
+- [x] Milestone 2: Refactor `ensureQueues` in `pgmq-config/src/Pgmq/Config.hs` to share the
+      reconciliation path with `ensureQueuesReport`. — 2026-04-23. `ensureQueues` now
+      delegates to `ensureQueuesReport` and discards the report. `applyQueueConfig` deleted.
+      `Data.Foldable (for_)` import removed (no longer needed — `reconcileQueue` uses
+      `traverse`). Previously-failing `testEnsureQueuesIsTrulyIdempotent` now passes; all 8
+      `pgmq-config` tests green.
 - [ ] Milestone 3: Refactor `ensureQueuesEff` in `pgmq-config/src/Pgmq/Config/Effectful.hs` to
       share the reconciliation path with `ensureQueuesReportEff`.
 - [ ] Milestone 4: Delete now-dead `applyQueueConfig` / `applyQueueConfigEff` helpers, remove the
@@ -124,6 +128,13 @@ by temporarily enabling PostgreSQL `log_statement = 'all'` and confirming the se
   Rationale: Public types and function signatures are unchanged. The behavioural change is a
   bug fix (the library now matches its documented contract). PVP treats this as a "C" bump at
   most.
+  Date: 2026-04-23
+
+- Decision: Drop the `!` breaking-change marker from the `fix(pgmq-config):` commit for
+  Milestone 2. Rationale: the function signature is unchanged, the documented contract
+  ("idempotent") is unchanged, and the behaviour change only removes unwanted side effects.
+  Callers who depended on the old broken behaviour (trigger re-creation every boot,
+  partitioned-queue failure on second call) are not a contract we want to preserve.
   Date: 2026-04-23
 
 
