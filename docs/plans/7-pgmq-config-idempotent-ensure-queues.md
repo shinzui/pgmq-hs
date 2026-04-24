@@ -72,8 +72,9 @@ by temporarily enabling PostgreSQL `log_statement = 'all'` and confirming the se
       `Data.Foldable (for_)` import removed (no longer needed — `reconcileQueue` uses
       `traverse`). Previously-failing `testEnsureQueuesIsTrulyIdempotent` now passes; all 8
       `pgmq-config` tests green.
-- [ ] Milestone 3: Refactor `ensureQueuesEff` in `pgmq-config/src/Pgmq/Config/Effectful.hs` to
-      share the reconciliation path with `ensureQueuesReportEff`.
+- [x] Milestone 3: Refactor `ensureQueuesEff` in `pgmq-config/src/Pgmq/Config/Effectful.hs` to
+      share the reconciliation path with `ensureQueuesReportEff`. — 2026-04-23. Mirror of M2
+      applied; `applyQueueConfigEff` deleted; no leftover warnings.
 - [ ] Milestone 4: Delete now-dead `applyQueueConfig` / `applyQueueConfigEff` helpers, remove the
       stale "no way to query if index exists" comment in `Pgmq/Config.hs`, and tidy imports.
 - [ ] Milestone 5: Extend the test suite with positive idempotency coverage for

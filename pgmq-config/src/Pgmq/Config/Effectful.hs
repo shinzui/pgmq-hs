@@ -23,9 +23,15 @@ import Pgmq.Types
   )
 
 -- | Ensure all declared queues exist using the Pgmq effect.
+--
+-- Queries existing queues, topic bindings, and notification throttles first,
+-- and only issues mutating calls for items that are missing. Safe to call on
+-- every application startup: a second run on an unchanged config is a no-op
+-- modulo the three list queries.
+--
+-- Operations are additive only: queues not in the config are left untouched.
 ensureQueuesEff :: (Eff.Pgmq :> es) => [QueueConfig] -> Eff es ()
-ensureQueuesEff configs =
-  mapM_ applyQueueConfigEff configs
+ensureQueuesEff configs = () <$ ensureQueuesReportEff configs
 
 -- | Like 'ensureQueuesEff', but returns a report of actions taken.
 ensureQueuesReportEff :: (Eff.Pgmq :> es) => [QueueConfig] -> Eff es [ReconcileAction]
@@ -43,46 +49,6 @@ ensureQueuesReportEff configs = do
       existingNotifySet = Set.fromList (map (\t -> t ^. #throttleQueueName) existingThrottles)
 
   concat <$> traverse (reconcileQueueEff existingQueueNames existingBindingSet existingNotifySet) configs
-
--- | Apply a single queue config without checking existing state.
-applyQueueConfigEff :: (Eff.Pgmq :> es) => QueueConfig -> Eff es ()
-applyQueueConfigEff cfg = do
-  let qn = cfg ^. #queueName
-  case cfg ^. #queueType of
-    StandardQueue ->
-      Eff.createQueue qn
-    UnloggedQueue ->
-      Eff.createUnloggedQueue qn
-    PartitionedQueue pc ->
-      Eff.createPartitionedQueue
-        StmtTypes.CreatePartitionedQueue
-          { queueName = qn,
-            partitionInterval = pc ^. #partitionInterval,
-            retentionInterval = pc ^. #retentionInterval
-          }
-
-  case cfg ^. #notifyInsert of
-    Nothing -> pure ()
-    Just nc ->
-      Eff.enableNotifyInsert
-        StmtTypes.EnableNotifyInsert
-          { queueName = qn,
-            throttleIntervalMs = nc ^. #throttleMs
-          }
-
-  if cfg ^. #fifoIndex
-    then Eff.createFifoIndex qn
-    else pure ()
-
-  mapM_
-    ( \pat ->
-        Eff.bindTopic
-          StmtTypes.BindTopic
-            { topicPattern = pat,
-              queueName = qn
-            }
-    )
-    (cfg ^. #topicBindings)
 
 -- | Reconcile a single queue config against existing state.
 reconcileQueueEff ::
