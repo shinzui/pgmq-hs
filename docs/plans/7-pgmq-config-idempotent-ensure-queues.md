@@ -88,9 +88,11 @@ by temporarily enabling PostgreSQL `log_statement = 'all'` and confirming the se
       Milestone-1 test remains under its original name (`testEnsureQueuesIsTrulyIdempotent`);
       it already covers the "silent notify idempotent" case so no rename was needed. 10/10
       tests pass.
-- [ ] Milestone 6: Update `pgmq-config/CHANGELOG.md`, bump package version to `0.1.4.0`, and
+- [x] Milestone 6: Update `pgmq-config/CHANGELOG.md`, bump package version to `0.1.4.0`, and
       tighten the haddock on the two entry points so it accurately describes "queries existing
-      state first and skips unchanged items".
+      state first and skips unchanged items". — 2026-04-23. Haddock already updated in
+      M2/M3; cabal version bumped; CHANGELOG entry prepended. No workspace packages depend on
+      `pgmq-config`, so no internal bound updates needed.
 - [ ] Milestone 7: `nix fmt`, `cabal build all`, `cabal test pgmq-config`, `cabal test all`
       clean.
 
