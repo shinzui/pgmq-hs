@@ -3,7 +3,15 @@
 -- This module provides:
 --
 -- * W3C Trace Context propagation via message headers
--- * OpenTelemetry semantic conventions for messaging systems
+-- * Re-exports of typed 'AttributeKey' values from
+--   "OpenTelemetry.SemanticConventions" for the v1.24 attributes used
+--   by the pgmq instrumentation.
+--
+-- The semantic-conventions names mirror OpenTelemetry specification
+-- v1.24 as generated into
+-- @hs-opentelemetry-semantic-conventions@ 0.1.0.0. Prefer using the
+-- typed keys over raw strings so a generator bump or spec revision can
+-- be picked up centrally.
 module Pgmq.Effectful.Telemetry
   ( -- * Trace Context Operations
     injectTraceContext,
@@ -11,15 +19,16 @@ module Pgmq.Effectful.Telemetry
     mergeTraceHeaders,
     TraceHeaders,
 
-    -- * Semantic Conventions
-    messagingSystem,
-    messagingOperationType,
-    messagingDestinationName,
-    messagingMessageId,
-    messagingBatchMessageCount,
-    messagingRoutingKey,
-    dbSystem,
-    dbOperationName,
+    -- * Semantic Convention Keys (re-exported from
+
+    -- "OpenTelemetry.SemanticConventions")
+    messaging_system,
+    messaging_operation,
+    messaging_destination_name,
+    messaging_message_id,
+    messaging_batch_messageCount,
+    db_system,
+    db_operation,
   )
 where
 
@@ -27,9 +36,17 @@ import Data.Aeson (Value (..))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
-import Data.Text (Text)
 import Data.Text.Encoding qualified as TE
 import OpenTelemetry.Propagator.W3CTraceContext qualified as W3C
+import OpenTelemetry.SemanticConventions
+  ( db_operation,
+    db_system,
+    messaging_batch_messageCount,
+    messaging_destination_name,
+    messaging_message_id,
+    messaging_operation,
+    messaging_system,
+  )
 import OpenTelemetry.Trace.Core qualified as OTel
 
 -- | Headers for W3C Trace Context propagation.
@@ -75,41 +92,3 @@ mergeTraceHeaders traceHeaders existingHeaders =
     toKeyMap :: Value -> KM.KeyMap Value
     toKeyMap (Object o) = o
     toKeyMap _ = KM.empty
-
--- OpenTelemetry Semantic Conventions for Messaging
--- See: https://opentelemetry.io/docs/specs/semconv/messaging/
-
--- | The messaging system identifier.
--- Value: "pgmq"
-messagingSystem :: Text
-messagingSystem = "messaging.system"
-
--- | The type of messaging operation.
--- Values: "send", "receive", "process"
-messagingOperationType :: Text
-messagingOperationType = "messaging.operation.type"
-
--- | The destination queue name.
-messagingDestinationName :: Text
-messagingDestinationName = "messaging.destination.name"
-
--- | The unique message identifier.
-messagingMessageId :: Text
-messagingMessageId = "messaging.message.id"
-
--- | Number of messages in a batch operation.
-messagingBatchMessageCount :: Text
-messagingBatchMessageCount = "messaging.batch.message_count"
-
--- | The routing key for topic-based message routing.
-messagingRoutingKey :: Text
-messagingRoutingKey = "messaging.destination.routing_key"
-
--- | The database system.
--- Value: "postgresql"
-dbSystem :: Text
-dbSystem = "db.system"
-
--- | The database operation name.
-dbOperationName :: Text
-dbOperationName = "db.operation.name"

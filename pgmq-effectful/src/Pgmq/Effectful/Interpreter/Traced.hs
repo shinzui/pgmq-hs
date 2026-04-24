@@ -49,7 +49,7 @@ import Effectful.Error.Static (Error, throwError)
 import Hasql.Pool (Pool, UsageError)
 import Hasql.Pool qualified as Pool
 import Hasql.Session qualified
-import OpenTelemetry.Attributes (Attribute (..), PrimitiveAttribute (..))
+import OpenTelemetry.Attributes (Attribute (..), PrimitiveAttribute (..), unkey)
 import OpenTelemetry.Attributes.Map qualified as AttrMap
 import OpenTelemetry.Trace.Core qualified as OTel
 import Pgmq.Effectful.Effect (Pgmq (..))
@@ -211,13 +211,13 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
     withTracedSession config "pgmq unbind_topic" OTel.Internal qn pool $
       Sessions.unbindTopic params
   ValidateRoutingKey key ->
-    withTracedSessionWithRoutingKey config "pgmq validate_routing_key" OTel.Internal key pool $
+    withTracedSessionNoQueue config "pgmq validate_routing_key" OTel.Internal pool $
       Sessions.validateRoutingKey key
   ValidateTopicPattern _pat ->
     withTracedSessionNoQueue config "pgmq validate_topic_pattern" OTel.Internal pool $
       Sessions.validateTopicPattern _pat
   TestRouting key ->
-    withTracedSessionWithRoutingKey config "pgmq test_routing" OTel.Internal key pool $
+    withTracedSessionNoQueue config "pgmq test_routing" OTel.Internal pool $
       Sessions.testRouting key
   ListTopicBindings ->
     withTracedSessionNoQueue config "pgmq list_topic_bindings" OTel.Internal pool $
@@ -227,22 +227,22 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
       Sessions.listTopicBindingsForQueue q
   -- Topic Sending (Producer spans, pgmq 1.11.0+)
   SendTopic msg@(Types.SendTopic rk _ _) ->
-    withTracedSessionWithRoutingKey config "pgmq send_topic" OTel.Producer rk pool $
+    withTracedTopicSend config "pgmq send_topic" OTel.Producer rk pool $
       Sessions.sendTopic msg
   SendTopicWithHeaders msg@(Types.SendTopicWithHeaders rk _ _ _) ->
-    withTracedSessionWithRoutingKey config "pgmq send_topic" OTel.Producer rk pool $
+    withTracedTopicSend config "pgmq send_topic" OTel.Producer rk pool $
       Sessions.sendTopicWithHeaders msg
   BatchSendTopic msg@(Types.BatchSendTopic rk bodies _) ->
-    withTracedSessionWithRoutingKeyAndCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+    withTracedTopicSendWithCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
       Sessions.batchSendTopic msg
   BatchSendTopicForLater msg@(Types.BatchSendTopicForLater rk bodies _) ->
-    withTracedSessionWithRoutingKeyAndCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+    withTracedTopicSendWithCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
       Sessions.batchSendTopicForLater msg
   BatchSendTopicWithHeaders msg@(Types.BatchSendTopicWithHeaders rk bodies _ _) ->
-    withTracedSessionWithRoutingKeyAndCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+    withTracedTopicSendWithCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
       Sessions.batchSendTopicWithHeaders msg
   BatchSendTopicWithHeadersForLater msg@(Types.BatchSendTopicWithHeadersForLater rk bodies _ _) ->
-    withTracedSessionWithRoutingKeyAndCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
+    withTracedTopicSendWithCount config "pgmq send_batch_topic" OTel.Producer rk (length bodies) pool $
       Sessions.batchSendTopicWithHeadersForLater msg
   -- Notification Management (Internal spans, pgmq 1.11.0+)
   ListNotifyInsertThrottles ->
@@ -373,26 +373,25 @@ recordUsageError s err = do
 addQueueAttributes :: OTel.Span -> QueueName -> IO ()
 addQueueAttributes s queueName = do
   addBaseAttributes s
-  OTel.addAttribute s messagingDestinationName (queueNameToText queueName)
+  OTel.addAttribute s (unkey messaging_destination_name) (queueNameToText queueName)
 
 addBaseAttributes :: OTel.Span -> IO ()
 addBaseAttributes s = do
-  OTel.addAttribute s messagingSystem ("pgmq" :: Text)
-  OTel.addAttribute s dbSystem ("postgresql" :: Text)
+  OTel.addAttribute s (unkey messaging_system) ("pgmq" :: Text)
+  OTel.addAttribute s (unkey db_system) ("postgresql" :: Text)
 
 addMessageIdAttribute :: OTel.Span -> MessageId -> IO ()
 addMessageIdAttribute s (MessageId msgId) =
-  OTel.addAttribute s messagingMessageId (T.pack $ show msgId)
+  OTel.addAttribute s (unkey messaging_message_id) (T.pack $ show msgId)
 
 addBatchCountAttribute :: OTel.Span -> Int -> IO ()
 addBatchCountAttribute s count =
-  OTel.addAttribute s messagingBatchMessageCount count
+  OTel.addAttribute s (unkey messaging_batch_messageCount) count
 
-addRoutingKeyAttribute :: OTel.Span -> RoutingKey -> IO ()
-addRoutingKeyAttribute s rk =
-  OTel.addAttribute s messagingRoutingKey (routingKeyToText rk)
-
-withTracedSessionWithRoutingKey ::
+-- | Topic-send producer span. The routing key is emitted as
+-- @messaging.destination.name@ because, for pgmq topic routing, the
+-- routing key /is/ the logical destination.
+withTracedTopicSend ::
   (IOE :> es, Error PgmqRuntimeError :> es) =>
   TracingConfig ->
   Text ->
@@ -401,15 +400,15 @@ withTracedSessionWithRoutingKey ::
   Pool ->
   Hasql.Session.Session a ->
   Eff es a
-withTracedSessionWithRoutingKey config spanName kind routingKey pool session = do
+withTracedTopicSend config spanName kind routingKey pool session = do
   let args = OTel.defaultSpanArguments {OTel.kind = kind}
   result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
     addBaseAttributes s
-    addRoutingKeyAttribute s routingKey
+    OTel.addAttribute s (unkey messaging_destination_name) (routingKeyToText routingKey)
     runSessionIO config s pool session
   throwOnLeft result
 
-withTracedSessionWithRoutingKeyAndCount ::
+withTracedTopicSendWithCount ::
   (IOE :> es, Error PgmqRuntimeError :> es) =>
   TracingConfig ->
   Text ->
@@ -419,11 +418,11 @@ withTracedSessionWithRoutingKeyAndCount ::
   Pool ->
   Hasql.Session.Session a ->
   Eff es a
-withTracedSessionWithRoutingKeyAndCount config spanName kind routingKey count pool session = do
+withTracedTopicSendWithCount config spanName kind routingKey count pool session = do
   let args = OTel.defaultSpanArguments {OTel.kind = kind}
   result <- Effectful.liftIO $ OTel.inSpan' config.tracer spanName args $ \s -> do
     addBaseAttributes s
-    addRoutingKeyAttribute s routingKey
+    OTel.addAttribute s (unkey messaging_destination_name) (routingKeyToText routingKey)
     addBatchCountAttribute s count
     runSessionIO config s pool session
   throwOnLeft result
