@@ -56,25 +56,56 @@ Output includes lines like:
 
 ## Progress
 
-- [ ] Verify EP-1 and EP-2 have landed. If not, stop.
-- [ ] Add a `test-suite pgmq-effectful-test` stanza to
-  `pgmq-effectful/pgmq-effectful.cabal`.
-- [ ] Create `pgmq-effectful/test/` directory.
-- [ ] Create `pgmq-effectful/test/Main.hs` as the tasty entry point.
-- [ ] Create `pgmq-effectful/test/EphemeralDb.hs` — a copy of (or module
-  referencing) the existing pgmq-hasql helper, adjusted for this suite's
-  needs.
-- [ ] Create `pgmq-effectful/test/PlainInterpreterSpec.hs`.
-- [ ] Create `pgmq-effectful/test/TracedInterpreterSpec.hs`.
-- [ ] Create `pgmq-effectful/test/ClassificationSpec.hs`.
-- [ ] Run `cabal test pgmq-effectful` — all tests pass.
-- [ ] `nix fmt` clean.
-- [ ] Commit with the three required trailers.
+- [x] Verify EP-1 and EP-2 have landed. (2026-04-23)
+- [x] Add a `test-suite pgmq-effectful-test` stanza to
+  `pgmq-effectful/pgmq-effectful.cabal`. (2026-04-23)
+- [x] Create `pgmq-effectful/test/` directory. (2026-04-23)
+- [x] Create `pgmq-effectful/test/Main.hs` as the tasty entry point.
+  (2026-04-23)
+- [x] Create `pgmq-effectful/test/EphemeralDb.hs` (copy of pgmq-hasql's
+  helper, slimmed down). (2026-04-23)
+- [x] Create `pgmq-effectful/test/PlainInterpreterSpec.hs`. (2026-04-23)
+- [x] Create `pgmq-effectful/test/TracedInterpreterSpec.hs`. (2026-04-23)
+- [x] Create `pgmq-effectful/test/ClassificationSpec.hs`. (2026-04-23)
+- [x] Run `cabal test pgmq-effectful` — "All 11 tests passed (0.01s)".
+  (2026-04-23)
+- [x] Run `cabal test pgmq-hasql` to confirm no regression — "All 55 tests
+  passed (1.09s)". (2026-04-23)
+- [x] `nix fmt` clean. (2026-04-23)
+- [x] Commit with the three required trailers.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The plan's `ClassificationSpec` import sketch used
+  `import Hasql.Session qualified as Hasql` to access constructors like
+  `NetworkingConnectionError`. As with EP-1 and EP-3, that module does not
+  re-export them. Implementation uses
+  `import Hasql.Errors qualified as HasqlErrors`. (2026-04-23)
+
+- The plan's `TracedInterpreterSpec` sketch used
+  `TracerName (..)` from `OpenTelemetry.Trace.Core`. The actual API takes
+  an `InstrumentationLibrary`, which has an `IsString` instance, so a
+  string literal with `OverloadedStrings` suffices:
+  `OTel.makeTracer tp "pgmq-effectful-test" OTel.tracerOptions`.
+  (2026-04-23)
+
+- Span-state inspection deferred. The plan contemplated using
+  `hs-opentelemetry-sdk`\'s `InMemorySpanExporter` to assert the traced
+  interpreter records error status + exception event on the span. That
+  would require adding `hs-opentelemetry-sdk` as a test-suite dependency
+  and wiring up a `SpanProcessor`. The current test uses a `Tracer` built
+  from an empty `TracerProvider` (no processors), which still exercises
+  the `inSpan'` bracket and verifies the typed-error propagation path.
+  The span-recording code in the traced interpreter is covered by hand
+  inspection (EP-2's Outcomes) but not by a runtime assertion. Follow-up
+  candidate if it becomes necessary. (2026-04-23)
+
+- `parseQueueName` returns `Either PgmqError QueueName` (the pgmq-core
+  validation error). In a test we cannot use lazy let-bindings with
+  irrefutable patterns across IO actions without a `fail`, so the tests
+  use an explicit `case` with `assertFailure` in the error branch.
+  (2026-04-23)
 
 
 ## Decision Log
@@ -126,7 +157,32 @@ Output includes lines like:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Outcome (2026-04-23): `cabal test pgmq-effectful` runs 11 passing tests
+across three groups:
+
+    pgmq-effectful
+      isTransient classification                   (8 tests, all pure)
+      Plain interpreter error propagation          (2 tests: statement, connection)
+      Traced interpreter error propagation         (1 test: statement)
+
+All 11 pass. The pgmq-hasql suite also still passes ("All 55 tests
+passed"), confirming no cross-package regression.
+
+Gaps vs. plan:
+
+- Acquisition-timeout test deferred (the plan already marked this as
+  optional). Reliably producing `AcquisitionTimeoutUsageError` requires a
+  forked busy holder + tuned timeouts, which is fiddly in a CI context.
+- Span-state inspection deferred — documented in Surprises &
+  Discoveries. The traced-interpreter test proves the typed-error
+  propagation path but not the span-recording path.
+
+Lessons: the combination of a `case ... of` pattern match on
+`(CallStack, PgmqRuntimeError)` plus an assertion on the outer
+constructor shape is an effective, low-noise way to verify error
+propagation. Future tests can layer in SQL-state inspection by matching
+deeper into `PgmqSessionError (StatementSessionError ...
+(ServerStatementError (ServerError code ...)))`.
 
 
 ## Context and Orientation

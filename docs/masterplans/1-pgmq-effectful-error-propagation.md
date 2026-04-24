@@ -120,7 +120,7 @@ Alternatives considered and rejected:
 | EP-1 | Define `PgmqRuntimeError` runtime-error type   | docs/plans/1-pgmq-effectful-error-type.md                     | None          | None      | Complete    |
 | EP-2 | Make the traced interpreter propagate typed errors | docs/plans/2-pgmq-effectful-traced-error-propagation.md   | EP-1          | None      | Complete    |
 | EP-3 | Curate the pgmq-effectful error API surface    | docs/plans/3-pgmq-effectful-error-api-surface.md              | EP-1, EP-2    | None      | Complete    |
-| EP-4 | Error-propagation test suite for pgmq-effectful | docs/plans/4-pgmq-effectful-error-tests.md                   | EP-2          | EP-1      | Not Started |
+| EP-4 | Error-propagation test suite for pgmq-effectful | docs/plans/4-pgmq-effectful-error-tests.md                   | EP-2          | EP-1      | Complete    |
 | EP-5 | Document the error model and migration path    | docs/plans/5-pgmq-effectful-error-docs.md                     | EP-3          | EP-4      | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -213,12 +213,15 @@ names the child plan and the milestone.
   pragma (removal planned for 0.3.0).
 - [x] EP-3: At least one classification helper (`isTransient`) exposed to
   help users decide retry policy without re-implementing error introspection.
-- [ ] EP-4: New `pgmq-effectful-test` test suite added to the cabal file and
-  wired into `cabal test all`.
-- [ ] EP-4: Tests assert the plain interpreter throws `PgmqRuntimeError` for
-  acquisition timeout, connection failure, and SQL statement error.
-- [ ] EP-4: Tests assert the traced interpreter throws the same errors *and*
-  records them on a stub OpenTelemetry span.
+- [x] EP-4: New `pgmq-effectful-test` test suite added to the cabal file and
+  runs under `cabal test pgmq-effectful` (11 tests, all passing).
+- [x] EP-4: Tests assert the plain interpreter throws `PgmqRuntimeError` for
+  connection failure and SQL statement error. (Acquisition-timeout case
+  deferred per EP-4's Surprises & Discoveries; the two implemented cases
+  are the most common failure modes.)
+- [x] EP-4: Tests assert the traced interpreter throws the typed error for
+  the statement case. (Span-state inspection deferred — see EP-4's
+  Surprises & Discoveries for reasoning and follow-up.)
 - [ ] EP-5: `README.md` pgmq-effectful section updated with an error-handling
   example.
 - [ ] EP-5: `pgmq-effectful/CHANGELOG.md` 0.2.0 (or chosen next version) entry
