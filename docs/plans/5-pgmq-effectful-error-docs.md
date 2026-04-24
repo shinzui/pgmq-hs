@@ -39,25 +39,37 @@ single, clear source of guidance:
 
 ## Progress
 
-- [ ] Verify EP-3 has landed: `isTransient` is exported; deprecation pragmas
-  are in place.
-- [ ] Decide the next version number (see Decision Log).
-- [ ] Update `pgmq-effectful/pgmq-effectful.cabal`'s `version:` field to the
-  decided version.
-- [ ] Write the 0.2.0 (or chosen) entry in `pgmq-effectful/CHANGELOG.md`.
-- [ ] Add an "Error handling" subsection under "## pgmq-effectful" in
-  `README.md`.
-- [ ] Write `docs/design/013-pgmq-effectful-error-model.md`.
-- [ ] Verify `cabal build all` still succeeds after the version bump (cabal
-  may complain if another package pins to `pgmq-effectful >=0.1.3 && <0.2`).
-  If so, bump dependent packages' version bounds.
-- [ ] `nix fmt` clean.
-- [ ] Commit with the three required trailers.
+- [x] Verify EP-3 has landed. (2026-04-23)
+- [x] Next version is 0.2.0.0 (PVP breaking bump). (2026-04-23)
+- [x] Bump `pgmq-effectful/pgmq-effectful.cabal` to 0.2.0.0. (2026-04-23)
+- [x] Write the 0.2.0.0 entry in `pgmq-effectful/CHANGELOG.md`.
+  (2026-04-23)
+- [x] Add an "Error handling" subsection under "## pgmq-effectful" in
+  `README.md`. (2026-04-23)
+- [x] Write `docs/design/013-pgmq-effectful-error-model.md`.
+  (2026-04-23)
+- [x] Update `pgmq-config/pgmq-config.cabal`'s
+  `pgmq-effectful >=0.1.3 && <0.2` to `>=0.2 && <0.3`. `pgmq-bench.cabal`
+  had no upper bound on `pgmq-effectful`, so no change needed.
+  (2026-04-23)
+- [x] `cabal build all` succeeds after the version bump. (2026-04-23)
+- [x] `nix fmt` clean. (2026-04-23)
+- [x] Commit with the three required trailers.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The plan's CHANGELOG template used `Hasql.ConnectionError` /
+  `Hasql.SessionError` as the qualified type names. Throughout the
+  implementation we import from `Hasql.Errors qualified as HasqlErrors`
+  (see EP-1 Surprises). The CHANGELOG entry uses
+  `Hasql.Errors.ConnectionError` / `Hasql.Errors.SessionError` so the
+  entry is directly copy-paste-able into a user's imports. (2026-04-23)
+
+- Only one workspace cabal file needed an upper-bound bump:
+  `pgmq-config/pgmq-config.cabal` pinned `pgmq-effectful >=0.1.3 && <0.2`.
+  `pgmq-bench/pgmq-bench.cabal` lists `pgmq-effectful` with no version
+  bound, so it picks up 0.2.0.0 automatically. (2026-04-23)
 
 
 ## Decision Log
@@ -95,7 +107,26 @@ single, clear source of guidance:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Outcome (2026-04-23): a user upgrading from pgmq-effectful 0.1.x now has
+three coherent sources of guidance:
+
+- `pgmq-effectful/CHANGELOG.md` with a 0.2.0.0 entry describing the
+  breaking changes (type rename + tightened traced-interpreter
+  constraint), the new features (`fromUsageError`, `isTransient`, the
+  test suite), and a before/after migration code block.
+- `README.md`'s pgmq-effectful section has a short "Error handling"
+  subsection with a runnable example using `runError
+  @PgmqRuntimeError` and `isTransient`.
+- `docs/design/013-pgmq-effectful-error-model.md` records the design
+  rationale and the alternatives considered.
+
+`cabal build all` succeeds with the 0.2.0.0 bump and the updated
+`pgmq-config` upper bound.
+
+Gaps vs. plan: none material. The only deviations from the plan's
+concrete-step drafts are cosmetic — using `Hasql.Errors.ConnectionError`
+rather than the plan's abbreviated `Hasql.ConnectionError` in CHANGELOG
+prose, to match the package's actual import convention.
 
 
 ## Context and Orientation

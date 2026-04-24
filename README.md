@@ -47,6 +47,28 @@ main = do
 
 The `pgmq-effectful` package provides an [Effectful](https://hackage.haskell.org/package/effectful) effect layer over `pgmq-hasql`. It includes traced interpreters with OpenTelemetry support for distributed tracing across message producers and consumers.
 
+### Error handling
+
+Both interpreters (`runPgmq` and `runPgmqTraced`) surface failures through the `Error` effect as a `PgmqRuntimeError`:
+
+```haskell
+import Effectful (runEff)
+import Effectful.Error.Static (runError)
+import Pgmq.Effectful
+
+run pool = do
+  result <- runEff . runError @PgmqRuntimeError . runPgmq pool $ do
+    createQueue myQueue
+    sendMessage SendMessage {queueName = myQueue, messageBody = body, delay = Nothing}
+  case result of
+    Right msgId -> print msgId
+    Left (_cs, err)
+      | isTransient err -> retry
+      | otherwise -> logFatal err
+```
+
+`PgmqRuntimeError` has three constructors — `PgmqAcquisitionTimeout`, `PgmqConnectionError`, `PgmqSessionError` — each exposing the full hasql context (SQL state, connection-error kind, etc.) so applications can pattern-match on whatever granularity they need. See [`docs/design/013-pgmq-effectful-error-model.md`](docs/design/013-pgmq-effectful-error-model.md) for the rationale.
+
 ## pgmq-migration
 
 The `pgmq-migration` package allows you to install the PGMQ schema into PostgreSQL without requiring the pgmq extension. This is useful when you don't have superuser access or can't install extensions.

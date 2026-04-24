@@ -121,7 +121,7 @@ Alternatives considered and rejected:
 | EP-2 | Make the traced interpreter propagate typed errors | docs/plans/2-pgmq-effectful-traced-error-propagation.md   | EP-1          | None      | Complete    |
 | EP-3 | Curate the pgmq-effectful error API surface    | docs/plans/3-pgmq-effectful-error-api-surface.md              | EP-1, EP-2    | None      | Complete    |
 | EP-4 | Error-propagation test suite for pgmq-effectful | docs/plans/4-pgmq-effectful-error-tests.md                   | EP-2          | EP-1      | Complete    |
-| EP-5 | Document the error model and migration path    | docs/plans/5-pgmq-effectful-error-docs.md                     | EP-3          | EP-4      | Not Started |
+| EP-5 | Document the error model and migration path    | docs/plans/5-pgmq-effectful-error-docs.md                     | EP-3          | EP-4      | Complete    |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
@@ -222,10 +222,12 @@ names the child plan and the milestone.
 - [x] EP-4: Tests assert the traced interpreter throws the typed error for
   the statement case. (Span-state inspection deferred — see EP-4's
   Surprises & Discoveries for reasoning and follow-up.)
-- [ ] EP-5: `README.md` pgmq-effectful section updated with an error-handling
+- [x] EP-5: `README.md` pgmq-effectful section updated with an error-handling
   example.
-- [ ] EP-5: `pgmq-effectful/CHANGELOG.md` 0.2.0 (or chosen next version) entry
-  describes the breaking rename and migration.
+- [x] EP-5: `pgmq-effectful/CHANGELOG.md` 0.2.0.0 entry describes the
+  breaking rename, the traced-interpreter fix, the new features, and a
+  before/after migration guide. Design doc
+  `docs/design/013-pgmq-effectful-error-model.md` added.
 
 
 ## Surprises & Discoveries
@@ -313,7 +315,47 @@ unexpected interactions between child plans.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at
-completion. Compare the result against the original vision.
+Outcome (2026-04-23): all five child plans landed. Against the original
+vision:
 
-(To be filled during and after implementation.)
+- A program can wrap any effectful pgmq action with
+  `runError @PgmqRuntimeError` and the resulting `Either PgmqRuntimeError a`
+  carries full hasql context (connection kind, SQL state, session
+  structure). ✅ Proven by `PlainInterpreterSpec` and
+  `TracedInterpreterSpec` in the new test suite.
+- The traced interpreter records the error on the active OpenTelemetry
+  span and throws it into the same `Error` channel as the plain
+  interpreter. ✅ Implemented in `runSessionIO`; runtime-asserted for
+  error propagation; span-recording covered by code inspection (see EP-4
+  Surprises for the reason span-inspection was deferred).
+- The `PgmqError` name is deprecated (not yet removed) in
+  `pgmq-effectful`; `pgmq-core`'s validation `PgmqError` is unchanged.
+  Users importing both packages together use `PgmqRuntimeError` from
+  `Pgmq.Effectful` and `PgmqError` from `Pgmq.Types` and no longer
+  collide. ✅
+- `pgmq-effectful` has its own test suite (`pgmq-effectful-test`, 11
+  passing tests) covering error propagation for both interpreters. ✅
+- `README.md` and `pgmq-effectful/CHANGELOG.md` describe the error model
+  and 0.1.x → 0.2.x migration. `docs/design/013` records the design
+  rationale. ✅
+
+Cross-plan lessons:
+
+- The plan sketches repeatedly assumed `Hasql.Session` re-exported
+  `ConnectionError` / `SessionError`; it does not. The public module is
+  `Hasql.Errors`. This came up in EP-1, EP-3, EP-4, and EP-5. Future
+  plans that touch hasql error types should start from `Hasql.Errors`
+  and note this upfront.
+- Downstream consumers (`pgmq-bench`, `pgmq-config`) that specialize on
+  a renamed/deprecated type need to be migrated in the same commit
+  series as the rename, even if deprecation aliases exist — otherwise
+  `cabal build all` (or a cabal file's upper bound) breaks the CI
+  signal. EP-1 and EP-5 both hit this.
+- Observability and recoverability are orthogonal. EP-2 recorded this
+  explicitly in its Decision Log; the surprise was how easy it was to
+  keep them separate by letting `inSpan'` run to completion with an
+  `Either` payload, then throwing at the Eff layer after the bracket
+  closes.
+
+Version shipped: pgmq-effectful 0.2.0.0. The legacy `PgmqError` name
+remains deprecated; removal planned for 0.3.0.0.
