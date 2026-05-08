@@ -10,6 +10,7 @@ cabal-dev
 cabal.project.local
 mori.local.dhall
 .claude/
+.agents/
 
 # Development database
 .dev/
