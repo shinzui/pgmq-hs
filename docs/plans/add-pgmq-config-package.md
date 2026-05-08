@@ -1,3 +1,11 @@
+---
+slug: add-pgmq-config-package
+title: "Add pgmq-config: Declarative Queue Configuration Package"
+kind: exec-plan
+created_at: 2026-03-12T17:58:56Z
+---
+
+
 # Add pgmq-config: Declarative Queue Configuration Package
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,

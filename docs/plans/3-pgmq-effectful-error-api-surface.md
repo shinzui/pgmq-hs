@@ -1,7 +1,15 @@
-# Curate the pgmq-effectful error API surface
+---
+id: 3
+slug: pgmq-effectful-error-api-surface
+title: "Curate the pgmq-effectful error API surface"
+kind: exec-plan
+created_at: 2026-04-24T00:10:56Z
+intention: "intention_01kpybay9hegps2fjt7tkwarz6"
+master_plan: "docs/masterplans/1-pgmq-effectful-error-propagation.md"
+---
 
-MasterPlan: docs/masterplans/1-pgmq-effectful-error-propagation.md
-Intention: intention_01kpybay9hegps2fjt7tkwarz6
+
+# Curate the pgmq-effectful error API surface
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.

@@ -1,7 +1,15 @@
-# Make the traced pgmq-effectful interpreter propagate typed errors
+---
+id: 2
+slug: pgmq-effectful-traced-error-propagation
+title: "Make the traced pgmq-effectful interpreter propagate typed errors"
+kind: exec-plan
+created_at: 2026-04-24T00:07:14Z
+intention: "intention_01kpybay9hegps2fjt7tkwarz6"
+master_plan: "docs/masterplans/1-pgmq-effectful-error-propagation.md"
+---
 
-MasterPlan: docs/masterplans/1-pgmq-effectful-error-propagation.md
-Intention: intention_01kpybay9hegps2fjt7tkwarz6
+
+# Make the traced pgmq-effectful interpreter propagate typed errors
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.

@@ -1,6 +1,14 @@
-# Make pgmq-config Truly Idempotent
+---
+id: 7
+slug: pgmq-config-idempotent-ensure-queues
+title: "Make pgmq-config Truly Idempotent"
+kind: exec-plan
+created_at: 2026-04-24T02:57:50Z
+intention: "intention_01kpynq7gfe2w8rbczfsrj5wpm"
+---
 
-Intention: intention_01kpynq7gfe2w8rbczfsrj5wpm
+
+# Make pgmq-config Truly Idempotent
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.

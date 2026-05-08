@@ -1,7 +1,15 @@
-# Define `PgmqRuntimeError` runtime-error type for pgmq-effectful
+---
+id: 1
+slug: pgmq-effectful-error-type
+title: "Define PgmqRuntimeError runtime-error type for pgmq-effectful"
+kind: exec-plan
+created_at: 2026-04-24T00:03:27Z
+intention: "intention_01kpybay9hegps2fjt7tkwarz6"
+master_plan: "docs/masterplans/1-pgmq-effectful-error-propagation.md"
+---
 
-MasterPlan: docs/masterplans/1-pgmq-effectful-error-propagation.md
-Intention: intention_01kpybay9hegps2fjt7tkwarz6
+
+# Define `PgmqRuntimeError` runtime-error type for pgmq-effectful
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.

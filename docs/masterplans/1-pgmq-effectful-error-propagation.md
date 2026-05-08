@@ -1,6 +1,14 @@
-# Surface Structured Errors Through the pgmq-effectful API
+---
+id: 1
+slug: pgmq-effectful-error-propagation
+title: "Surface Structured Errors Through the pgmq-effectful API"
+kind: master-plan
+created_at: 2026-04-24T00:17:49Z
+intention: "intention_01kpybay9hegps2fjt7tkwarz6"
+---
 
-Intention: intention_01kpybay9hegps2fjt7tkwarz6
+
+# Surface Structured Errors Through the pgmq-effectful API
 
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.

@@ -1,7 +1,15 @@
-# Document the pgmq-effectful error model and migration path
+---
+id: 5
+slug: pgmq-effectful-error-docs
+title: "Document the pgmq-effectful error model and migration path"
+kind: exec-plan
+created_at: 2026-04-24T00:17:19Z
+intention: "intention_01kpybay9hegps2fjt7tkwarz6"
+master_plan: "docs/masterplans/1-pgmq-effectful-error-propagation.md"
+---
 
-MasterPlan: docs/masterplans/1-pgmq-effectful-error-propagation.md
-Intention: intention_01kpybay9hegps2fjt7tkwarz6
+
+# Document the pgmq-effectful error model and migration path
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.

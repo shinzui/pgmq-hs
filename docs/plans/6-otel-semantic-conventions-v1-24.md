@@ -1,6 +1,14 @@
-# Align pgmq-effectful OpenTelemetry instrumentation with v1.24 semantic conventions
+---
+id: 6
+slug: otel-semantic-conventions-v1-24
+title: "Align pgmq-effectful OpenTelemetry instrumentation with v1.24 semantic conventions"
+kind: exec-plan
+created_at: 2026-04-24T02:28:12Z
+intention: "intention_01kh0aq8xhednarw44bptt8xqm"
+---
 
-Intention: intention_01kh0aq8xhednarw44bptt8xqm
+
+# Align pgmq-effectful OpenTelemetry instrumentation with v1.24 semantic conventions
 
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
