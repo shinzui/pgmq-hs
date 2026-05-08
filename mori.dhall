@@ -2,28 +2,31 @@
 -- Project identity manifest for pgmq-hs
 -- See: https://github.com/shinzui/mori
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/02a8a876f6f7074510eb03071116d57f5529378b/package.dhall
-        sha256:a19f5dd9181db28ba7a6a1b77b5ab8715e81aba3e2a8f296f40973003a0b4412
+      https://raw.githubusercontent.com/shinzui/mori-schema/f53517e1a532275569bb14a452359f11c3e02c03/package.dhall
+        sha256:3b79aae9216456678300441ca8616b64a4b4fa520a1286dfcc418f60899d5d4a
+
+let augDefault =
+      { extraDocs = [] : List Schema.DocRef.Type
+      , localPathOverride = None Text
+      , kind = None Schema.DependencyKind
+      , source = None Schema.DependencySource
+      , scope = None Schema.DependencyScope
+      }
 
 let internalDep =
       \(name : Text) ->
         Schema.Dependency.WithAugmentation
-          { name
-          , extraDocs = [] : List Schema.DocRef.Type
-          , localPathOverride = None Text
-          , kind = Some Schema.DependencyKind.Internal
-          , source = None Schema.DependencySource
-          }
+          (augDefault // { name, kind = Some Schema.DependencyKind.Internal })
 
 let thirdPartyDep =
       \(name : Text) ->
         Schema.Dependency.WithAugmentation
-          { name
-          , extraDocs = [] : List Schema.DocRef.Type
-          , localPathOverride = None Text
-          , kind = Some Schema.DependencyKind.ThirdParty
-          , source = Some Schema.DependencySource.Hackage
-          }
+          (   augDefault
+           // { name
+              , kind = Some Schema.DependencyKind.ThirdParty
+              , source = Some Schema.DependencySource.Hackage
+              }
+          )
 
 in  Schema.Project::{ project =
       Schema.ProjectIdentity::{ name = "pgmq-hs"
