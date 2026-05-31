@@ -1,5 +1,10 @@
 # Revision history for pgmq-core
 
+## 0.3.0.0 -- 2026-05-31
+
+* Version bump only — coordinated release with pgmq-effectful 0.3.0.0.
+  No source-level changes since 0.2.0.0.
+
 ## 0.2.0.0 -- 2026-04-23
 
 * Version bump only — coordinated release with pgmq-effectful 0.2.0.0.

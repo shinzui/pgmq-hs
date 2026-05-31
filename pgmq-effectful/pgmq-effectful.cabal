@@ -1,6 +1,6 @@
 cabal-version:   3.4
 name:            pgmq-effectful
-version:         0.2.0.0
+version:         0.3.0.0
 synopsis:        Effectful effects for PGMQ (PostgreSQL Message Queue)
 description:
   Effectful effects and interpreters for pgmq-hs, a Haskell client
@@ -57,8 +57,8 @@ library
     , hs-opentelemetry-api                   >=1.0   && <2
     , hs-opentelemetry-semantic-conventions  >=1.40  && <2
     , http-types                             >=0.12  && <0.13
-    , pgmq-core                              >=0.2   && <0.3
-    , pgmq-hasql                             >=0.2   && <0.3
+    , pgmq-core                              >=0.3   && <0.4
+    , pgmq-hasql                             >=0.3   && <0.4
     , text                                   >=2.0   && <2.2
     , unliftio                               >=0.2   && <0.3
     , unordered-containers                   >=0.2   && <0.3
@@ -100,9 +100,9 @@ test-suite pgmq-effectful-test
     , hs-opentelemetry-propagator-w3c        >=1.0   && <2
     , hs-opentelemetry-sdk                   >=1.0   && <2
     , hs-opentelemetry-semantic-conventions  >=1.40  && <2
-    , pgmq-core                              >=0.2   && <0.3
+    , pgmq-core                              >=0.3   && <0.4
     , pgmq-effectful
-    , pgmq-migration                         >=0.2   && <0.3
+    , pgmq-migration                         >=0.3   && <0.4
     , random                                 ^>=1.2
     , tasty                                  ^>=1.5
     , tasty-hunit                            ^>=0.10

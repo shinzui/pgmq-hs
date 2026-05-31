@@ -1,18 +1,27 @@
 # Revision history for pgmq-effectful
 
-## Unreleased
+## 0.3.0.0 -- 2026-05-31
 
-### Other Changes
+### Breaking Changes
 
-* Upgrade OpenTelemetry dependencies to the `hs-opentelemetry` 1.0
-  package family and `hs-opentelemetry-semantic-conventions` 1.40.
-* The traced interpreter now supports stable messaging and database
-  semantic-convention attributes through
-  `OTEL_SEMCONV_STABILITY_OPT_IN`. The default remains compatible with
-  the v1.24 attributes emitted by 0.2.0.0. Use
-  `OTEL_SEMCONV_STABILITY_OPT_IN=messaging,database` for stable-only
-  attributes, or `messaging/dup,database/dup` for old and stable
-  attributes during migration.
+* Now requires the `hs-opentelemetry` 1.0 package family and
+  `hs-opentelemetry-semantic-conventions` 1.40 (previously the 0.x
+  series). Downstream projects must upgrade their OpenTelemetry
+  dependencies to build against this release.
+
+### New Features
+
+* `Pgmq.Effectful.Telemetry` re-exports the stable semantic-convention
+  attribute keys `messaging_operation_name`, `messaging_operation_type`,
+  `db_system_name`, and `db_operation_name`.
+* The traced interpreter now honours `OTEL_SEMCONV_STABILITY_OPT_IN` to
+  choose old, stable, or duplicate messaging and database attributes.
+  The default remains compatible with the v1.24 attributes emitted by
+  0.2.0.0. Use `OTEL_SEMCONV_STABILITY_OPT_IN=messaging,database` for
+  stable-only attributes (`messaging.operation.name`,
+  `messaging.operation.type`, `db.system.name`, `db.operation.name`),
+  or `messaging/dup,database/dup` to emit both old and stable names
+  during migration.
 
 ## 0.2.0.0 -- 2026-04-23
 
