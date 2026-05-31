@@ -8,12 +8,14 @@
 --   B3, Datadog, …). The pgmq header payload is a JSON object whose
 --   keys are header names (lower-cased) and whose values are strings.
 -- * Re-exports of typed 'AttributeKey' values from
---   "OpenTelemetry.SemanticConventions" for the v1.24 attributes used
---   by the pgmq instrumentation.
+--   "OpenTelemetry.SemanticConventions" for the attributes used by the
+--   pgmq instrumentation.
 --
 -- The semantic-conventions names mirror OpenTelemetry specification
--- v1.24 as generated into @hs-opentelemetry-semantic-conventions@
--- 0.1.0.0.
+-- v1.40 as generated into @hs-opentelemetry-semantic-conventions@
+-- 1.40.0.0. The traced interpreter uses
+-- @OTEL_SEMCONV_STABILITY_OPT_IN@ to choose old, stable, or duplicate
+-- database and messaging operation attributes.
 module Pgmq.Effectful.Telemetry
   ( -- * Trace Context Propagation
     injectTraceContext,
@@ -31,8 +33,12 @@ module Pgmq.Effectful.Telemetry
     messaging_destination_name,
     messaging_message_id,
     messaging_batch_messageCount,
+    messaging_operation_name,
+    messaging_operation_type,
     db_system,
     db_operation,
+    db_system_name,
+    db_operation_name,
   )
 where
 
@@ -45,14 +51,26 @@ import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Network.HTTP.Types (RequestHeaders)
 import OpenTelemetry.Context qualified as Ctxt
-import OpenTelemetry.Propagator (Propagator, extract, inject)
+import OpenTelemetry.Propagator
+  ( TextMap,
+    TextMapPropagator,
+    emptyTextMap,
+    extract,
+    inject,
+    textMapFromList,
+    textMapToList,
+  )
 import OpenTelemetry.SemanticConventions
   ( db_operation,
+    db_operation_name,
     db_system,
+    db_system_name,
     messaging_batch_messageCount,
     messaging_destination_name,
     messaging_message_id,
     messaging_operation,
+    messaging_operation_name,
+    messaging_operation_type,
     messaging_system,
   )
 import OpenTelemetry.Trace.Core
@@ -94,16 +112,37 @@ extractTraceContext ::
   m Ctxt.Context
 extractTraceContext provider headers ctxt =
   let propagator = getTracerProviderPropagators provider
-   in extract propagator headers ctxt
+   in extract propagator (traceHeadersToTextMap headers) ctxt
 
 -- | Propagator-generic inject wrapper (mainly useful for tests that
 -- want to pin the propagator explicitly).
 injectWith ::
   (MonadIO m) =>
-  Propagator Ctxt.Context RequestHeaders RequestHeaders ->
+  TextMapPropagator ->
   Ctxt.Context ->
   m TraceHeaders
-injectWith propagator ctxt = liftIO $ inject propagator ctxt []
+injectWith propagator ctxt =
+  liftIO $ textMapToTraceHeaders <$> inject propagator ctxt emptyTextMap
+
+traceHeadersToTextMap :: TraceHeaders -> TextMap
+traceHeadersToTextMap =
+  textMapFromList
+    . fmap
+      ( \(name, value) ->
+          ( TE.decodeUtf8 (CI.foldedCase name),
+            TE.decodeUtf8 value
+          )
+      )
+
+textMapToTraceHeaders :: TextMap -> TraceHeaders
+textMapToTraceHeaders =
+  fmap
+    ( \(name, value) ->
+        ( CI.mk (TE.encodeUtf8 name),
+          TE.encodeUtf8 value
+        )
+    )
+    . textMapToList
 
 -- | Encode carrier headers as a JSON object for storage in pgmq
 -- message headers (jsonb). Header names are lower-cased (via

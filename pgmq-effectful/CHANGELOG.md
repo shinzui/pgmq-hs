@@ -1,5 +1,19 @@
 # Revision history for pgmq-effectful
 
+## Unreleased
+
+### Other Changes
+
+* Upgrade OpenTelemetry dependencies to the `hs-opentelemetry` 1.0
+  package family and `hs-opentelemetry-semantic-conventions` 1.40.
+* The traced interpreter now supports stable messaging and database
+  semantic-convention attributes through
+  `OTEL_SEMCONV_STABILITY_OPT_IN`. The default remains compatible with
+  the v1.24 attributes emitted by 0.2.0.0. Use
+  `OTEL_SEMCONV_STABILITY_OPT_IN=messaging,database` for stable-only
+  attributes, or `messaging/dup,database/dup` for old and stable
+  attributes during migration.
+
 ## 0.2.0.0 -- 2026-04-23
 
 ### Breaking Changes

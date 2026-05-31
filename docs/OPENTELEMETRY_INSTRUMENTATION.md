@@ -2,6 +2,13 @@
 
 This document outlines the plan for adding OpenTelemetry instrumentation to pgmq-hs.
 
+> Status note, 2026-05-31: OpenTelemetry instrumentation has been implemented
+> in `pgmq-effectful`. The checked-in implementation now targets the
+> `hs-opentelemetry` 1.0 package family and
+> `hs-opentelemetry-semantic-conventions` 1.40. It preserves the older v1.24
+> attributes by default and supports stable messaging/database attributes via
+> `OTEL_SEMCONV_STABILITY_OPT_IN=messaging,database`.
+
 ## Goal
 
 Enable distributed tracing for PGMQ operations with:

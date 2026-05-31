@@ -6,25 +6,31 @@
 -- == OpenTelemetry Semantic Conventions
 --
 -- Spans emitted by this interpreter follow OpenTelemetry
--- [Semantic Conventions v1.24](https://github.com/open-telemetry/semantic-conventions/tree/v1.24.0)
--- for messaging clients and database clients.
+-- [Semantic Conventions v1.40](https://github.com/open-telemetry/semantic-conventions/tree/v1.40.0)
+-- for messaging clients and database clients, while preserving the
+-- older v1.24 attributes by default unless
+-- @OTEL_SEMCONV_STABILITY_OPT_IN@ opts into stable conventions.
 --
 -- For every operation the interpreter emits:
 --
--- * @db.system = "postgresql"@
--- * @db.operation = "pgmq.<fn>"@ (for example @"pgmq.send"@, @"pgmq.read"@,
---   @"pgmq.archive"@).
+-- * default mode: @db.system = "postgresql"@ and
+--   @db.operation = "pgmq.<fn>"@
+-- * @OTEL_SEMCONV_STABILITY_OPT_IN=database@: @db.system.name = "postgresql"@
+--   and @db.operation.name = "pgmq.<fn>"@
+-- * @OTEL_SEMCONV_STABILITY_OPT_IN=database/dup@: both sets.
 --
 -- For /messaging/ operations (the publish and receive families) the
 -- interpreter additionally emits:
 --
 -- * @messaging.system = "pgmq"@
--- * @messaging.operation@ — one of @"publish"@ (every @send*@ variant,
---   including topic sends) or @"receive"@ (every @read*@ and @pop@
---   variant). The @"process"@ operation is intentionally not emitted
---   here — it belongs to the consumer, which should open its own
---   @process@ span around application-level handling of a received
---   message (see 'Pgmq.Effectful.Traced.readMessageWithContext').
+-- * default mode: @messaging.operation@ — one of @"publish"@ (every
+--   @send*@ variant, including topic sends) or @"receive"@ (every
+--   @read*@ and @pop@ variant). Stable messaging mode emits
+--   @messaging.operation.name@ and @messaging.operation.type@ instead;
+--   duplicate mode emits both sets. The @"process"@ operation is
+--   intentionally not emitted here — it belongs to the consumer, which
+--   should open its own @process@ span around application-level handling
+--   of a received message (see 'Pgmq.Effectful.Traced.readMessageWithContext').
 -- * @messaging.destination.name@ — the queue name, or for topic sends
 --   the routing key (which is the logical destination for pgmq topics).
 --
@@ -87,6 +93,7 @@ import Hasql.Pool (Pool)
 import Hasql.Pool qualified as Pool
 import Hasql.Session qualified
 import OpenTelemetry.Attributes.Map (AttributeMap, insertByKey)
+import OpenTelemetry.SemanticsConfig (StabilityOpt (..), databaseOption, getSemanticsOptions', lookupStability)
 import OpenTelemetry.Trace.Core qualified as OTel
 import Pgmq.Effectful.Effect (Pgmq (..))
 import Pgmq.Effectful.Interpreter
@@ -118,11 +125,11 @@ defaultTracingConfig t =
     }
 
 -- | Describes how a 'Pgmq' operation maps onto OpenTelemetry semantic
--- conventions v1.24.
+-- conventions.
 data OpInfo = OpInfo
   { -- | The pgmq SQL function being invoked (@"pgmq.send"@ etc.).
     opDbFunction :: !Text,
-    -- | The v1.24 @messaging.operation@ verb, if any. One of
+    -- | The legacy @messaging.operation@ verb, if any. One of
     -- @"publish"@ or @"receive"@; @Nothing@ for lifecycle/observability
     -- operations.
     opMessagingKind :: !(Maybe Text),
@@ -383,15 +390,14 @@ spanNameFor info =
         Just d -> op <> " " <> d
         Nothing -> op
 
-operationAttributes :: OpInfo -> AttributeMap
-operationAttributes info =
+operationAttributesWith :: StabilityOpt -> StabilityOpt -> OpInfo -> AttributeMap
+operationAttributesWith dbStability messagingStability info =
   let base =
-        insertByKey db_system ("postgresql" :: Text)
-          . insertByKey db_operation info.opDbFunction
+        databaseAttributes dbStability info
       withMsgKind = case info.opMessagingKind of
         Just mk ->
           insertByKey messaging_system ("pgmq" :: Text)
-            . insertByKey messaging_operation mk
+            . messagingOperationAttributes messagingStability mk
         Nothing -> id
       withDest = case info.opDestination of
         Just d -> insertByKey messaging_destination_name d
@@ -405,6 +411,32 @@ operationAttributes info =
         Nothing -> id
    in (withMsgId . withCount . withDest . withMsgKind . base) mempty
 
+databaseAttributes :: StabilityOpt -> OpInfo -> AttributeMap -> AttributeMap
+databaseAttributes stability info = case stability of
+  Old ->
+    insertByKey db_system ("postgresql" :: Text)
+      . insertByKey db_operation info.opDbFunction
+  Stable ->
+    insertByKey db_system_name ("postgresql" :: Text)
+      . insertByKey db_operation_name info.opDbFunction
+  StableAndOld ->
+    insertByKey db_system ("postgresql" :: Text)
+      . insertByKey db_operation info.opDbFunction
+      . insertByKey db_system_name ("postgresql" :: Text)
+      . insertByKey db_operation_name info.opDbFunction
+
+messagingOperationAttributes :: StabilityOpt -> Text -> AttributeMap -> AttributeMap
+messagingOperationAttributes stability op = case stability of
+  Old ->
+    insertByKey messaging_operation op
+  Stable ->
+    insertByKey messaging_operation_name op
+      . insertByKey messaging_operation_type op
+  StableAndOld ->
+    insertByKey messaging_operation op
+      . insertByKey messaging_operation_name op
+      . insertByKey messaging_operation_type op
+
 withTracedOp ::
   (IOE :> es, Error PgmqRuntimeError :> es) =>
   TracingConfig ->
@@ -413,9 +445,12 @@ withTracedOp ::
   Hasql.Session.Session a ->
   Eff es a
 withTracedOp config pool info session = do
+  semOpts <- Effectful.liftIO getSemanticsOptions'
+  let dbStability = databaseOption semOpts
+      messagingStability = lookupStability "messaging" semOpts
   let args =
         OTel.addAttributesToSpanArguments
-          (operationAttributes info)
+          (operationAttributesWith dbStability messagingStability info)
           OTel.defaultSpanArguments {OTel.kind = info.opSpanKind}
   result <-
     Effectful.liftIO $

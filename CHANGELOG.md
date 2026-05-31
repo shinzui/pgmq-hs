@@ -1,5 +1,18 @@
 # Revision history for pgmq-hs
 
+## Unreleased
+
+### Other Changes
+
+* **pgmq-effectful**: Upgrade to the `hs-opentelemetry` 1.0 package
+  family and `hs-opentelemetry-semantic-conventions` 1.40. By default,
+  traced spans keep the previous v1.24 attribute names for compatibility.
+  Set `OTEL_SEMCONV_STABILITY_OPT_IN=messaging,database` to emit stable
+  `messaging.operation.name`, `messaging.operation.type`,
+  `db.system.name`, and `db.operation.name` attributes, or use
+  `messaging/dup,database/dup` to emit both old and stable names during
+  migration.
+
 ## 0.2.0.0 -- 2026-04-23
 
 ### Breaking Changes

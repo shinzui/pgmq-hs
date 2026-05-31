@@ -1,6 +1,18 @@
 { pkgs }:
 let
   inherit (pkgs.haskell.lib.compose) doJailbreak dontCheck;
+  hsOpenTelemetrySrc = pkgs.fetchFromGitHub {
+    owner = "iand675";
+    repo = "hs-opentelemetry";
+    rev = "46a42cdf80405fdb36fbb48a309254b2332617b4";
+    hash = "sha256-4wMAK3WtoSlyrP0IFWFNME///HIXdMZcPfH6ZKpkVfw=";
+  };
+  threadUtilsSrc = pkgs.fetchFromGitHub {
+    owner = "iand675";
+    repo = "thread-utils";
+    rev = "519ff4613a5b5ee3904be7daefb94bf99ada5ee5";
+    hash = "sha256-nlKK794LNHGjXKB1lhCkFJuCEyH+aiGOg6ljV4P1Ijw=";
+  };
 in
 final: prev: {
   # ── Git dependencies: hasql 1.10 ecosystem ──────────────────────────
@@ -50,33 +62,41 @@ final: prev: {
     })
     { }));
 
-  # ── OpenTelemetry semantic conventions ─────────────────────────────
+  # ── OpenTelemetry 1.0 family ───────────────────────────────────────
   #
-  # Not currently packaged in nixpkgs. Pulled from the same iand675/hs-opentelemetry
-  # revision as hs-opentelemetry-api/propagator-w3c (see cabal.project), which
-  # targets OpenTelemetry spec v1.24.
+  # Pulled from the same iand675/hs-opentelemetry revision as cabal.project.
+  # The semantic-conventions package is generated from OpenTelemetry spec v1.40.
 
-  hs-opentelemetry-semantic-conventions = dontCheck (doJailbreak (final.callCabal2nix "hs-opentelemetry-semantic-conventions"
-    (pkgs.fetchFromGitHub
-      {
-        owner = "iand675";
-        repo = "hs-opentelemetry";
-        rev = "adc464b0a45e56a983fa1441be6e432b50c29e0e";
-        hash = "sha256-WG/i8jt8u9olC2bAdbKRamhqyBzYYJ7q/nrGsVUMmEE=";
-      } + "/semantic-conventions")
+  thread-utils-finalizers = dontCheck (doJailbreak (final.callCabal2nix "thread-utils-finalizers"
+    (threadUtilsSrc + "/thread-utils-finalizers")
     { }));
 
-  # Used by the pgmq-effectful test suite to assert v1.24 span attributes.
-  # Pulled from the same iand675/hs-opentelemetry revision (see cabal.project);
-  # nixpkgs has this package marked broken.
+  thread-utils-context = dontCheck (doJailbreak (final.callCabal2nix "thread-utils-context"
+    (threadUtilsSrc + "/thread-utils-context")
+    { }));
+
+  hs-opentelemetry-api-types = dontCheck (doJailbreak (final.callCabal2nix "hs-opentelemetry-api-types"
+    (hsOpenTelemetrySrc + "/api-types")
+    { }));
+
+  hs-opentelemetry-api = dontCheck (doJailbreak (final.callCabal2nix "hs-opentelemetry-api"
+    (hsOpenTelemetrySrc + "/api")
+    { }));
+
+  hs-opentelemetry-semantic-conventions = dontCheck (doJailbreak (final.callCabal2nix "hs-opentelemetry-semantic-conventions"
+    (hsOpenTelemetrySrc + "/semantic-conventions")
+    { }));
+
+  hs-opentelemetry-propagator-w3c = dontCheck (doJailbreak (final.callCabal2nix "hs-opentelemetry-propagator-w3c"
+    (hsOpenTelemetrySrc + "/propagators/w3c")
+    { }));
+
   hs-opentelemetry-exporter-in-memory = dontCheck (doJailbreak (final.callCabal2nix "hs-opentelemetry-exporter-in-memory"
-    (pkgs.fetchFromGitHub
-      {
-        owner = "iand675";
-        repo = "hs-opentelemetry";
-        rev = "adc464b0a45e56a983fa1441be6e432b50c29e0e";
-        hash = "sha256-WG/i8jt8u9olC2bAdbKRamhqyBzYYJ7q/nrGsVUMmEE=";
-      } + "/exporters/in-memory")
+    (hsOpenTelemetrySrc + "/exporters/in-memory")
+    { }));
+
+  hs-opentelemetry-sdk = dontCheck (doJailbreak (final.callCabal2nix "hs-opentelemetry-sdk"
+    (hsOpenTelemetrySrc + "/sdk")
     { }));
 
   # ── Test dependencies ──────────────────────────────────────────────

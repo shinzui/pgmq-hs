@@ -46,7 +46,7 @@ main = do
 
 ## pgmq-effectful
 
-The `pgmq-effectful` package provides an [Effectful](https://hackage.haskell.org/package/effectful) effect layer over `pgmq-hasql`. It ships a plain interpreter (`runPgmq`) and a traced interpreter (`runPgmqTraced`) that emits OpenTelemetry spans conforming to [Semantic Conventions v1.24](https://github.com/open-telemetry/semantic-conventions/tree/v1.24.0), with trace-context propagation pluggable through whichever propagator the `TracerProvider` is configured with (W3C, B3, Datadog, …).
+The `pgmq-effectful` package provides an [Effectful](https://hackage.haskell.org/package/effectful) effect layer over `pgmq-hasql`. It ships a plain interpreter (`runPgmq`) and a traced interpreter (`runPgmqTraced`) built against `hs-opentelemetry` 1.0. By default the traced interpreter preserves the older v1.24 attribute names for compatibility; set `OTEL_SEMCONV_STABILITY_OPT_IN=messaging,database` to emit stable messaging and database semantic-convention attributes, or `messaging/dup,database/dup` to emit both old and stable attributes during migration. Trace-context propagation remains pluggable through whichever propagator the `TracerProvider` is configured with (W3C, B3, Datadog, …).
 
 See [`pgmq-effectful/CHANGELOG.md`](pgmq-effectful/CHANGELOG.md) for the 0.2.0.0 migration notes — attribute names, span-name format, and the error-type rename all changed.
 
