@@ -2,6 +2,17 @@
 
 module Main (main) where
 
+import Control.Monad (filterM)
+import Data.ByteString qualified as ByteString
+import Data.Foldable (toList)
+import Data.List.NonEmpty (NonEmpty (..))
+import Database.PostgreSQL.Migrate (migrationPlan)
+import Database.PostgreSQL.Migrate.Internal
+  ( ComponentDescription (..),
+    PlanDescription (..),
+    componentNameText,
+    planDescription,
+  )
 import EphemeralPg
   ( connectionSettings,
     withCached,
@@ -14,6 +25,7 @@ import Hasql.Session qualified as Session
 import Hasql.Statement (preparable)
 import Hasql.Statement qualified as Statement
 import Pgmq.Migration qualified as Migration
+import System.Directory (doesFileExist)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -35,6 +47,11 @@ tests conn =
   testGroup
     "pgmq-migration"
     [ testGroup
+        "native definition"
+        [ testCase "baseline bytes equal vendored pgmq.sql" testNativePayload,
+          testCase "component pgmq has one migration and no dependencies" testNativeComponent
+        ],
+      testGroup
         "fresh install"
         [ testCase "migrate on fresh database succeeds" (testMigrateFresh conn),
           testCase "migrate is idempotent" (testMigrateIdempotent conn),
@@ -47,6 +64,33 @@ tests conn =
           testCase "upgrade after migrate succeeds" (testUpgradeAfterMigrate conn)
         ]
     ]
+
+testNativePayload :: IO ()
+testNativePayload = do
+  nativePath <- findFile ["pgmq-migration/migrations/0001-install-v1.11.0.sql", "migrations/0001-install-v1.11.0.sql"]
+  vendorPath <- findFile ["vendor/pgmq/pgmq-extension/sql/pgmq.sql", "../vendor/pgmq/pgmq-extension/sql/pgmq.sql"]
+  native <- ByteString.readFile nativePath
+  vendored <- ByteString.readFile vendorPath
+  native @?= vendored
+
+testNativeComponent :: IO ()
+testNativeComponent = do
+  component <- either (assertFailure . show) pure Migration.pgmqMigrations
+  plan <- either (assertFailure . show) pure (migrationPlan (component :| []))
+  let PlanDescription components = planDescription plan
+  case toList components of
+    [ComponentDescription {name, dependencies, migrations}] -> do
+      componentNameText name @?= "pgmq"
+      dependencies @?= mempty
+      length migrations @?= 1
+    actual -> assertFailure ("unexpected native PGMQ plan: " <> show actual)
+
+findFile :: [FilePath] -> IO FilePath
+findFile candidates = do
+  existing <- filterM doesFileExist candidates
+  case existing of
+    path : _ -> pure path
+    [] -> assertFailure ("could not find any of: " <> show candidates) >> pure "."
 
 -- | Reset the database to a clean state by dropping the pgmq schema
 -- and migration tracking table

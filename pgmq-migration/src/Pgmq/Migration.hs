@@ -53,7 +53,12 @@
 -- * __Not sure__: Use 'upgrade' - it's safe on fresh databases too
 --   (it will apply all needed migrations)
 module Pgmq.Migration
-  ( -- * Migration Operations
+  ( -- * Native Migration Component
+    DefinitionError,
+    MigrationComponent,
+    pgmqMigrations,
+
+    -- * Legacy Migration Operations
     migrate,
     upgrade,
     validate,
@@ -72,9 +77,11 @@ module Pgmq.Migration
 where
 
 import Control.Monad (foldM)
+import Database.PostgreSQL.Migrate (DefinitionError, MigrationComponent)
 import Hasql.Migration (MigrationCommand, MigrationError (..), SchemaMigration (..))
 import Hasql.Migration qualified as Migration
 import Hasql.Session (Session)
+import Pgmq.Migration.Internal.Definition (pgmqMigrations)
 import Pgmq.Migration.Migrations qualified as Migrations
 import Pgmq.Migration.Sessions qualified as Sessions
 
