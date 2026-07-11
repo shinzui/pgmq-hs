@@ -32,10 +32,12 @@ library
   import:             warnings
   exposed-modules:
     Pgmq.Migration
+    Pgmq.Migration.History.HasqlMigration
     Pgmq.Migration.Migrations
     Pgmq.Migration.Migrations.V1_10_0_to_V1_10_1
     Pgmq.Migration.Migrations.V1_10_1_to_V1_11_0
     Pgmq.Migration.Migrations.V1_11_0
+    Pgmq.Migration.SchemaContract
     Pgmq.Migration.Sessions
     Pgmq.Migration.Statements
     Pgmq.Migration.Transactions
@@ -46,16 +48,19 @@ library
     OverloadedStrings
 
   build-depends:
-    , base               >=4.18     && <5
-    , bytestring         ^>=0.12
-    , file-embed         ^>=0.0.16
-    , hasql              ^>=1.10
-    , hasql-migration    ^>=0.3.1
-    , hasql-transaction  ^>=1.2
-    , pg-migrate         ^>=1.0.0.0
-    , pg-migrate-embed   ^>=1.0.0.0
-    , text               ^>=2.1
-    , transformers       ^>=0.6
+    , aeson                              ^>=2.2
+    , base                               >=4.18     && <5
+    , bytestring                         ^>=0.12
+    , containers                         ^>=0.7
+    , file-embed                         ^>=0.0.16
+    , hasql                              ^>=1.10
+    , hasql-migration                    ^>=0.3.1
+    , hasql-transaction                  ^>=1.2
+    , pg-migrate                         ^>=1.0.0.0
+    , pg-migrate-embed                   ^>=1.0.0.0
+    , pg-migrate-import-hasql-migration  ^>=1.0.0.0
+    , text                               ^>=2.1
+    , transformers                       ^>=0.6
 
   hs-source-dirs:     src
   default-language:   GHC2024
@@ -67,14 +72,17 @@ test-suite pgmq-migration-test
   hs-source-dirs:   test
   main-is:          Main.hs
   build-depends:
-    , base               >=4.18  && <5
+    , base                               >=4.18  && <5
     , bytestring
+    , containers
     , directory
-    , ephemeral-pg       >=0.2.1
+    , ephemeral-pg                       >=0.2.1
     , hasql
     , hasql-migration
     , hasql-transaction
     , pg-migrate
+    , pg-migrate-import-hasql-migration
     , pgmq-migration
-    , tasty              ^>=1.5
-    , tasty-hunit        ^>=0.10
+    , tasty                              ^>=1.5
+    , tasty-hunit                        ^>=0.10
+    , text

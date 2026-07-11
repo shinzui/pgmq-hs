@@ -1,12 +1,40 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
-import Control.Monad (filterM)
+import Control.Monad (filterM, forM_)
 import Data.ByteString qualified as ByteString
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
-import Database.PostgreSQL.Migrate (migrationPlan)
+import Data.Map.Strict qualified as Map
+import Data.Text (Text)
+import Database.PostgreSQL.Migrate
+  ( EquivalentHistoryPolicy (AllowEquivalentHistory),
+    HistoryImportError (..),
+    HistoryImportOutcome (AlreadyImported, Imported),
+    HistoryImportReport (HistoryImportReport, importResults),
+    HistoryImportResult (importOutcome),
+    HistoryValidationError (..),
+    ImportOptions,
+    MigrationOutcome (AlreadyApplied),
+    MigrationPlan,
+    MigrationReport (results),
+    MigrationResult (outcome),
+    connectionProviderFromSettings,
+    defaultImportOptions,
+    defaultRunOptions,
+    migrationPlan,
+    runMigrationPlan,
+    withEquivalentHistory,
+  )
+import Database.PostgreSQL.Migrate.History.HasqlMigration
+  ( HasqlMigrationImportError (..),
+    HasqlMigrationSourceConfig,
+    defaultHasqlMigrationTable,
+    hasqlMigrationSourceConfig,
+    importHasqlMigrationHistory,
+  )
 import Database.PostgreSQL.Migrate.Internal
   ( ComponentDescription (..),
     PlanDescription (..),
@@ -18,6 +46,7 @@ import EphemeralPg
     withCached,
   )
 import Hasql.Connection qualified as Connection
+import Hasql.Connection.Settings qualified as Settings
 import Hasql.Decoders qualified as Decoders
 import Hasql.Encoders qualified as Encoders
 import Hasql.Session (Session)
@@ -25,6 +54,11 @@ import Hasql.Session qualified as Session
 import Hasql.Statement (preparable)
 import Hasql.Statement qualified as Statement
 import Pgmq.Migration qualified as Migration
+import Pgmq.Migration.History.HasqlMigration
+  ( AlternativeHistoryPolicy (..),
+    pgmqHasqlMigrationMappings,
+    pgmqHasqlMigrationSourceConfig,
+  )
 import System.Directory (doesFileExist)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -37,13 +71,13 @@ main = do
     case connResult of
       Left err -> error $ "Failed to connect: " <> show err
       Right conn ->
-        defaultMain (tests conn)
+        defaultMain (tests connSettings conn)
   case result of
     Left startErr -> error $ "Failed to start temp database: " <> show startErr
     Right () -> pure ()
 
-tests :: Connection.Connection -> TestTree
-tests conn =
+tests :: Settings.Settings -> Connection.Connection -> TestTree
+tests settings conn =
   testGroup
     "pgmq-migration"
     [ testGroup
@@ -62,6 +96,13 @@ tests conn =
         "upgrade"
         [ testCase "upgrade is idempotent" (testUpgradeIdempotent conn),
           testCase "upgrade after migrate succeeds" (testUpgradeAfterMigrate conn)
+        ],
+      testGroup
+        "history import"
+        [ testCase "direct row imports without executing the target action" (testDirectHistoryImport settings conn),
+          testCase "direct import rejects altered bytes, checksum, and duplicate rows" (testDirectHistoryRejections settings conn),
+          testCase "two-step history requires explicit equivalent opt-in" (testEquivalentHistoryImport settings conn),
+          testCase "two-step history rejects an incomplete PGMQ contract" (testEquivalentContractRejections settings conn)
         ]
     ]
 
@@ -105,6 +146,7 @@ resetDb conn = do
     resetSession = do
       Session.statement () dropPgmqSchema
       Session.statement () dropMigrationTable
+      Session.statement () dropNativeMigrationSchema
 
     dropPgmqSchema :: Statement.Statement () ()
     dropPgmqSchema =
@@ -117,6 +159,13 @@ resetDb conn = do
     dropMigrationTable =
       preparable
         "DROP TABLE IF EXISTS public.schema_migrations"
+        Encoders.noParams
+        Decoders.noResult
+
+    dropNativeMigrationSchema :: Statement.Statement () ()
+    dropNativeMigrationSchema =
+      preparable
+        "DROP SCHEMA IF EXISTS pgmigrate CASCADE"
         Encoders.noParams
         Decoders.noResult
 
@@ -210,3 +259,188 @@ testUpgradeAfterMigrate conn = withCleanDb conn $ \c -> do
     Left sessionErr -> assertFailure $ "Upgrade session error: " <> show sessionErr
     Right (Left migrationErr) -> assertFailure $ "Upgrade migration error: " <> show migrationErr
     Right (Right ()) -> pure ()
+
+testDirectHistoryImport :: Settings.Settings -> Connection.Connection -> IO ()
+testDirectHistoryImport settings conn = withCleanDb conn $ \c -> do
+  runLegacyMigrate c
+  runSql c "DROP FUNCTION pgmq.metrics_all()"
+
+  first <- runPolicyImport settings defaultImportOptions DirectFullInstallHistory
+  historyOutcomes first @?= [Imported]
+  functionExists c "pgmq.metrics_all()" >>= (@?= False)
+
+  second <- runPolicyImport settings defaultImportOptions DirectFullInstallHistory
+  historyOutcomes second @?= [AlreadyImported]
+
+  plan <- nativePlan
+  nativeRun <- runMigrationPlan defaultRunOptions settings plan
+  case nativeRun of
+    Left err -> assertFailure ("native runner failed after direct import: " <> show err)
+    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied]
+  functionExists c "pgmq.metrics_all()" >>= (@?= False)
+
+testDirectHistoryRejections :: Settings.Settings -> Connection.Connection -> IO ()
+testDirectHistoryRejections settings conn = do
+  withCleanDb conn $ \c -> do
+    runLegacyMigrate c
+    nativePath <- findFile ["pgmq-migration/migrations/0001-install-v1.11.0.sql", "migrations/0001-install-v1.11.0.sql"]
+    payload <- (<> "\n-- altered") <$> ByteString.readFile nativePath
+    let provider = connectionProviderFromSettings settings
+    config <-
+      either (assertFailure . show) pure $
+        hasqlMigrationSourceConfig
+          provider
+          defaultHasqlMigrationTable
+          (directLegacyFilename :| [])
+          True
+          (Map.singleton directLegacyFilename payload)
+          []
+          "test altered direct PGMQ payload"
+    runImportWith settings defaultImportOptions DirectFullInstallHistory config
+      >>= assertImportError (\case HasqlMigrationChecksumMismatch name _ _ -> name == directLegacyFilename; _ -> False)
+
+  withCleanDb conn $ \c -> do
+    runLegacyMigrate c
+    runSql c "UPDATE public.schema_migrations SET checksum = 'altered' WHERE filename = 'pgmq_v1.11.0'"
+    runPolicyImportEither settings defaultImportOptions DirectFullInstallHistory
+      >>= assertImportError (\case HasqlMigrationChecksumMismatch name "altered" _ -> name == directLegacyFilename; _ -> False)
+
+  withCleanDb conn $ \c -> do
+    runLegacyMigrate c
+    runSql c "INSERT INTO public.schema_migrations SELECT * FROM public.schema_migrations WHERE filename = 'pgmq_v1.11.0'"
+    runPolicyImportEither settings defaultImportOptions DirectFullInstallHistory
+      >>= assertImportError (\case HasqlMigrationDuplicateLedgerFilename name -> name == directLegacyFilename; _ -> False)
+
+testEquivalentHistoryImport :: Settings.Settings -> Connection.Connection -> IO ()
+testEquivalentHistoryImport settings conn = withCleanDb conn $ \c -> do
+  prepareTwoStepHistory c
+  runPolicyImportEither settings defaultImportOptions EquivalentTwoStepUpgradeHistory
+    >>= assertImportError
+      ( \case
+          HasqlMigrationTargetImportFailed (HistoryImportValidationFailed (HistoryEquivalentStateDisallowed _)) -> True
+          _ -> False
+      )
+
+  first <- runPolicyImport settings equivalentImportOptions EquivalentTwoStepUpgradeHistory
+  historyOutcomes first @?= [Imported]
+  second <- runPolicyImport settings equivalentImportOptions EquivalentTwoStepUpgradeHistory
+  historyOutcomes second @?= [AlreadyImported]
+
+  plan <- nativePlan
+  nativeRun <- runMigrationPlan defaultRunOptions settings plan
+  case nativeRun of
+    Left err -> assertFailure ("native runner failed after equivalent import: " <> show err)
+    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied]
+
+testEquivalentContractRejections :: Settings.Settings -> Connection.Connection -> IO ()
+testEquivalentContractRejections settings conn =
+  forM_ destructiveChanges $ \sql ->
+    withCleanDb conn $ \c -> do
+      prepareTwoStepHistory c
+      runSql c sql
+      runPolicyImportEither settings equivalentImportOptions EquivalentTwoStepUpgradeHistory
+        >>= assertImportError
+          ( \case
+              HasqlMigrationTargetImportFailed (HistoryStateValidationFailed _ _) -> True
+              _ -> False
+          )
+  where
+    destructiveChanges =
+      [ "DROP FUNCTION pgmq.send_topic(text,jsonb)",
+        "DROP TYPE pgmq.metrics_result CASCADE",
+        "DROP TABLE pgmq.topic_bindings CASCADE"
+      ]
+
+equivalentImportOptions :: ImportOptions
+equivalentImportOptions =
+  withEquivalentHistory AllowEquivalentHistory defaultImportOptions
+
+directLegacyFilename :: FilePath
+directLegacyFilename = "pgmq_v1.11.0"
+
+nativePlan :: IO MigrationPlan
+nativePlan = do
+  component <- either (assertFailure . show) pure Migration.pgmqMigrations
+  either (assertFailure . show) pure (migrationPlan (component :| []))
+
+runPolicyImport ::
+  Settings.Settings ->
+  ImportOptions ->
+  AlternativeHistoryPolicy ->
+  IO HistoryImportReport
+runPolicyImport settings options policy =
+  runPolicyImportEither settings options policy >>= either (assertFailure . show) pure
+
+runPolicyImportEither ::
+  Settings.Settings ->
+  ImportOptions ->
+  AlternativeHistoryPolicy ->
+  IO (Either HasqlMigrationImportError HistoryImportReport)
+runPolicyImportEither settings options policy = do
+  let provider = connectionProviderFromSettings settings
+  config <- either (assertFailure . show) pure (pgmqHasqlMigrationSourceConfig provider policy)
+  runImportWith settings options policy config
+
+runImportWith ::
+  Settings.Settings ->
+  ImportOptions ->
+  AlternativeHistoryPolicy ->
+  HasqlMigrationSourceConfig ->
+  IO (Either HasqlMigrationImportError HistoryImportReport)
+runImportWith settings options policy config = do
+  mappings <- either (assertFailure . show) pure (pgmqHasqlMigrationMappings policy)
+  plan <- nativePlan
+  let provider = connectionProviderFromSettings settings
+  importHasqlMigrationHistory options config provider plan mappings
+
+historyOutcomes :: HistoryImportReport -> [HistoryImportOutcome]
+historyOutcomes HistoryImportReport {importResults} = importOutcome <$> toList importResults
+
+assertImportError ::
+  (HasqlMigrationImportError -> Bool) ->
+  Either HasqlMigrationImportError HistoryImportReport ->
+  IO ()
+assertImportError predicate actual =
+  case actual of
+    Left err | predicate err -> pure ()
+    Left err -> assertFailure ("unexpected history import error: " <> show err)
+    Right report -> assertFailure ("expected history import failure, received: " <> show report)
+
+runLegacyMigrate :: Connection.Connection -> IO ()
+runLegacyMigrate connection = do
+  result <- Connection.use connection Migration.migrate
+  case result of
+    Left sessionErr -> assertFailure ("legacy migrate session failed: " <> show sessionErr)
+    Right (Left migrationErr) -> assertFailure ("legacy migrate failed: " <> show migrationErr)
+    Right (Right ()) -> pure ()
+
+prepareTwoStepHistory :: Connection.Connection -> IO ()
+prepareTwoStepHistory connection = do
+  runLegacyMigrate connection
+  runSql connection "DELETE FROM public.schema_migrations WHERE filename = 'pgmq_v1.11.0'"
+  result <- Connection.use connection Migration.upgrade
+  case result of
+    Left sessionErr -> assertFailure ("legacy upgrade session failed: " <> show sessionErr)
+    Right (Left migrationErr) -> assertFailure ("legacy upgrade failed: " <> show migrationErr)
+    Right (Right ()) -> pure ()
+
+runSql :: Connection.Connection -> Text -> IO ()
+runSql connection sql = do
+  result <- Connection.use connection (Session.script sql)
+  case result of
+    Left err -> assertFailure ("SQL fixture failed: " <> show err)
+    Right () -> pure ()
+
+functionExists :: Connection.Connection -> Text -> IO Bool
+functionExists connection identity = do
+  result <- Connection.use connection (Session.statement identity functionExistsStatement)
+  case result of
+    Left err -> assertFailure ("function inspection failed: " <> show err) >> pure False
+    Right exists -> pure exists
+
+functionExistsStatement :: Statement.Statement Text Bool
+functionExistsStatement =
+  preparable
+    "SELECT pg_catalog.to_regprocedure($1) IS NOT NULL"
+    (Encoders.param (Encoders.nonNullable Encoders.text))
+    (Decoders.singleRow (Decoders.column (Decoders.nonNullable Decoders.bool)))
