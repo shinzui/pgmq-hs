@@ -126,8 +126,9 @@ main = do
 ```
 
 The component is named `pgmq`, has no dependencies, and currently contains the exact
-vendored PGMQ 1.11 baseline `0001-install-v1.11.0`. Compose it with other components by
-placing it in their dependency-ordered plan.
+vendored PGMQ 1.11 baseline `0001-install-v1.11.0` followed by the additive schema marker
+`0002-schema-management-comment`. Compose it with other components by placing it in their
+dependency-ordered plan.
 
 ### Importing Existing Installations
 

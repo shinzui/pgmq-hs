@@ -7,6 +7,8 @@
 * **pgmq-migration**: Replace the public `hasql-migration` runner surface with a native
   `pg-migrate` component. Existing ledgers must be imported through the direct or
   explicitly opted-in equivalent-history adapter before the native runner is enabled.
+* **pgmq-migration**: Append a non-destructive schema-management comment as migration
+  `0002`, proving the first native-only upgrade after either predecessor-history route.
 
 ## 0.3.0.0 -- 2026-05-31
 

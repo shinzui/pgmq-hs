@@ -9,6 +9,7 @@ import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text.Encoding qualified as Text
 import Database.PostgreSQL.Migrate
   ( EquivalentHistoryPolicy (AllowEquivalentHistory),
     HistoryImportError (..),
@@ -21,11 +22,15 @@ import Database.PostgreSQL.Migrate
     MigrationPlan,
     MigrationReport (results),
     MigrationResult (outcome),
+    VerificationIssue (PendingMigration),
+    VerificationReport (VerificationReport),
     connectionProviderFromSettings,
     defaultImportOptions,
     defaultRunOptions,
+    migrationId,
     migrationPlan,
     runMigrationPlan,
+    verifyMigrationPlan,
     withEquivalentHistory,
   )
 import Database.PostgreSQL.Migrate.History.HasqlMigration
@@ -83,7 +88,7 @@ tests settings conn =
     [ testGroup
         "native definition"
         [ testCase "baseline bytes equal vendored pgmq.sql" testNativePayload,
-          testCase "component pgmq has one migration and no dependencies" testNativeComponent
+          testCase "component pgmq has two migrations and no dependencies" testNativeComponent
         ],
       testGroup
         "native runner"
@@ -115,7 +120,7 @@ testNativeComponent = do
     [ComponentDescription {name, dependencies, migrations}] -> do
       componentNameText name @?= "pgmq"
       dependencies @?= mempty
-      length migrations @?= 1
+      length migrations @?= 2
     actual -> assertFailure ("unexpected native PGMQ plan: " <> show actual)
 
 findFile :: [FilePath] -> IO FilePath
@@ -172,16 +177,17 @@ testNativeRunner settings conn = withCleanDb conn $ \c -> do
   first <- runMigrationPlan defaultRunOptions settings plan
   case first of
     Left err -> assertFailure ("fresh native migration failed: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AppliedNow]
+    Right report -> (outcome <$> toList (results report)) @?= [AppliedNow, AppliedNow]
   second <- runMigrationPlan defaultRunOptions settings plan
   case second of
     Left err -> assertFailure ("repeated native migration failed: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied]
+    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AlreadyApplied]
   functionExists c "pgmq.metrics_all()" >>= (@?= True)
+  hasCanaryComment c >>= (@?= True)
 
 testDirectHistoryImport :: Settings.Settings -> Connection.Connection -> IO ()
 testDirectHistoryImport settings conn = withCleanDb conn $ \c -> do
-  prepareDirectHistory settings c
+  prepareDirectHistory c
   runSql c "DROP FUNCTION pgmq.metrics_all()"
 
   first <- runPolicyImport settings defaultImportOptions DirectFullInstallHistory
@@ -192,16 +198,30 @@ testDirectHistoryImport settings conn = withCleanDb conn $ \c -> do
   historyOutcomes second @?= [AlreadyImported]
 
   plan <- nativePlan
+  canaryId <- either (assertFailure . show) pure (migrationId "pgmq" "0002-schema-management-comment")
+  beforeCanary <- verifyMigrationPlan defaultRunOptions settings plan
+  case beforeCanary of
+    Left err -> assertFailure ("native verify failed after direct import: " <> show err)
+    Right (VerificationReport issues _ _ _) -> issues @?= [PendingMigration canaryId]
   nativeRun <- runMigrationPlan defaultRunOptions settings plan
   case nativeRun of
     Left err -> assertFailure ("native runner failed after direct import: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied]
+    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AppliedNow]
+  afterCanary <- verifyMigrationPlan defaultRunOptions settings plan
+  case afterCanary of
+    Left err -> assertFailure ("native verify failed after direct canary: " <> show err)
+    Right (VerificationReport issues _ _ _) -> issues @?= []
+  repeated <- runMigrationPlan defaultRunOptions settings plan
+  case repeated of
+    Left err -> assertFailure ("native rerun failed after direct canary: " <> show err)
+    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AlreadyApplied]
   functionExists c "pgmq.metrics_all()" >>= (@?= False)
+  hasCanaryComment c >>= (@?= True)
 
 testDirectHistoryRejections :: Settings.Settings -> Connection.Connection -> IO ()
 testDirectHistoryRejections settings conn = do
   withCleanDb conn $ \c -> do
-    prepareDirectHistory settings c
+    prepareDirectHistory c
     nativePath <- findFile ["pgmq-migration/migrations/0001-install-v1.11.0.sql", "migrations/0001-install-v1.11.0.sql"]
     payload <- (<> "\n-- altered") <$> ByteString.readFile nativePath
     let provider = connectionProviderFromSettings settings
@@ -219,20 +239,20 @@ testDirectHistoryRejections settings conn = do
       >>= assertImportError (\case HasqlMigrationChecksumMismatch name _ _ -> name == directLegacyFilename; _ -> False)
 
   withCleanDb conn $ \c -> do
-    prepareDirectHistory settings c
+    prepareDirectHistory c
     runSql c "UPDATE public.schema_migrations SET checksum = 'altered' WHERE filename = 'pgmq_v1.11.0'"
     runPolicyImportEither settings defaultImportOptions DirectFullInstallHistory
       >>= assertImportError (\case HasqlMigrationChecksumMismatch name "altered" _ -> name == directLegacyFilename; _ -> False)
 
   withCleanDb conn $ \c -> do
-    prepareDirectHistory settings c
+    prepareDirectHistory c
     runSql c "INSERT INTO public.schema_migrations SELECT * FROM public.schema_migrations WHERE filename = 'pgmq_v1.11.0'"
     runPolicyImportEither settings defaultImportOptions DirectFullInstallHistory
       >>= assertImportError (\case HasqlMigrationDuplicateLedgerFilename name -> name == directLegacyFilename; _ -> False)
 
 testEquivalentHistoryImport :: Settings.Settings -> Connection.Connection -> IO ()
 testEquivalentHistoryImport settings conn = withCleanDb conn $ \c -> do
-  prepareTwoStepHistory settings c
+  prepareTwoStepHistory c
   runPolicyImportEither settings defaultImportOptions EquivalentTwoStepUpgradeHistory
     >>= assertImportError
       ( \case
@@ -246,16 +266,30 @@ testEquivalentHistoryImport settings conn = withCleanDb conn $ \c -> do
   historyOutcomes second @?= [AlreadyImported]
 
   plan <- nativePlan
+  canaryId <- either (assertFailure . show) pure (migrationId "pgmq" "0002-schema-management-comment")
+  beforeCanary <- verifyMigrationPlan defaultRunOptions settings plan
+  case beforeCanary of
+    Left err -> assertFailure ("native verify failed after equivalent import: " <> show err)
+    Right (VerificationReport issues _ _ _) -> issues @?= [PendingMigration canaryId]
   nativeRun <- runMigrationPlan defaultRunOptions settings plan
   case nativeRun of
     Left err -> assertFailure ("native runner failed after equivalent import: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied]
+    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AppliedNow]
+  afterCanary <- verifyMigrationPlan defaultRunOptions settings plan
+  case afterCanary of
+    Left err -> assertFailure ("native verify failed after equivalent canary: " <> show err)
+    Right (VerificationReport issues _ _ _) -> issues @?= []
+  repeated <- runMigrationPlan defaultRunOptions settings plan
+  case repeated of
+    Left err -> assertFailure ("native rerun failed after equivalent canary: " <> show err)
+    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AlreadyApplied]
+  hasCanaryComment c >>= (@?= True)
 
 testEquivalentContractRejections :: Settings.Settings -> Connection.Connection -> IO ()
 testEquivalentContractRejections settings conn =
   forM_ destructiveChanges $ \sql ->
     withCleanDb conn $ \c -> do
-      prepareTwoStepHistory settings c
+      prepareTwoStepHistory c
       runSql c sql
       runPolicyImportEither settings equivalentImportOptions EquivalentTwoStepUpgradeHistory
         >>= assertImportError
@@ -325,19 +359,17 @@ assertImportError predicate actual =
     Left err -> assertFailure ("unexpected history import error: " <> show err)
     Right report -> assertFailure ("expected history import failure, received: " <> show report)
 
-prepareDirectHistory :: Settings.Settings -> Connection.Connection -> IO ()
-prepareDirectHistory settings connection = do
-  installNativeFixture settings
-  runSql connection "DROP SCHEMA pgmigrate CASCADE"
+prepareDirectHistory :: Connection.Connection -> IO ()
+prepareDirectHistory connection = do
+  installHistoricalSchema connection
   runSql connection legacyLedgerDefinition
   runSql
     connection
     "INSERT INTO public.schema_migrations (filename, checksum) VALUES ('pgmq_v1.11.0', '+qm4gAAF+A+99qM9BxGD0g==')"
 
-prepareTwoStepHistory :: Settings.Settings -> Connection.Connection -> IO ()
-prepareTwoStepHistory settings connection = do
-  installNativeFixture settings
-  runSql connection "DROP SCHEMA pgmigrate CASCADE"
+prepareTwoStepHistory :: Connection.Connection -> IO ()
+prepareTwoStepHistory connection = do
+  installHistoricalSchema connection
   runSql connection legacyLedgerDefinition
   runSql
     connection
@@ -346,13 +378,11 @@ prepareTwoStepHistory settings connection = do
         <> "('pgmq_v1.10.1_to_v1.11.0', 'KMM7gGjkepkD1YA1hUCpEQ==')"
     )
 
-installNativeFixture :: Settings.Settings -> IO ()
-installNativeFixture settings = do
-  plan <- nativePlan
-  result <- runMigrationPlan defaultRunOptions settings plan
-  case result of
-    Left err -> assertFailure ("native fixture installation failed: " <> show err)
-    Right _ -> pure ()
+installHistoricalSchema :: Connection.Connection -> IO ()
+installHistoricalSchema connection = do
+  path <- findFile ["pgmq-migration/migrations/0001-install-v1.11.0.sql", "migrations/0001-install-v1.11.0.sql"]
+  payload <- ByteString.readFile path
+  runSql connection (Text.decodeUtf8 payload)
 
 legacyLedgerDefinition :: Text
 legacyLedgerDefinition =
@@ -379,4 +409,18 @@ functionExistsStatement =
   preparable
     "SELECT pg_catalog.to_regprocedure($1) IS NOT NULL"
     (Encoders.param (Encoders.nonNullable Encoders.text))
+    (Decoders.singleRow (Decoders.column (Decoders.nonNullable Decoders.bool)))
+
+hasCanaryComment :: Connection.Connection -> IO Bool
+hasCanaryComment connection = do
+  result <- Connection.use connection (Session.statement () canaryCommentStatement)
+  case result of
+    Left err -> assertFailure ("schema comment inspection failed: " <> show err) >> pure False
+    Right matches -> pure matches
+
+canaryCommentStatement :: Statement.Statement () Bool
+canaryCommentStatement =
+  preparable
+    "SELECT obj_description(to_regnamespace('pgmq'), 'pg_namespace') = 'Managed by pg-migrate component pgmq through 0002-schema-management-comment'"
+    Encoders.noParams
     (Decoders.singleRow (Decoders.column (Decoders.nonNullable Decoders.bool)))

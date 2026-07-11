@@ -14,6 +14,8 @@
 * Add exact-MD5 direct history import for `pgmq_v1.11.0`.
 * Add an explicitly opted-in two-step equivalent-history route guarded by a read-only
   PGMQ 1.11 schema contract.
+* Append `0002-schema-management-comment` as an observable native-runner canary after the
+  imported historical baseline.
 
 ## 0.3.0.0 -- 2026-05-31
 
