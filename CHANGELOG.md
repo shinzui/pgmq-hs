@@ -1,5 +1,13 @@
 # Revision history for pgmq-hs
 
+## Unreleased
+
+### Breaking Changes
+
+* **pgmq-migration**: Replace the public `hasql-migration` runner surface with a native
+  `pg-migrate` component. Existing ledgers must be imported through the direct or
+  explicitly opted-in equivalent-history adapter before the native runner is enabled.
+
 ## 0.3.0.0 -- 2026-05-31
 
 ### Breaking Changes

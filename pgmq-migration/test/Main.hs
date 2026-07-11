@@ -17,7 +17,7 @@ import Database.PostgreSQL.Migrate
     HistoryImportResult (importOutcome),
     HistoryValidationError (..),
     ImportOptions,
-    MigrationOutcome (AlreadyApplied),
+    MigrationOutcome (AlreadyApplied, AppliedNow),
     MigrationPlan,
     MigrationReport (results),
     MigrationResult (outcome),
@@ -61,7 +61,7 @@ import Pgmq.Migration.History.HasqlMigration
   )
 import System.Directory (doesFileExist)
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 
 main :: IO ()
 main = do
@@ -86,16 +86,8 @@ tests settings conn =
           testCase "component pgmq has one migration and no dependencies" testNativeComponent
         ],
       testGroup
-        "fresh install"
-        [ testCase "migrate on fresh database succeeds" (testMigrateFresh conn),
-          testCase "migrate is idempotent" (testMigrateIdempotent conn),
-          testCase "getMigrations returns applied migrations" (testGetMigrations conn),
-          testCase "version is v1.11.0" testVersion
-        ],
-      testGroup
-        "upgrade"
-        [ testCase "upgrade is idempotent" (testUpgradeIdempotent conn),
-          testCase "upgrade after migrate succeeds" (testUpgradeAfterMigrate conn)
+        "native runner"
+        [ testCase "fresh install applies once and is idempotent" (testNativeRunner settings conn)
         ],
       testGroup
         "history import"
@@ -169,100 +161,27 @@ resetDb conn = do
         Encoders.noParams
         Decoders.noResult
 
--- | Run a test with a clean database
 withCleanDb :: Connection.Connection -> (Connection.Connection -> IO ()) -> IO ()
 withCleanDb conn action = do
   resetDb conn
   action conn
 
-testMigrateFresh :: Connection.Connection -> IO ()
-testMigrateFresh conn = withCleanDb conn $ \c -> do
-  migResult <- Connection.use c Migration.migrate
-  case migResult of
-    Left sessionErr -> assertFailure $ "Session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "Migration error: " <> show migrationErr
-    Right (Right ()) -> pure ()
-
-testMigrateIdempotent :: Connection.Connection -> IO ()
-testMigrateIdempotent conn = withCleanDb conn $ \c -> do
-  -- Run migration first time
-  result1 <- Connection.use c Migration.migrate
-  case result1 of
-    Left sessionErr -> assertFailure $ "First migration session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "First migration error: " <> show migrationErr
-    Right (Right ()) -> pure ()
-
-  -- Run migration second time - should succeed without error
-  result2 <- Connection.use c Migration.migrate
-  case result2 of
-    Left sessionErr -> assertFailure $ "Second migration session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "Second migration error: " <> show migrationErr
-    Right (Right ()) -> pure ()
-
-testGetMigrations :: Connection.Connection -> IO ()
-testGetMigrations conn = withCleanDb conn $ \c -> do
-  -- Run migrations first
-  _ <- Connection.use c Migration.migrate
-
-  -- Get applied migrations
-  migrationsResult <- Connection.use c Migration.getMigrations
-  case migrationsResult of
-    Left sessionErr -> assertFailure $ "Session error: " <> show sessionErr
-    Right appliedMigrations -> do
-      -- Should have applied at least the pgmq_v1.11.0 SQL migration
-      assertBool "Should have applied migrations" (length appliedMigrations >= 1)
-
-testVersion :: IO ()
-testVersion =
-  Migration.version @?= "v1.11.0"
-
--- | Run upgrade twice after a fresh install - second run should be a no-op.
--- Upgrade migrations assume the pgmq schema already exists, so we install
--- the base schema first.
-testUpgradeIdempotent :: Connection.Connection -> IO ()
-testUpgradeIdempotent conn = withCleanDb conn $ \c -> do
-  -- First install the base schema
-  migResult <- Connection.use c Migration.migrate
-  case migResult of
-    Left sessionErr -> assertFailure $ "Migrate session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "Migrate error: " <> show migrationErr
-    Right (Right ()) -> pure ()
-
-  -- Run upgrade first time
-  upgrade1Result <- Connection.use c Migration.upgrade
-  case upgrade1Result of
-    Left sessionErr -> assertFailure $ "First upgrade session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "First upgrade migration error: " <> show migrationErr
-    Right (Right ()) -> pure ()
-
-  -- Run upgrade second time - should succeed
-  upgrade2Result <- Connection.use c Migration.upgrade
-  case upgrade2Result of
-    Left sessionErr -> assertFailure $ "Second upgrade session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "Second upgrade migration error: " <> show migrationErr
-    Right (Right ()) -> pure ()
-
--- | Run migrate then upgrade - tests that CREATE OR REPLACE FUNCTION
--- makes re-applying safe
-testUpgradeAfterMigrate :: Connection.Connection -> IO ()
-testUpgradeAfterMigrate conn = withCleanDb conn $ \c -> do
-  -- First do a fresh install
-  migResult <- Connection.use c Migration.migrate
-  case migResult of
-    Left sessionErr -> assertFailure $ "Migrate session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "Migrate error: " <> show migrationErr
-    Right (Right ()) -> pure ()
-
-  -- Now run upgrade - should succeed (migrations are safe to re-apply)
-  upgradeResult <- Connection.use c Migration.upgrade
-  case upgradeResult of
-    Left sessionErr -> assertFailure $ "Upgrade session error: " <> show sessionErr
-    Right (Left migrationErr) -> assertFailure $ "Upgrade migration error: " <> show migrationErr
-    Right (Right ()) -> pure ()
+testNativeRunner :: Settings.Settings -> Connection.Connection -> IO ()
+testNativeRunner settings conn = withCleanDb conn $ \c -> do
+  plan <- nativePlan
+  first <- runMigrationPlan defaultRunOptions settings plan
+  case first of
+    Left err -> assertFailure ("fresh native migration failed: " <> show err)
+    Right report -> (outcome <$> toList (results report)) @?= [AppliedNow]
+  second <- runMigrationPlan defaultRunOptions settings plan
+  case second of
+    Left err -> assertFailure ("repeated native migration failed: " <> show err)
+    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied]
+  functionExists c "pgmq.metrics_all()" >>= (@?= True)
 
 testDirectHistoryImport :: Settings.Settings -> Connection.Connection -> IO ()
 testDirectHistoryImport settings conn = withCleanDb conn $ \c -> do
-  runLegacyMigrate c
+  prepareDirectHistory settings c
   runSql c "DROP FUNCTION pgmq.metrics_all()"
 
   first <- runPolicyImport settings defaultImportOptions DirectFullInstallHistory
@@ -282,7 +201,7 @@ testDirectHistoryImport settings conn = withCleanDb conn $ \c -> do
 testDirectHistoryRejections :: Settings.Settings -> Connection.Connection -> IO ()
 testDirectHistoryRejections settings conn = do
   withCleanDb conn $ \c -> do
-    runLegacyMigrate c
+    prepareDirectHistory settings c
     nativePath <- findFile ["pgmq-migration/migrations/0001-install-v1.11.0.sql", "migrations/0001-install-v1.11.0.sql"]
     payload <- (<> "\n-- altered") <$> ByteString.readFile nativePath
     let provider = connectionProviderFromSettings settings
@@ -300,20 +219,20 @@ testDirectHistoryRejections settings conn = do
       >>= assertImportError (\case HasqlMigrationChecksumMismatch name _ _ -> name == directLegacyFilename; _ -> False)
 
   withCleanDb conn $ \c -> do
-    runLegacyMigrate c
+    prepareDirectHistory settings c
     runSql c "UPDATE public.schema_migrations SET checksum = 'altered' WHERE filename = 'pgmq_v1.11.0'"
     runPolicyImportEither settings defaultImportOptions DirectFullInstallHistory
       >>= assertImportError (\case HasqlMigrationChecksumMismatch name "altered" _ -> name == directLegacyFilename; _ -> False)
 
   withCleanDb conn $ \c -> do
-    runLegacyMigrate c
+    prepareDirectHistory settings c
     runSql c "INSERT INTO public.schema_migrations SELECT * FROM public.schema_migrations WHERE filename = 'pgmq_v1.11.0'"
     runPolicyImportEither settings defaultImportOptions DirectFullInstallHistory
       >>= assertImportError (\case HasqlMigrationDuplicateLedgerFilename name -> name == directLegacyFilename; _ -> False)
 
 testEquivalentHistoryImport :: Settings.Settings -> Connection.Connection -> IO ()
 testEquivalentHistoryImport settings conn = withCleanDb conn $ \c -> do
-  prepareTwoStepHistory c
+  prepareTwoStepHistory settings c
   runPolicyImportEither settings defaultImportOptions EquivalentTwoStepUpgradeHistory
     >>= assertImportError
       ( \case
@@ -336,7 +255,7 @@ testEquivalentContractRejections :: Settings.Settings -> Connection.Connection -
 testEquivalentContractRejections settings conn =
   forM_ destructiveChanges $ \sql ->
     withCleanDb conn $ \c -> do
-      prepareTwoStepHistory c
+      prepareTwoStepHistory settings c
       runSql c sql
       runPolicyImportEither settings equivalentImportOptions EquivalentTwoStepUpgradeHistory
         >>= assertImportError
@@ -406,23 +325,40 @@ assertImportError predicate actual =
     Left err -> assertFailure ("unexpected history import error: " <> show err)
     Right report -> assertFailure ("expected history import failure, received: " <> show report)
 
-runLegacyMigrate :: Connection.Connection -> IO ()
-runLegacyMigrate connection = do
-  result <- Connection.use connection Migration.migrate
-  case result of
-    Left sessionErr -> assertFailure ("legacy migrate session failed: " <> show sessionErr)
-    Right (Left migrationErr) -> assertFailure ("legacy migrate failed: " <> show migrationErr)
-    Right (Right ()) -> pure ()
+prepareDirectHistory :: Settings.Settings -> Connection.Connection -> IO ()
+prepareDirectHistory settings connection = do
+  installNativeFixture settings
+  runSql connection "DROP SCHEMA pgmigrate CASCADE"
+  runSql connection legacyLedgerDefinition
+  runSql
+    connection
+    "INSERT INTO public.schema_migrations (filename, checksum) VALUES ('pgmq_v1.11.0', '+qm4gAAF+A+99qM9BxGD0g==')"
 
-prepareTwoStepHistory :: Connection.Connection -> IO ()
-prepareTwoStepHistory connection = do
-  runLegacyMigrate connection
-  runSql connection "DELETE FROM public.schema_migrations WHERE filename = 'pgmq_v1.11.0'"
-  result <- Connection.use connection Migration.upgrade
+prepareTwoStepHistory :: Settings.Settings -> Connection.Connection -> IO ()
+prepareTwoStepHistory settings connection = do
+  installNativeFixture settings
+  runSql connection "DROP SCHEMA pgmigrate CASCADE"
+  runSql connection legacyLedgerDefinition
+  runSql
+    connection
+    ( "INSERT INTO public.schema_migrations (filename, checksum) VALUES "
+        <> "('pgmq_v1.10.0_to_v1.10.1', 'C56QJtvtxB2pGcEHR82LFA=='), "
+        <> "('pgmq_v1.10.1_to_v1.11.0', 'KMM7gGjkepkD1YA1hUCpEQ==')"
+    )
+
+installNativeFixture :: Settings.Settings -> IO ()
+installNativeFixture settings = do
+  plan <- nativePlan
+  result <- runMigrationPlan defaultRunOptions settings plan
   case result of
-    Left sessionErr -> assertFailure ("legacy upgrade session failed: " <> show sessionErr)
-    Right (Left migrationErr) -> assertFailure ("legacy upgrade failed: " <> show migrationErr)
-    Right (Right ()) -> pure ()
+    Left err -> assertFailure ("native fixture installation failed: " <> show err)
+    Right _ -> pure ()
+
+legacyLedgerDefinition :: Text
+legacyLedgerDefinition =
+  "CREATE TABLE public.schema_migrations "
+    <> "(filename text NOT NULL, checksum text NOT NULL, "
+    <> "executed_at timestamp without time zone NOT NULL DEFAULT now())"
 
 runSql :: Connection.Connection -> Text -> IO ()
 runSql connection sql = do

@@ -78,8 +78,10 @@ in  Schema.Project::{ project =
         , description = Some "Schema migrations without pgmq extension"
         , dependencies =
           [ thirdPartyDep "hasql"
-          , thirdPartyDep "hasql-migration"
           , thirdPartyDep "hasql-transaction"
+          , thirdPartyDep "pg-migrate"
+          , thirdPartyDep "pg-migrate-embed"
+          , thirdPartyDep "pg-migrate-import-hasql-migration"
           ]
         }
       , Schema.Package::{ name = "pgmq-config"

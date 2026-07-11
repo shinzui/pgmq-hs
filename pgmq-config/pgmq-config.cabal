@@ -94,6 +94,7 @@ test-suite pgmq-config-test
     , hasql
     , hasql-pool      ^>=1.4
     , lens            ^>=5.3
+    , pg-migrate
     , pgmq-config
     , pgmq-core
     , pgmq-hasql

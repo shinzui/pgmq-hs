@@ -76,7 +76,7 @@ When updating the pgmq schema version:
 
 1. `git subtree pull --prefix vendor/pgmq https://github.com/tembo-io/pgmq.git <new-tag> --squash`
 2. Verify the new migration file has no extension-specific patterns (`ALTER EXTENSION`, `@extschema@`)
-3. Create a new version module that embeds `vendor/pgmq/pgmq-extension/sql/pgmq.sql`
-4. Create an upgrade module that embeds the upstream migration file
-5. Update `Pgmq.Migration.Migrations` to chain the new upgrade step
-6. Run `cabal test pgmq-migration`
+3. Keep `0001-install-v1.11.0.sql` immutable; append a new native SQL migration and manifest entry
+4. Update the checked schema contract only after reviewing the pgmq-hs consumer surface
+5. Refresh predecessor-history payloads only when adding an explicitly supported import route
+6. Run `cabal test pgmq-migration:pgmq-migration-test`

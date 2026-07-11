@@ -47,6 +47,7 @@ benchmark pgmq-bench
     , effectful-core  ^>=2.5  || ^>=2.6
     , hasql           ^>=1.10
     , hasql-pool      ^>=1.4
+    , pg-migrate
     , pgmq-core
     , pgmq-effectful
     , pgmq-hasql

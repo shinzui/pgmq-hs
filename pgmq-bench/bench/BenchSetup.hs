@@ -32,10 +32,16 @@ import BenchConfig (BenchConfig (..))
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
 import Data.ByteString.Char8 qualified as BS
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TE
 import Data.Word (Word32)
+import Database.PostgreSQL.Migrate
+  ( defaultRunOptions,
+    migrationPlan,
+    runMigrationPlan,
+  )
 import Effectful (Eff, IOE, runEff)
 import Effectful.Error.Static (Error, runErrorNoCallStack)
 import Hasql.Connection.Settings qualified as Settings
@@ -68,13 +74,15 @@ runSession :: Pool -> Session a -> IO (Either UsageError a)
 runSession = Pool.use
 
 -- | Install pgmq schema via migration
-installPgmqSchema :: Pool -> IO ()
-installPgmqSchema pool = do
-  result <- Pool.use pool Migration.migrate
+installPgmqSchema :: BS.ByteString -> IO ()
+installPgmqSchema connectionString = do
+  let settings = Settings.connectionString (TE.decodeUtf8 connectionString)
+  component <- either (error . ("Invalid PGMQ migration component: " <>) . show) pure Migration.pgmqMigrations
+  plan <- either (error . ("Invalid PGMQ migration plan: " <>) . show) pure (migrationPlan (component :| []))
+  result <- runMigrationPlan defaultRunOptions settings plan
   case result of
-    Left poolErr -> error $ "Failed to install pgmq schema: " <> show poolErr
-    Right (Left migrationErr) -> error $ "Migration failed: " <> show migrationErr
-    Right (Right ()) -> pure ()
+    Left migrationErr -> error $ "Migration failed: " <> show migrationErr
+    Right _ -> pure ()
 
 -- | Create a benchmark queue
 createBenchQueue :: Pool -> QueueName -> IO ()

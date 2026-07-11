@@ -1,5 +1,20 @@
 # Changelog for pgmq-migration
 
+## 0.4.0.0 -- 2026-07-10
+
+### Breaking Changes
+
+* Replace the `hasql-migration` command/session API with the native
+  `pgmqMigrations :: Either DefinitionError MigrationComponent` API.
+* Remove `migrate`, `upgrade`, `validate`, predecessor command lists, and predecessor
+  result types. Consumers now compose and run a `pg-migrate` plan.
+
+### New Features
+
+* Add exact-MD5 direct history import for `pgmq_v1.11.0`.
+* Add an explicitly opted-in two-step equivalent-history route guarded by a read-only
+  PGMQ 1.11 schema contract.
+
 ## 0.3.0.0 -- 2026-05-31
 
 * Version bump only — coordinated release with pgmq-effectful 0.3.0.0.

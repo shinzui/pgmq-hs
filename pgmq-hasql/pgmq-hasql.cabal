@@ -98,6 +98,7 @@ test-suite pgmq-hasql-test
     , hasql
     , hasql-pool      ^>=1.4
     , hedgehog        ^>=1.5
+    , pg-migrate
     , pgmq-core
     , pgmq-hasql
     , pgmq-migration

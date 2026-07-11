@@ -108,51 +108,42 @@ The `pgmq-migration` package allows you to install the PGMQ schema into PostgreS
 
 ### Fresh Installation
 
-For new projects, use `migrate` to install the complete PGMQ schema:
+Build a one-component plan and run it with `pg-migrate`:
 
 ```haskell
-import Hasql.Connection (acquire)
-import Hasql.Session (run)
-import Pgmq.Migration (migrate)
+import Data.List.NonEmpty (NonEmpty (..))
+import Database.PostgreSQL.Migrate
+import Pgmq.Migration (pgmqMigrations)
 
 main :: IO ()
 main = do
-  Right conn <- acquire connectionSettings
-  result <- run migrate conn
+  component <- either (fail . show) pure pgmqMigrations
+  plan <- either (fail . show) pure (migrationPlan (component :| []))
+  result <- runMigrationPlan defaultRunOptions connectionSettings plan
   case result of
-    Right (Right ()) -> putStrLn "Migration successful"
-    Right (Left err) -> print err
-    Left sessionErr  -> print sessionErr
+    Right report -> print report
+    Left err     -> print err
 ```
 
-### Upgrading Existing Installations
+The component is named `pgmq`, has no dependencies, and currently contains the exact
+vendored PGMQ 1.11 baseline `0001-install-v1.11.0`. Compose it with other components by
+placing it in their dependency-ordered plan.
 
-For projects that previously installed PGMQ via this package, use `upgrade` to apply only the incremental changes needed to reach the current version:
+### Importing Existing Installations
 
-```haskell
-import Hasql.Connection (acquire)
-import Hasql.Session (run)
-import Pgmq.Migration (upgrade)
+Deployments previously managed through `hasql-migration` must import their ledger before
+running the native plan. `Pgmq.Migration.History.HasqlMigration` supports two explicit
+policies:
 
-main :: IO ()
-main = do
-  Right conn <- acquire connectionSettings
-  result <- run upgrade conn
-  case result of
-    Right (Right ()) -> putStrLn "Upgrade successful"
-    Right (Left err) -> print err
-    Left sessionErr  -> print sessionErr
-```
+- `DirectFullInstallHistory` verifies the stored base64 MD5 for `pgmq_v1.11.0` and
+  requires exact payload equality with the native baseline.
+- `EquivalentTwoStepUpgradeHistory` verifies both v1.10-to-v1.11 rows and a read-only
+  PGMQ 1.11 catalog contract. It is rejected unless the caller explicitly uses
+  `withEquivalentHistory AllowEquivalentHistory`.
 
-### Which Function Should I Use?
-
-| Scenario | Function |
-|----------|----------|
-| New project, fresh database | `migrate` |
-| Existing project using pgmq-migration | `upgrade` |
-| Not sure | `upgrade` (safe on fresh databases too) |
-
-Both functions are idempotent - migrations that have already been applied will be skipped. The `hasql-migration` library tracks applied migrations in the `schema_migrations` table.
+Use `pgmqHasqlMigrationSourceConfig` and `pgmqHasqlMigrationMappings` with
+`importHasqlMigrationHistory`. After a successful import, the native runner reports the
+baseline as already applied and does not replay its SQL.
 
 ## Nix Build
 

@@ -13,8 +13,30 @@ let
     rev = "519ff4613a5b5ee3904be7daefb94bf99ada5ee5";
     hash = "sha256-nlKK794LNHGjXKB1lhCkFJuCEyH+aiGOg6ljV4P1Ijw=";
   };
+  pgMigrateSrc = pkgs.fetchFromGitHub {
+    owner = "shinzui";
+    repo = "pg-migrate";
+    rev = "v1.0.0.0";
+    hash = "sha256-cxDPGqheAlDPniZPOuzz9JpKEb39ejdH+8RL8VN8A+w=";
+  };
 in
 final: prev: {
+  crypton = dontCheck (doJailbreak (final.callHackageDirect
+    {
+      pkg = "crypton";
+      ver = "1.1.4";
+      sha256 = "sha256-tJSK0HoDabSqcUGORs856Jl6aWZnrqyXPSAh66HsKMM=";
+    }
+    { }));
+
+  optparse-applicative = dontCheck (doJailbreak (final.callHackageDirect
+    {
+      pkg = "optparse-applicative";
+      ver = "0.19.0.0";
+      sha256 = "sha256-dhqvRILfdbpYPMxC+WpAyO0KUfq2nLopGk1NdSN2SDM=";
+    }
+    { }));
+
   # ── Git dependencies: hasql 1.10 ecosystem ──────────────────────────
 
   postgresql-binary = dontCheck (doJailbreak (final.callCabal2nix "postgresql-binary"
@@ -53,13 +75,22 @@ final: prev: {
     })
     { }));
 
-  hasql-migration = dontCheck (doJailbreak (final.callCabal2nix "hasql-migration"
-    (pkgs.fetchFromGitHub {
-      owner = "shinzui";
-      repo = "hasql-migration";
-      rev = "ab66f6ae93e40065f8532dd9d497ecb15c91122e";
-      hash = "sha256-A6jAeU5WrDCpJ5RJn5EYC7BnwGVtswwREnPdVfdlUpg=";
-    })
+  # ── pg-migrate v1 family ───────────────────────────────────────────
+
+  pg-migrate = dontCheck (doJailbreak (final.callCabal2nix "pg-migrate"
+    (pgMigrateSrc + "/pg-migrate")
+    { }));
+
+  pg-migrate-embed = dontCheck (doJailbreak (final.callCabal2nix "pg-migrate-embed"
+    (pgMigrateSrc + "/pg-migrate-embed")
+    { }));
+
+  pg-migrate-cli = dontCheck (doJailbreak (final.callCabal2nix "pg-migrate-cli"
+    (pgMigrateSrc + "/pg-migrate-cli")
+    { }));
+
+  pg-migrate-import-hasql-migration = dontCheck (doJailbreak (final.callCabal2nix "pg-migrate-import-hasql-migration"
+    (pgMigrateSrc + "/pg-migrate-import-hasql-migration")
     { }));
 
   # ── OpenTelemetry 1.0 family ───────────────────────────────────────

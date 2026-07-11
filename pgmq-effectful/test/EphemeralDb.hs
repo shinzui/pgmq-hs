@@ -13,6 +13,12 @@ module EphemeralDb
   )
 where
 
+import Data.List.NonEmpty (NonEmpty (..))
+import Database.PostgreSQL.Migrate
+  ( defaultRunOptions,
+    migrationPlan,
+    runMigrationPlan,
+  )
 import EphemeralPg
   ( StartError,
     connectionSettings,
@@ -33,11 +39,12 @@ withPgmqDb action = withCached $ \db -> do
             PoolConfig.staticConnectionSettings connSettings
           ]
   pool <- Pool.acquire poolConfig
-  installResult <- Pool.use pool Migration.migrate
+  component <- either (error . ("Invalid PGMQ migration component: " <>) . show) pure Migration.pgmqMigrations
+  plan <- either (error . ("Invalid PGMQ migration plan: " <>) . show) pure (migrationPlan (component :| []))
+  installResult <- runMigrationPlan defaultRunOptions connSettings plan
   case installResult of
-    Left poolErr -> error $ "Failed to install pgmq schema: " <> show poolErr
-    Right (Left migrationErr) -> error $ "Migration failed: " <> show migrationErr
-    Right (Right ()) -> action pool
+    Left migrationErr -> error $ "Migration failed: " <> show migrationErr
+    Right _ -> action pool
 
 -- | Alias for 'withPgmqDb' kept for parallelism with pgmq-hasql.
 withPgmqPool :: (Pool.Pool -> IO a) -> IO (Either StartError a)

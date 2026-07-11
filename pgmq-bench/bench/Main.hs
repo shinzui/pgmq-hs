@@ -23,7 +23,7 @@ main = do
 
   withBenchPool config.connectionString $ \pool -> do
     putStrLn "Installing pgmq schema..."
-    installPgmqSchema pool
+    installPgmqSchema config.connectionString
     putStrLn "Schema installed. Starting benchmarks...\n"
 
     defaultMain $
