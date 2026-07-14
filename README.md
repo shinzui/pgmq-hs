@@ -106,13 +106,30 @@ Supports standard, unlogged, and partitioned queues; `LISTEN/NOTIFY` throttles; 
 
 The `pgmq-migration` package allows you to install the PGMQ schema into PostgreSQL without requiring the pgmq extension. This is useful when you don't have superuser access or can't install extensions.
 
+`pgmq-migration` does not ship a migration runner of its own. It exposes the PGMQ schema
+as a [`pg-migrate`](https://hackage.haskell.org/package/pg-migrate) *component*, and you
+run it with `pg-migrate`. Depend on both:
+
+```cabal
+build-depends:
+  , pgmq-migration
+  , pg-migrate
+  -- only if importing an existing hasql-migration ledger:
+  , pg-migrate-import-hasql-migration
+```
+
+`pgmqMigrations` comes from `Pgmq.Migration`; everything else below (`migrationPlan`,
+`runMigrationPlan`, `defaultRunOptions`, …) comes from `pg-migrate`'s
+`Database.PostgreSQL.Migrate`.
+
 ### Fresh Installation
 
-Build a one-component plan and run it with `pg-migrate`:
+Build a one-component plan and run it:
 
 ```haskell
 import Data.List.NonEmpty (NonEmpty (..))
 import Database.PostgreSQL.Migrate
+  (defaultRunOptions, migrationPlan, runMigrationPlan)
 import Pgmq.Migration (pgmqMigrations)
 
 main :: IO ()
@@ -125,26 +142,80 @@ main = do
     Left err     -> print err
 ```
 
-The component is named `pgmq`, has no dependencies, and currently contains the exact
-vendored PGMQ 1.11 baseline `0001-install-v1.11.0` followed by the additive schema marker
+`connectionSettings` is a `Hasql.Connection.Settings.Settings`. Running the plan again is
+idempotent — every migration reports `AlreadyApplied`.
+
+The component is named `pgmq`, has no dependencies, and contains the exact vendored PGMQ
+1.11 baseline `0001-install-v1.11.0` followed by the additive schema marker
 `0002-schema-management-comment`. Compose it with other components by placing it in their
 dependency-ordered plan.
 
 ### Importing Existing Installations
 
-Deployments previously managed through `hasql-migration` must import their ledger before
-running the native plan. `Pgmq.Migration.History.HasqlMigration` supports two explicit
-policies:
+Databases whose PGMQ schema was installed by **pgmq-migration 0.3.0.0 or earlier** are
+tracked in a `hasql-migration` ledger (`public.schema_migrations`). The native runner does
+not read that table, so you must import the ledger **once** before running the plan —
+otherwise the runner would try to reinstall a schema that is already there.
 
-- `DirectFullInstallHistory` verifies the stored base64 MD5 for `pgmq_v1.11.0` and
-  requires exact payload equality with the native baseline.
-- `EquivalentTwoStepUpgradeHistory` verifies both v1.10-to-v1.11 rows and a read-only
-  PGMQ 1.11 catalog contract. It is rejected unless the caller explicitly uses
-  `withEquivalentHistory AllowEquivalentHistory`.
+Pick exactly one policy, matching how the database was originally installed:
 
-Use `pgmqHasqlMigrationSourceConfig` and `pgmqHasqlMigrationMappings` with
-`importHasqlMigrationHistory`. After a successful import, the native runner reports the
-baseline as already applied and does not replay its SQL.
+- **`DirectFullInstallHistory`** — installed in one step as `pgmq_v1.11.0`. The adapter
+  reproduces the stored base64 MD5 and requires exact payload equality with the native
+  baseline.
+- **`EquivalentTwoStepUpgradeHistory`** — installed at v1.10.0 and upgraded through
+  v1.10.1 to v1.11.0. The payloads differ from the native baseline by construction, so
+  this route additionally verifies a read-only PGMQ 1.11 catalog contract. It is refused
+  unless you opt in with `withEquivalentHistory AllowEquivalentHistory`.
+
+```haskell
+import Data.List.NonEmpty (NonEmpty (..))
+import Database.PostgreSQL.Migrate
+  ( EquivalentHistoryPolicy (AllowEquivalentHistory)
+  , connectionProviderFromSettings
+  , defaultImportOptions
+  , defaultRunOptions
+  , migrationPlan
+  , runMigrationPlan
+  , withEquivalentHistory
+  )
+import Database.PostgreSQL.Migrate.History.HasqlMigration (importHasqlMigrationHistory)
+import Pgmq.Migration (pgmqMigrations)
+import Pgmq.Migration.History.HasqlMigration
+  ( AlternativeHistoryPolicy (..)
+  , pgmqHasqlMigrationMappings
+  , pgmqHasqlMigrationSourceConfig
+  )
+
+main :: IO ()
+main = do
+  let policy   = DirectFullInstallHistory   -- or EquivalentTwoStepUpgradeHistory
+      provider = connectionProviderFromSettings connectionSettings
+      options  = defaultImportOptions
+      -- for EquivalentTwoStepUpgradeHistory, instead:
+      -- options = withEquivalentHistory AllowEquivalentHistory defaultImportOptions
+
+  component <- either (fail . show) pure pgmqMigrations
+  plan      <- either (fail . show) pure (migrationPlan (component :| []))
+  config    <- either (fail . show) pure (pgmqHasqlMigrationSourceConfig provider policy)
+  mappings  <- either (fail . show) pure (pgmqHasqlMigrationMappings policy)
+
+  -- 1. Import the old ledger. Verifies checksums; runs no schema SQL.
+  importReport <- importHasqlMigrationHistory options config provider plan mappings
+  either (fail . show) print importReport
+
+  -- 2. Now run the native plan. The baseline is AlreadyApplied and is not replayed;
+  --    only the 0002 canary is AppliedNow.
+  runReport <- runMigrationPlan defaultRunOptions connectionSettings plan
+  either (fail . show) print runReport
+```
+
+The import is itself idempotent — a second call reports `AlreadyImported`. It verifies
+rather than trusts: an altered payload, a tampered checksum, a duplicate ledger row, or
+(on the equivalent route) a PGMQ schema that fails the 1.11 contract all abort the import
+without touching your schema.
+
+See [`docs/user/schema-migration.md`](docs/user/schema-migration.md) for the full guide,
+including how to choose a policy and what each failure means.
 
 ## Nix Build
 
@@ -211,6 +282,7 @@ cabal test all
     # pgmq-hs.packages.${system}.pgmq-core
     # pgmq-hs.packages.${system}.pgmq-hasql
     # pgmq-hs.packages.${system}.pgmq-effectful
+    # pgmq-hs.packages.${system}.pgmq-config
     # pgmq-hs.packages.${system}.pgmq-migration
   };
 }
