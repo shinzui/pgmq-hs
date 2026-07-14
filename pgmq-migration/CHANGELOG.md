@@ -1,5 +1,15 @@
 # Changelog for pgmq-migration
 
+## 0.4.0.1 -- 2026-07-14
+
+### Bug Fixes
+
+* Add `SourceLedgerPolicy` and `pgmqHasqlMigrationSourceConfigWithPolicy`. Consumers whose
+  predecessor `public.schema_migrations` table is intentionally shared can select
+  `AllowUnselectedSourceRows`, inspect the adapter's unselected-row preflight, and import
+  only PGMQ history. The existing `pgmqHasqlMigrationSourceConfig` remains strict, and both
+  modes retain exact checksum and state-validator requirements for selected PGMQ rows.
+
 ## 0.4.0.0 -- 2026-07-14
 
 ### Breaking Changes

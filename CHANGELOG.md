@@ -1,5 +1,19 @@
 # Revision history for pgmq-hs
 
+## 0.4.0.1 -- 2026-07-14
+
+All packages share the 0.4.0.1 version. Only pgmq-migration changed; pgmq-core,
+pgmq-hasql, pgmq-effectful, and pgmq-config are coordinated version bumps with no
+library source changes.
+
+### Bug Fixes
+
+* **pgmq-migration**: Add the explicit `SourceLedgerPolicy` and
+  `pgmqHasqlMigrationSourceConfigWithPolicy` API so a verified PGMQ predecessor row can be
+  imported from a deliberately shared `public.schema_migrations` table. The existing helper
+  remains strict by default, selected payloads retain exact base64-MD5 verification, and
+  unrelated rows are reported without being claimed or modified.
+
 ## 0.4.0.0 -- 2026-07-14
 
 All packages share the 0.4.0.0 version. Only pgmq-migration changed; pgmq-core,

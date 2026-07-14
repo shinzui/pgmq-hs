@@ -3,8 +3,10 @@
 -- | Explicit imports from the predecessor @hasql-migration@ ledger.
 module Pgmq.Migration.History.HasqlMigration
   ( AlternativeHistoryPolicy (..),
+    SourceLedgerPolicy (..),
     pgmqHasqlMigrationMappings,
     pgmqHasqlMigrationSourceConfig,
+    pgmqHasqlMigrationSourceConfigWithPolicy,
   )
 where
 
@@ -42,6 +44,15 @@ data AlternativeHistoryPolicy
   | EquivalentTwoStepUpgradeHistory
   deriving stock (Eq, Show)
 
+-- | Whether the predecessor ledger may contain rows owned by other components.
+--
+-- This choice only controls unselected rows. Selected PGMQ rows always retain
+-- their exact checksum and state-validation requirements.
+data SourceLedgerPolicy
+  = RequireExclusiveSourceLedger
+  | AllowUnselectedSourceRows
+  deriving stock (Eq, Show)
+
 -- | Map the selected predecessor history shape to the native PGMQ baseline.
 pgmqHasqlMigrationMappings ::
   AlternativeHistoryPolicy ->
@@ -75,11 +86,26 @@ pgmqHasqlMigrationSourceConfig ::
   AlternativeHistoryPolicy ->
   Either HasqlMigrationDefinitionError HasqlMigrationSourceConfig
 pgmqHasqlMigrationSourceConfig sourceProvider policy =
+  pgmqHasqlMigrationSourceConfigWithPolicy
+    sourceProvider
+    policy
+    RequireExclusiveSourceLedger
+
+-- | Build a source-reader configuration with an explicit ledger-ownership policy.
+--
+-- Use 'AllowUnselectedSourceRows' only when another component deliberately shares
+-- @public.schema_migrations@. The selected PGMQ rows are still verified exactly.
+pgmqHasqlMigrationSourceConfigWithPolicy ::
+  ConnectionProvider ->
+  AlternativeHistoryPolicy ->
+  SourceLedgerPolicy ->
+  Either HasqlMigrationDefinitionError HasqlMigrationSourceConfig
+pgmqHasqlMigrationSourceConfigWithPolicy sourceProvider policy sourceLedgerPolicy =
   hasqlMigrationSourceConfig
     sourceProvider
     defaultHasqlMigrationTable
     selectedFilenames
-    True
+    (sourceLedgerPolicy == RequireExclusiveSourceLedger)
     selectedPayloads
     selectedValidators
     "verified pgmq-migration cutover to native pg-migrate history"

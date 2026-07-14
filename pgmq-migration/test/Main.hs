@@ -34,11 +34,14 @@ import Database.PostgreSQL.Migrate
     withEquivalentHistory,
   )
 import Database.PostgreSQL.Migrate.History.HasqlMigration
-  ( HasqlMigrationImportError (..),
+  ( HasqlMigrationHistory (unselectedRows),
+    HasqlMigrationImportError (..),
+    HasqlMigrationRow (filename),
     HasqlMigrationSourceConfig,
     defaultHasqlMigrationTable,
     hasqlMigrationSourceConfig,
     importHasqlMigrationHistory,
+    readHasqlMigrationHistory,
   )
 import Database.PostgreSQL.Migrate.Internal
   ( ComponentDescription (..),
@@ -61,8 +64,10 @@ import Hasql.Statement qualified as Statement
 import Pgmq.Migration qualified as Migration
 import Pgmq.Migration.History.HasqlMigration
   ( AlternativeHistoryPolicy (..),
+    SourceLedgerPolicy (..),
     pgmqHasqlMigrationMappings,
     pgmqHasqlMigrationSourceConfig,
+    pgmqHasqlMigrationSourceConfigWithPolicy,
   )
 import System.Directory (doesFileExist)
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -96,7 +101,9 @@ tests settings conn =
         ],
       testGroup
         "history import"
-        [ testCase "direct row imports without executing the target action" (testDirectHistoryImport settings conn),
+        [ testCase "strict helper rejects a shared ledger before target writes" (testStrictSharedLedger settings conn),
+          testCase "shared-ledger policy imports only PGMQ and applies the canary once" (testSharedLedgerImport settings conn),
+          testCase "direct row imports without executing the target action" (testDirectHistoryImport settings conn),
           testCase "direct import rejects altered bytes, checksum, and duplicate rows" (testDirectHistoryRejections settings conn),
           testCase "two-step history requires explicit equivalent opt-in" (testEquivalentHistoryImport settings conn),
           testCase "two-step history rejects an incomplete PGMQ contract" (testEquivalentContractRejections settings conn)
@@ -185,6 +192,37 @@ testNativeRunner settings conn = withCleanDb conn $ \c -> do
   functionExists c "pgmq.metrics_all()" >>= (@?= True)
   hasCanaryComment c >>= (@?= True)
 
+testStrictSharedLedger :: Settings.Settings -> Connection.Connection -> IO ()
+testStrictSharedLedger settings conn = withCleanDb conn $ \c -> do
+  prepareSharedDirectHistory c
+  runPolicyImportEither settings defaultImportOptions DirectFullInstallHistory
+    >>= assertImportError
+      (\case HasqlMigrationStrictSourceHasUnselected [name] -> name == unrelatedLegacyFilename; _ -> False)
+  nativeLedgerTablesAbsent c >>= (@?= True)
+
+testSharedLedgerImport :: Settings.Settings -> Connection.Connection -> IO ()
+testSharedLedgerImport settings conn = withCleanDb conn $ \c -> do
+  prepareSharedDirectHistory c
+  runSql c "DROP FUNCTION pgmq.metrics_all()"
+  let provider = connectionProviderFromSettings settings
+  config <-
+    either (assertFailure . show) pure $
+      pgmqHasqlMigrationSourceConfigWithPolicy
+        provider
+        DirectFullInstallHistory
+        AllowUnselectedSourceRows
+  history <- readHasqlMigrationHistory config >>= either (assertFailure . show) pure
+  (filename <$> unselectedRows history) @?= [unrelatedLegacyFilename]
+  sourceBefore <- legacyLedgerSnapshot c
+
+  first <- runImportWith settings defaultImportOptions DirectFullInstallHistory config >>= either (assertFailure . show) pure
+  historyOutcomes first @?= [Imported]
+  sourceAfter <- legacyLedgerSnapshot c
+  sourceAfter @?= sourceBefore
+  functionExists c "pgmq.metrics_all()" >>= (@?= False)
+
+  assertNativeCanaryLifecycle settings c
+
 testDirectHistoryImport :: Settings.Settings -> Connection.Connection -> IO ()
 testDirectHistoryImport settings conn = withCleanDb conn $ \c -> do
   prepareDirectHistory c
@@ -250,19 +288,34 @@ testDirectHistoryRejections settings conn = do
     runPolicyImportEither settings defaultImportOptions DirectFullInstallHistory
       >>= assertImportError (\case HasqlMigrationDuplicateLedgerFilename name -> name == directLegacyFilename; _ -> False)
 
+  withCleanDb conn $ \c -> do
+    prepareSharedDirectHistory c
+    runSql c "UPDATE public.schema_migrations SET checksum = 'altered' WHERE filename = 'pgmq_v1.11.0'"
+    runPolicyImportWithSourcePolicyEither
+      settings
+      defaultImportOptions
+      DirectFullInstallHistory
+      AllowUnselectedSourceRows
+      >>= assertImportError (\case HasqlMigrationChecksumMismatch name "altered" _ -> name == directLegacyFilename; _ -> False)
+    nativeLedgerTablesAbsent c >>= (@?= True)
+
 testEquivalentHistoryImport :: Settings.Settings -> Connection.Connection -> IO ()
 testEquivalentHistoryImport settings conn = withCleanDb conn $ \c -> do
-  prepareTwoStepHistory c
-  runPolicyImportEither settings defaultImportOptions EquivalentTwoStepUpgradeHistory
+  prepareSharedTwoStepHistory c
+  runPolicyImportWithSourcePolicyEither
+    settings
+    defaultImportOptions
+    EquivalentTwoStepUpgradeHistory
+    AllowUnselectedSourceRows
     >>= assertImportError
       ( \case
           HasqlMigrationTargetImportFailed (HistoryImportValidationFailed (HistoryEquivalentStateDisallowed _)) -> True
           _ -> False
       )
 
-  first <- runPolicyImport settings equivalentImportOptions EquivalentTwoStepUpgradeHistory
+  first <- runPolicyImportWithSourcePolicy settings equivalentImportOptions EquivalentTwoStepUpgradeHistory AllowUnselectedSourceRows
   historyOutcomes first @?= [Imported]
-  second <- runPolicyImport settings equivalentImportOptions EquivalentTwoStepUpgradeHistory
+  second <- runPolicyImportWithSourcePolicy settings equivalentImportOptions EquivalentTwoStepUpgradeHistory AllowUnselectedSourceRows
   historyOutcomes second @?= [AlreadyImported]
 
   plan <- nativePlan
@@ -334,6 +387,29 @@ runPolicyImportEither settings options policy = do
   config <- either (assertFailure . show) pure (pgmqHasqlMigrationSourceConfig provider policy)
   runImportWith settings options policy config
 
+runPolicyImportWithSourcePolicy ::
+  Settings.Settings ->
+  ImportOptions ->
+  AlternativeHistoryPolicy ->
+  SourceLedgerPolicy ->
+  IO HistoryImportReport
+runPolicyImportWithSourcePolicy settings options policy sourceLedgerPolicy =
+  runPolicyImportWithSourcePolicyEither settings options policy sourceLedgerPolicy
+    >>= either (assertFailure . show) pure
+
+runPolicyImportWithSourcePolicyEither ::
+  Settings.Settings ->
+  ImportOptions ->
+  AlternativeHistoryPolicy ->
+  SourceLedgerPolicy ->
+  IO (Either HasqlMigrationImportError HistoryImportReport)
+runPolicyImportWithSourcePolicyEither settings options policy sourceLedgerPolicy = do
+  let provider = connectionProviderFromSettings settings
+  config <-
+    either (assertFailure . show) pure $
+      pgmqHasqlMigrationSourceConfigWithPolicy provider policy sourceLedgerPolicy
+  runImportWith settings options policy config
+
 runImportWith ::
   Settings.Settings ->
   ImportOptions ->
@@ -367,6 +443,11 @@ prepareDirectHistory connection = do
     connection
     "INSERT INTO public.schema_migrations (filename, checksum) VALUES ('pgmq_v1.11.0', '+qm4gAAF+A+99qM9BxGD0g==')"
 
+prepareSharedDirectHistory :: Connection.Connection -> IO ()
+prepareSharedDirectHistory connection = do
+  prepareDirectHistory connection
+  insertUnrelatedHistory connection
+
 prepareTwoStepHistory :: Connection.Connection -> IO ()
 prepareTwoStepHistory connection = do
   installHistoricalSchema connection
@@ -377,6 +458,20 @@ prepareTwoStepHistory connection = do
         <> "('pgmq_v1.10.0_to_v1.10.1', 'C56QJtvtxB2pGcEHR82LFA=='), "
         <> "('pgmq_v1.10.1_to_v1.11.0', 'KMM7gGjkepkD1YA1hUCpEQ==')"
     )
+
+prepareSharedTwoStepHistory :: Connection.Connection -> IO ()
+prepareSharedTwoStepHistory connection = do
+  prepareTwoStepHistory connection
+  insertUnrelatedHistory connection
+
+unrelatedLegacyFilename :: FilePath
+unrelatedLegacyFilename = "application_0001.sql"
+
+insertUnrelatedHistory :: Connection.Connection -> IO ()
+insertUnrelatedHistory connection =
+  runSql
+    connection
+    "INSERT INTO public.schema_migrations (filename, checksum) VALUES ('application_0001.sql', 'application-checksum')"
 
 installHistoricalSchema :: Connection.Connection -> IO ()
 installHistoricalSchema connection = do
@@ -396,6 +491,39 @@ runSql connection sql = do
   case result of
     Left err -> assertFailure ("SQL fixture failed: " <> show err)
     Right () -> pure ()
+
+legacyLedgerSnapshot :: Connection.Connection -> IO [(Text, Text)]
+legacyLedgerSnapshot connection = do
+  result <- Connection.use connection (Session.statement () legacyLedgerSnapshotStatement)
+  case result of
+    Left err -> assertFailure ("legacy ledger inspection failed: " <> show err) >> pure []
+    Right rows -> pure rows
+
+legacyLedgerSnapshotStatement :: Statement.Statement () [(Text, Text)]
+legacyLedgerSnapshotStatement =
+  preparable
+    "SELECT filename, checksum FROM public.schema_migrations ORDER BY filename"
+    Encoders.noParams
+    ( Decoders.rowList
+        ( (,)
+            <$> Decoders.column (Decoders.nonNullable Decoders.text)
+            <*> Decoders.column (Decoders.nonNullable Decoders.text)
+        )
+    )
+
+nativeLedgerTablesAbsent :: Connection.Connection -> IO Bool
+nativeLedgerTablesAbsent connection = do
+  result <- Connection.use connection (Session.statement () nativeLedgerTablesAbsentStatement)
+  case result of
+    Left err -> assertFailure ("native ledger inspection failed: " <> show err) >> pure False
+    Right absent -> pure absent
+
+nativeLedgerTablesAbsentStatement :: Statement.Statement () Bool
+nativeLedgerTablesAbsentStatement =
+  preparable
+    "SELECT to_regclass('pgmigrate.migrations') IS NULL AND to_regclass('pgmigrate.history_imports') IS NULL"
+    Encoders.noParams
+    (Decoders.singleRow (Decoders.column (Decoders.nonNullable Decoders.bool)))
 
 functionExists :: Connection.Connection -> Text -> IO Bool
 functionExists connection identity = do
@@ -417,6 +545,24 @@ hasCanaryComment connection = do
   case result of
     Left err -> assertFailure ("schema comment inspection failed: " <> show err) >> pure False
     Right matches -> pure matches
+
+assertNativeCanaryLifecycle :: Settings.Settings -> Connection.Connection -> IO ()
+assertNativeCanaryLifecycle settings connection = do
+  plan <- nativePlan
+  canaryId <- either (assertFailure . show) pure (migrationId "pgmq" "0002-schema-management-comment")
+  beforeCanary <- verifyMigrationPlan defaultRunOptions settings plan
+  case beforeCanary of
+    Left err -> assertFailure ("native verify failed after shared-ledger import: " <> show err)
+    Right (VerificationReport issues _ _ _) -> issues @?= [PendingMigration canaryId]
+  nativeRun <- runMigrationPlan defaultRunOptions settings plan
+  case nativeRun of
+    Left err -> assertFailure ("native runner failed after shared-ledger import: " <> show err)
+    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AppliedNow]
+  repeated <- runMigrationPlan defaultRunOptions settings plan
+  case repeated of
+    Left err -> assertFailure ("native rerun failed after shared-ledger import: " <> show err)
+    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AlreadyApplied]
+  hasCanaryComment connection >>= (@?= True)
 
 canaryCommentStatement :: Statement.Statement () Bool
 canaryCommentStatement =

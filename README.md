@@ -167,6 +167,13 @@ Pick exactly one policy, matching how the database was originally installed:
   this route additionally verifies a read-only PGMQ 1.11 catalog contract. It is refused
   unless you opt in with `withEquivalentHistory AllowEquivalentHistory`.
 
+The existing `pgmqHasqlMigrationSourceConfig` helper requires every predecessor-ledger row
+to belong to PGMQ. If `public.schema_migrations` is intentionally shared with application
+migrations, use `pgmqHasqlMigrationSourceConfigWithPolicy` and the explicit
+`AllowUnselectedSourceRows` policy. Run `readHasqlMigrationHistory` first and review its
+`unselectedRows`; selected PGMQ rows still require exact checksum evidence, and unrelated
+rows remain untouched. The full guide below includes the complete example.
+
 ```haskell
 import Data.List.NonEmpty (NonEmpty (..))
 import Database.PostgreSQL.Migrate

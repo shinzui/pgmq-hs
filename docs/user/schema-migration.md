@@ -19,8 +19,9 @@ build-depends:
   , pg-migrate-import-hasql-migration
 ```
 
-Only `pgmqMigrations`, `AlternativeHistoryPolicy`, `pgmqHasqlMigrationMappings`,
-`pgmqHasqlMigrationSourceConfig`, `pgmqV1_11StateValidator`, and
+Only `pgmqMigrations`, `AlternativeHistoryPolicy`, `SourceLedgerPolicy`,
+`pgmqHasqlMigrationMappings`, `pgmqHasqlMigrationSourceConfig`,
+`pgmqHasqlMigrationSourceConfigWithPolicy`, `pgmqV1_11StateValidator`, and
 `pgmqV1_11StateEvidenceKey` come from this package. Every other name below comes from
 `pg-migrate` (`Database.PostgreSQL.Migrate`) or `pg-migrate-import-hasql-migration`
 (`Database.PostgreSQL.Migrate.History.HasqlMigration`).
@@ -103,6 +104,55 @@ withEquivalentHistory AllowEquivalentHistory defaultImportOptions
 Passing `defaultImportOptions` with `EquivalentTwoStepUpgradeHistory` fails with
 `HistoryEquivalentStateDisallowed`. That is deliberate — it forces the choice to be
 explicit in your code.
+
+### Shared predecessor ledgers
+
+`pgmqHasqlMigrationSourceConfig` deliberately requires an exclusive predecessor ledger:
+every row in `public.schema_migrations` must belong to the selected PGMQ history. This is
+the safest default for a table created only by `pgmq-migration`.
+
+Some applications used that conventional table for their own migrations too. First inspect
+the table and identify every non-PGMQ row. Then choose the explicit shared-ledger policy and
+review the adapter's preflight result before importing:
+
+```haskell
+import Database.PostgreSQL.Migrate.History.HasqlMigration
+  ( HasqlMigrationHistory (unselectedRows)
+  , importHasqlMigrationHistory
+  , readHasqlMigrationHistory
+  )
+import Pgmq.Migration.History.HasqlMigration
+  ( AlternativeHistoryPolicy (DirectFullInstallHistory)
+  , SourceLedgerPolicy (AllowUnselectedSourceRows)
+  , pgmqHasqlMigrationMappings
+  , pgmqHasqlMigrationSourceConfigWithPolicy
+  )
+
+let provider = connectionProviderFromSettings connectionSettings
+config <- either (fail . show) pure $
+  pgmqHasqlMigrationSourceConfigWithPolicy
+    provider
+    DirectFullInstallHistory
+    AllowUnselectedSourceRows
+
+sourceHistory <- readHasqlMigrationHistory config >>= either (fail . show) pure
+print (unselectedRows sourceHistory) -- review: these rows remain unclaimed and unchanged
+
+mappings <- either (fail . show) pure $
+  pgmqHasqlMigrationMappings DirectFullInstallHistory
+importHasqlMigrationHistory defaultImportOptions config provider plan mappings
+  >>= either (fail . show) print
+```
+
+`AllowUnselectedSourceRows` changes only whether unrelated rows are accepted. The selected
+PGMQ row still has to exist, be unique, and reproduce the exact stored base64 MD5; the
+two-step route still requires its read-only state validator and explicit equivalent-history
+opt-in. The unrelated rows are reported by `readHasqlMigrationHistory`, and neither the read
+nor the import edits them.
+
+Always import before the first native `runMigrationPlan`. Applying `0001` natively first
+creates a target ledger row without legacy evidence, and a later history import correctly
+refuses to relabel it.
 
 ### Performing the import
 

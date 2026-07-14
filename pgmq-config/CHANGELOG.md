@@ -1,5 +1,10 @@
 # Revision history for pgmq-config
 
+## 0.4.0.1 -- 2026-07-14
+
+* Version bump only — coordinated release with pgmq-migration 0.4.0.1.
+  No source-level changes since 0.4.0.0.
+
 ## 0.4.0.0 -- 2026-07-14
 
 * Version bump only — coordinated release with pgmq-migration 0.4.0.0.
