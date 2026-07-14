@@ -8,6 +8,11 @@
   `pgmqMigrations :: Either DefinitionError MigrationComponent` API.
 * Remove `migrate`, `upgrade`, `validate`, predecessor command lists, and predecessor
   result types. Consumers now compose and run a `pg-migrate` plan.
+* Require the `pg-migrate` 1.1 family (`pg-migrate`, `pg-migrate-embed`, and
+  `pg-migrate-import-hasql-migration`), up from 1.0. That release reshapes types this
+  package's callers handle directly: `HistoryImportReport` becomes a multi-field record,
+  `CleanupFailed` carries a primary error plus a `NonEmpty CleanupIssue`, and `SqlError`
+  and `HistoryValidationError` gain constructors that exhaustive matches must cover.
 
 ### New Features
 
@@ -16,6 +21,15 @@
   PGMQ 1.11 schema contract.
 * Append `0002-schema-management-comment` as an observable native-runner canary after the
   imported historical baseline.
+
+### Other Changes
+
+* Load `Database.PostgreSQL.Migrate.Embed.RecompilePlugin` in the manifest-embedding
+  module. GHC 9.12 offers Template Haskell no way to depend on the migrations directory
+  itself, so adding or removing a SQL file could otherwise reuse a stale object file and
+  skip strict manifest membership validation. This forces the module to recompile whenever
+  GHC runs over the package. Note that a build where *only* SQL files changed can still be
+  short-circuited by `cabal`'s own up-to-date check before GHC is invoked.
 
 ## 0.3.0.0 -- 2026-05-31
 

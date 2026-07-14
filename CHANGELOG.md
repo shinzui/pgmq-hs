@@ -9,6 +9,16 @@
   explicitly opted-in equivalent-history adapter before the native runner is enabled.
 * **pgmq-migration**: Append a non-destructive schema-management comment as migration
   `0002`, proving the first native-only upgrade after either predecessor-history route.
+* **pgmq-migration**: Require the `pg-migrate` 1.1 family, up from 1.0. Downstream
+  projects that compose a `pg-migrate` plan must handle the reshaped
+  `HistoryImportReport` and `CleanupFailed`, plus new `SqlError` and
+  `HistoryValidationError` constructors.
+
+### Other Changes
+
+* **pgmq-migration**: Force recompilation of the manifest-embedding module via
+  `pg-migrate-embed`'s `RecompilePlugin`, so an added or removed SQL file cannot reuse
+  stale embedded bytes and skip manifest validation.
 
 ## 0.3.0.0 -- 2026-05-31
 
