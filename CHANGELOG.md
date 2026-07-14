@@ -1,24 +1,44 @@
 # Revision history for pgmq-hs
 
-## Unreleased
+## 0.4.0.0 -- 2026-07-14
+
+All packages share the 0.4.0.0 version. Only pgmq-migration changed; pgmq-core,
+pgmq-hasql, pgmq-effectful, and pgmq-config are coordinated version bumps with no
+library source changes.
 
 ### Breaking Changes
 
 * **pgmq-migration**: Replace the public `hasql-migration` runner surface with a native
-  `pg-migrate` component. Existing ledgers must be imported through the direct or
-  explicitly opted-in equivalent-history adapter before the native runner is enabled.
-* **pgmq-migration**: Append a non-destructive schema-management comment as migration
-  `0002`, proving the first native-only upgrade after either predecessor-history route.
+  `pg-migrate` component. `Pgmq.Migration` now exports only `pgmqMigrations`,
+  `MigrationComponent`, and `DefinitionError`. Existing ledgers must be imported through
+  the direct or explicitly opted-in equivalent-history adapter before the native runner is
+  enabled; the native runner does not read `public.schema_migrations` on its own.
+* **pgmq-migration**: Remove the `migrate`, `upgrade`, and `validate` operations, the
+  migration metadata accessors, the `hasql-migration` re-exports, and the seven
+  `Pgmq.Migration.Migrations.*`, `.Sessions`, `.Statements`, and `.Transactions` modules.
 * **pgmq-migration**: Require the `pg-migrate` 1.1 family, up from 1.0. Downstream
   projects that compose a `pg-migrate` plan must handle the reshaped
   `HistoryImportReport` and `CleanupFailed`, plus new `SqlError` and
   `HistoryValidationError` constructors.
+
+### New Features
+
+* **pgmq-migration**: Add `Pgmq.Migration.History.HasqlMigration`, offering an exact-MD5
+  direct import of a `pgmq_v1.11.0` ledger and an explicitly opted-in two-step
+  equivalent-history route for a `v1.10.0 -> v1.10.1 -> v1.11.0` ledger.
+* **pgmq-migration**: Add `Pgmq.Migration.SchemaContract`, a read-only PGMQ 1.11 schema
+  contract that guards the equivalent-history route.
+* **pgmq-migration**: Append a non-destructive schema-management comment as migration
+  `0002`, proving the first native-only upgrade after either predecessor-history route.
 
 ### Other Changes
 
 * **pgmq-migration**: Force recompilation of the manifest-embedding module via
   `pg-migrate-embed`'s `RecompilePlugin`, so an added or removed SQL file cannot reuse
   stale embedded bytes and skip manifest validation.
+* **build**: Migrate the Nix flake to flake-parts on the haskell-nix-dev base flake.
+* **build**: Remove a stray `result-1` Nix build symlink from version control and ignore
+  `result-*`.
 
 ## 0.3.0.0 -- 2026-05-31
 

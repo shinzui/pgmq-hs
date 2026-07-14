@@ -1,5 +1,12 @@
 # Revision history for pgmq-effectful
 
+## 0.4.0.0 -- 2026-07-14
+
+* Version bump only — coordinated release with pgmq-migration 0.4.0.0.
+  No library source changes since 0.3.0.0; the test suite was updated for the
+  native `pgmq-migration` API.
+* Bumped `pgmq-core` and `pgmq-hasql` dependency bounds to `>=0.4 && <0.5`.
+
 ## 0.3.0.0 -- 2026-05-31
 
 ### Breaking Changes

@@ -1,13 +1,31 @@
 # Changelog for pgmq-migration
 
-## 0.4.0.0 -- 2026-07-10
+## 0.4.0.0 -- 2026-07-14
 
 ### Breaking Changes
 
 * Replace the `hasql-migration` command/session API with the native
-  `pgmqMigrations :: Either DefinitionError MigrationComponent` API.
-* Remove `migrate`, `upgrade`, `validate`, predecessor command lists, and predecessor
-  result types. Consumers now compose and run a `pg-migrate` plan.
+  `pgmqMigrations :: Either DefinitionError MigrationComponent` API. `Pgmq.Migration` now
+  exports only `pgmqMigrations`, `MigrationComponent`, and `DefinitionError`; consumers
+  compose and run a `pg-migrate` plan instead of calling a runner in this package.
+* Remove the migration operations `migrate`, `upgrade`, and `validate`, the migration
+  metadata `getMigrations`, `version`, `migrations`, and `upgradeMigrations`, and the
+  `hasql-migration` re-exports `MigrationCommand`, `MigrationError`, and
+  `SchemaMigration`.
+* Remove the following exposed modules. Their contents were either predecessor migration
+  command lists or the `hasql-migration` runner plumbing, both of which the native
+  component replaces:
+  * `Pgmq.Migration.Migrations`
+  * `Pgmq.Migration.Migrations.V1_10_0_to_V1_10_1`
+  * `Pgmq.Migration.Migrations.V1_10_1_to_V1_11_0`
+  * `Pgmq.Migration.Migrations.V1_11_0`
+  * `Pgmq.Migration.Sessions`
+  * `Pgmq.Migration.Statements`
+  * `Pgmq.Migration.Transactions`
+* An existing ledger written by a previous release of this package must be imported
+  through the direct or the explicitly opted-in equivalent-history route (see below)
+  before the native runner takes over. The native runner does not read the old
+  `public.schema_migrations` table on its own.
 * Require the `pg-migrate` 1.1 family (`pg-migrate`, `pg-migrate-embed`, and
   `pg-migrate-import-hasql-migration`), up from 1.0. That release reshapes types this
   package's callers handle directly: `HistoryImportReport` becomes a multi-field record,
@@ -16,11 +34,22 @@
 
 ### New Features
 
-* Add exact-MD5 direct history import for `pgmq_v1.11.0`.
-* Add an explicitly opted-in two-step equivalent-history route guarded by a read-only
-  PGMQ 1.11 schema contract.
+* Add the exposed module `Pgmq.Migration.History.HasqlMigration`, which maps a
+  predecessor `hasql-migration` ledger onto the native baseline. It exports
+  `AlternativeHistoryPolicy`, `pgmqHasqlMigrationMappings`, and
+  `pgmqHasqlMigrationSourceConfig`.
+  * `DirectFullInstallHistory` imports a `pgmq_v1.11.0` full-install ledger, verified by
+    reproducing the exact base64 MD5 recorded in `public.schema_migrations`.
+  * `EquivalentTwoStepUpgradeHistory` imports a `v1.10.0 -> v1.10.1 -> v1.11.0` upgrade
+    ledger. It is never selected implicitly, and is additionally guarded by the read-only
+    PGMQ 1.11 schema contract.
+* Add the exposed module `Pgmq.Migration.SchemaContract`, exporting
+  `pgmqV1_11StateValidator` and `pgmqV1_11StateEvidenceKey`. The validator checks the PGMQ
+  1.11 schemas, tables, columns, constraints, types, and functions that pgmq-hs depends on
+  without modifying database state.
 * Append `0002-schema-management-comment` as an observable native-runner canary after the
-  imported historical baseline.
+  imported historical baseline. It is non-destructive: it only sets a `COMMENT ON SCHEMA
+  pgmq`, so the first native-only upgrade is provable after either import route.
 
 ### Other Changes
 

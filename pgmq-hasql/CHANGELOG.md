@@ -1,5 +1,12 @@
 # Revision history for pgmq-hasql
 
+## 0.4.0.0 -- 2026-07-14
+
+* Version bump only — coordinated release with pgmq-migration 0.4.0.0.
+  No library source changes since 0.3.0.0; the test suite was updated for the
+  native `pgmq-migration` API.
+* Bumped `pgmq-core` dependency bound to `>=0.4 && <0.5`.
+
 ## 0.3.0.0 -- 2026-05-31
 
 * Version bump only — coordinated release with pgmq-effectful 0.3.0.0.
