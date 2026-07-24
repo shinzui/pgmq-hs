@@ -50,15 +50,17 @@ and reach every grouped read, including the new `readGroupedHead` and
 types needed to call them — without having to discover an internal module. You will see it
 working by compiling a small program that imports only `Pgmq` and calls `readGroupedHead`.
 
-Then the whole initiative is released: all five packages move from 0.4.0.0 to 0.5.0.0 in
+Then the whole coordinated release is cut: all five packages move from 0.4.0.1 to 0.5.0.0 in
 lockstep, with changelogs, and the README and user documentation are updated to say the client
-targets pgmq 1.12.0.
+targets pgmq 1.12.0. The same release includes the independently verified hardening work in
+`docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md`.
 
-**This plan depends on both
+**This plan depends on
 `docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md` and
-`docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md` being
-complete** — it re-exports the functions they define, and it cannot honestly claim a 1.12.0
-release before they exist. Confirm before you start:
+`docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md`, plus
+hardening plans 13, 14, and 15, being complete**. It re-exports functions from plans 10 and
+11, while plans 13–15 define the breaking API and behavior that the 0.5.0.0 changelogs and
+consumer rollout must describe. Confirm all five prerequisites before starting.
 
 ```bash
 grep -c readGroupedHead pgmq-hasql/src/Pgmq/Hasql/Sessions.hs pgmq-effectful/src/Pgmq/Effectful/Effect.hs
@@ -72,14 +74,22 @@ Both counts must be greater than zero.
 - [ ] Milestone 1: a "FIFO / Grouped Reads" section added to `pgmq-hasql/src/Pgmq.hs` exporting all six grouped reads plus `ReadGrouped(..)` and `ReadGroupedWithPoll(..)`; `cabal build pgmq-hasql` succeeds.
 - [ ] Milestone 2: the same section added to `pgmq-effectful/src/Pgmq/Effectful.hs`; `cabal build pgmq-effectful` succeeds.
 - [ ] Milestone 3: a compile-time proof added — a test module that imports *only* the umbrella modules and calls the grouped reads, so a future export regression breaks the build; `cabal test all` passes.
-- [ ] Milestone 4: all five `.cabal` files bumped 0.4.0.0 → 0.5.0.0; all six `CHANGELOG.md` files given a 0.5.0.0 entry.
+- [ ] Milestone 4: all five `.cabal` files bumped 0.4.0.1 → 0.5.0.0; all six `CHANGELOG.md` files given a complete 0.5.0.0 entry covering grouped-head support and plans 13–15.
 - [ ] Milestone 5: `README.md`, `docs/user/schema-migration.md`, and `CLAUDE.md` updated to state the client targets pgmq 1.12.0; a design note recording the 1.12.0 upgrade added under `docs/design/`.
-- [ ] Milestone 6: `nix fmt` clean, `cabal build all && cabal test all` green, release commit made.
+- [ ] Milestone 6: Mori consumer inventory refreshed; all keiro and shibuya package/component bounds updated; shibuya adapted to `Maybe Message`; both consumer repositories build and test green; out-of-scope consumers explicitly recorded as remaining on 0.4.
+- [ ] Milestone 7: `nix fmt` clean, `cabal build all && cabal test all` green, release commit made.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Validation (2026-07-23): the hardening review made 0.5.0.0 breaking, not merely additive:
+  `changeVisibilityTimeout` and `setVisibilityTimeoutAt` now return `Maybe Message`.
+- Validation (2026-07-23): shibuya pins pgmq packages in its adapter library and test
+  component, example packages, and benchmark packages. Updating only the adapter library
+  leaves the repository split across 0.4 and 0.5.
+- Validation (2026-07-23): Mori also reports direct 0.4 pins in rei. Rei is outside this
+  initiative's rollout and remains on the compatible 0.4 line unless its owners explicitly
+  opt into 0.5; the release record must say so rather than imply every dependent was upgraded.
 
 
 ## Decision Log
@@ -92,13 +102,21 @@ Both counts must be greater than zero.
   Rationale: Exporting the functions alone would be useless. Every grouped read takes one of these two records as its only argument, so a user who imports just `Pgmq` could name the function but could not construct a value to pass it, and would be forced back into the internal module anyway — leaving the gap only half-closed while appearing to have closed it. The `(..)` exports the constructor and field names, which is what a record needs to be built.
   Date: 2026-07-14
 
-- Decision: Release all five packages as 0.5.0.0 in lockstep, even though `pgmq-core` and `pgmq-config` have no code changes in this initiative.
-  Rationale: This is the established convention in this repository — the root `CHANGELOG.md` explicitly notes "All packages share the 0.4.0.0 version", and the per-package changelogs for packages that did not change in a release carry the note "Version bump only — coordinated release". The packages are developed and released together, and a user pins them together. Do not break the convention for the sake of a smaller diff.
+- Decision: Release all five packages as 0.5.0.0 in lockstep.
+  Rationale: This is the established convention in this repository — the root `CHANGELOG.md` explicitly notes "All packages share the 0.4.0.1 version", and the per-package changelogs for packages that did not change in a release carry the note "coordinated version bump". The packages are developed and released together, and a user pins them together. Do not break the convention for the sake of a smaller diff.
   Date: 2026-07-14
 
-- Decision: Bump the minor version (0.4.0.0 → 0.5.0.0) rather than the patch version.
-  Rationale: The release is additive — new functions, new exports, a new SQL migration, no removals and no signature changes — so under the Haskell Package Versioning Policy this is a minor bump, not a major one. It is more than a patch, because the public API gained functions and the SQL schema gained objects. Nothing in this release can break a 0.4.0.0 user's code.
-  Date: 2026-07-14
+- Decision: Bump the first component after zero (0.4.0.1 → 0.5.0.0).
+  Rationale: Plan 13 changes two public results from `Message` to `Maybe Message`. Under
+  pre-1.0 PVP bounds this is the required breaking bump. The grouped-read additions and SQL
+  migration also belong in that same coordinated release.
+  Date: 2026-07-23
+
+- Decision: This plan is the single owner of version changes, final changelogs, and consumer
+  rollout for MasterPlans 2 and 3.
+  Rationale: A single release owner prevents competing "last lander" instructions and ensures
+  every package and consumer is validated against the same source commit.
+  Date: 2026-07-23
 
 
 ## Outcomes & Retrospective
@@ -120,14 +138,15 @@ nix develop
 
 ### The five packages
 
-- `pgmq-core` — shared types (`Message`, `QueueName`, and so on). No changes here except the
-  version bump.
+- `pgmq-core` — shared types (`Message`, `QueueName`, and so on). Plan 14 adds the notification
+  channel helper and plan 15 tightens queue-name decoding.
 - `pgmq-hasql` — the database layer. Its front-door module is `pgmq-hasql/src/Pgmq.hs`.
 - `pgmq-effectful` — the effect layer. Its front-door module is
   `pgmq-effectful/src/Pgmq/Effectful.hs`.
 - `pgmq-migration` — ships the pgmq schema as plain SQL migrations, so pgmq can be installed
   on a managed PostgreSQL that does not permit the pgmq extension.
-- `pgmq-config` — declarative queue configuration. No changes except the version bump.
+- `pgmq-config` — declarative queue configuration. Plan 13 corrects its optional-notification
+  contract and plan 14 adds crash-recovery coverage.
 
 There is also `pgmq-bench` (version 0.1.0.0), a benchmark executable that is not published and
 is **not** part of the lockstep versioning. Leave its version alone.
@@ -204,9 +223,9 @@ the queue is empty (**long polling**) instead of returning empty immediately.
 
 ### Versions and changelogs
 
-All five library packages are at `version: 0.4.0.0` (line 3 of each `.cabal`). There are six
+All five library packages are at `version: 0.4.0.1` (line 3 of each `.cabal`). There are six
 `CHANGELOG.md` files: one per package, plus a root aggregate at `CHANGELOG.md` whose top entry
-is `## 0.4.0.0 -- 2026-07-14` and which states that all packages share the version.
+is `## 0.4.0.1 -- 2026-07-14` and which states that all packages share the version.
 
 The repository follows Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, with an
 optional scope) — see `CLAUDE.md`.
@@ -339,7 +358,7 @@ Record the observed error in Surprises & Discoveries.
 
 ### Milestone 4 — Version bump and changelogs
 
-**Scope.** Move all five library packages from 0.4.0.0 to 0.5.0.0 and write the changelogs.
+**Scope.** Move all five library packages from 0.4.0.1 to 0.5.0.0 and write the changelogs.
 No code changes.
 
 Edit `version:` on line 3 of each of `pgmq-core/pgmq-core.cabal`,
@@ -372,22 +391,34 @@ Follow the existing style in each. The substance, per package:
 - `pgmq-hasql` — added `readGroupedHead` and `readGroupedHeadWithPoll` (pgmq 1.12.0);
   the `Pgmq` umbrella module now exports all six grouped reads and the `ReadGrouped` /
   `ReadGroupedWithPoll` types, which were previously reachable only via
-  `Pgmq.Hasql.Sessions`.
+  `Pgmq.Hasql.Sessions`; breaking: `changeVisibilityTimeout` and
+  `setVisibilityTimeoutAt` now return `Maybe Message`; fixed: optional pop/read/poll/notify
+  parameters use their documented defaults, `ReadMessage.conditional` is encoded, and SQL
+  NULL bodies surface as JSON null.
 - `pgmq-effectful` — added the `ReadGroupedHead` and `ReadGroupedHeadWithPoll` effects with
   plain and traced interpreters; the traced interpreter emits Consumer spans with
   `db.operation` set to the new SQL function names; the `Pgmq.Effectful` umbrella module now
-  exports all six grouped reads.
+  exports all six grouped reads; breaking: both visibility-timeout effects return
+  `Maybe Message`; fixed: serialization, deadlock, lock, shutdown/recovery, and resource
+  SQLSTATEs classify as transient.
 - `pgmq-migration` — the component now installs pgmq 1.12.0 via a new
   `0003-upgrade-v1.12.0` migration; the `0001` baseline is unchanged; the pgmq 1.11 schema
-  contract used for legacy history import is deliberately unchanged.
-- `pgmq-core`, `pgmq-config` — "Version bump only — coordinated release", matching the
-  existing convention for unchanged packages.
+  contract used for legacy history import is deliberately unchanged; a later numbered
+  migration makes notification delivery fail open after crash recovery, serializes
+  concurrent notification enable, and makes partitioned re-entry idempotent. Use the actual
+  manifest filename rather than assuming its number.
+- `pgmq-core` — queue names now reject uppercase and empty input through both
+  `parseQueueName` and `FromJSON`; `notifyChannelName` is the exported LISTEN contract.
+- `pgmq-config` — optional notification throttle documentation is now true and a real
+  crash/restart regression test proves notification delivery recovers.
 - The root `CHANGELOG.md` — an aggregate entry covering the above, noting that all packages
   share the 0.5.0.0 version and that the client now targets pgmq 1.12.0.
 
-Call out explicitly, in the `pgmq-migration` entry and the root entry, that the umbrella-export
-change is **additive and breaks nothing** — a 0.4.0.0 user who imported `Pgmq.Hasql.Sessions`
-directly continues to work unchanged.
+Call out explicitly that the grouped-read exports are additive, but the overall release is
+breaking because the two visibility-timeout results now return `Maybe Message`. Include the
+mixed-case queue detection and transactional remediation summary from plan 15; do not tell
+operators to update or delete `pgmq.meta` rows without preserving `topic_bindings` and
+notification configuration.
 
 **Acceptance.** `cabal build all` succeeds with the new versions (which proves any internal
 bounds were updated correctly).
@@ -419,7 +450,85 @@ alone.
 references (for example, "the 0001 baseline is upstream's 1.11.0 install script"), not stale
 claims that the client targets 1.11.
 
-### Milestone 6 — Release
+### Milestone 6 — Consumer rollout
+
+**Scope.** Upgrade the in-scope keiro and shibuya consumers against the exact pgmq-hs release
+candidate, prove every component resolves one coherent 0.5 family, and record what deliberately
+stays on 0.4. The candidate becomes the release commit in Milestone 7; do not assume Hackage
+already serves it.
+
+Before editing bounds, follow the repository dependency policy:
+
+```bash
+mori registry dependents shinzui/pgmq-hs --packages
+mori registry show shinzui/pgmq-hs --full
+```
+
+Verify that all five candidate Cabal files say 0.5.0.0. Check authoritative Hackage metadata
+and pgmq-hs tags and record that the currently served release is still 0.4.0.1 until the
+separate publishing workflow completes. Mori supplies source locations and the consumer
+inventory; the authoritative registry and tag distinguish a locally prepared version from a
+served one.
+
+For pre-publication validation, create an uncommitted temporary Cabal project file in each
+consumer repository. Copy its existing `cabal.project`, add the absolute paths of this
+checkout's `pgmq-core`, `pgmq-hasql`, `pgmq-effectful`, `pgmq-migration`, and `pgmq-config`
+directories to the existing `packages:` stanza, and invoke Cabal with
+`--project-file=cabal.project.release-candidate`. Never commit this machine-local file.
+
+In `/Users/shinzui/Keikaku/bokuno/keiro/keiro-pgmq/keiro-pgmq.cabal`, update every library and
+test-suite pgmq family bound to `>=0.5 && <0.6`, including `pgmq-migration`, then run:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/keiro
+cabal --project-file=cabal.project.release-candidate \
+  test keiro-pgmq-test --test-show-details=direct
+```
+
+The pre-train baseline was 58 examples, 0 failures, and 2 pending. If the suite has legitimately
+grown, record the new baseline rather than forcing the old count; failures must remain zero.
+Keiro's three visibility-timeout calls discard the result with `void`, so no source change is
+expected.
+
+In `/Users/shinzui/Keikaku/bokuno/shibuya-project/shibuya-pgmq-adapter`, update **every**
+`^>=0.4` pgmq bound, not only the adapter library:
+
+- the library and test-suite stanzas in
+  `shibuya-pgmq-adapter/shibuya-pgmq-adapter.cabal`;
+- every component in `shibuya-pgmq-example/shibuya-pgmq-example.cabal`;
+- every component in
+  `shibuya-pgmq-adapter-bench/shibuya-pgmq-adapter-bench.cabal`.
+
+Adapt `shibuya-pgmq-adapter/src/Shibuya/Adapter/Pgmq/Internal.hs` where
+`setVisibilityTimeoutAt` feeds `lastVtRef`: traverse the `Maybe Message`, updating the
+reference only for `Just`. A message that disappeared during lease extension leaves the last
+visibility-time tracking unchanged.
+
+Validate the whole repository, including components that the old `just test` command skipped:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/shibuya-project/shibuya-pgmq-adapter
+cabal --project-file=cabal.project.release-candidate \
+  build all --enable-tests --enable-benchmarks
+cabal --project-file=cabal.project.release-candidate \
+  test all --test-show-details=direct
+```
+
+Finally, preserve a rollout matrix in this plan's Outcomes & Retrospective. Mori currently
+finds direct `^>=0.4` pins in rei. Rei is out of scope and may continue resolving the published
+0.4 family; state that explicitly. Any newly discovered consumer must be assigned one of two
+states with evidence: upgraded and tested on 0.5, or intentionally retained on 0.4. Do not use
+"all consumers upgraded" when the matrix contains retained consumers.
+
+**Acceptance.** Every keiro and shibuya bound in scope names 0.5, shibuya source handles the
+new `Maybe Message`, both repositories build and test green against the local candidate, and
+the recorded Mori inventory accounts for every direct consumer. After Milestone 7 creates the
+release commit, record its SHA in both consumer change records. Do not claim the packages are
+Hackage-installable until authoritative metadata serves 0.5.0.0; either keep the temporary
+source override for validation only or intentionally add a persistent commit pin in a separate,
+reviewed consumer decision.
+
+### Milestone 7 — Release
 
 **Scope.** Format, verify everything, and make the release commit.
 
@@ -443,6 +552,17 @@ grep -c readGroupedHead \
 Both counts must be greater than zero. If either is `0`, implement
 `docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md` and
 `docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md` first.
+Also confirm the three hardening plans have no unchecked progress items:
+
+```bash
+rg -n '^- \[ \]' \
+  docs/plans/13-fix-null-parameter-semantics-across-pop-read-and-notify-statements.md \
+  docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md \
+  docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md
+```
+
+The command must return nothing. If it finds an item, complete that plan before changing
+versions.
 
 **Milestones 1 and 2** — edit `pgmq-hasql/src/Pgmq.hs` and
 `pgmq-effectful/src/Pgmq/Effectful.hs`, then:
@@ -504,7 +624,10 @@ cabal build all
 grep -rn "1\.11" README.md docs/user/ CLAUDE.md
 ```
 
-**Milestone 6** — format, verify, commit:
+**Milestone 6** — refresh the Mori inventory and perform the keiro/shibuya rollout exactly as
+described above. Run the complete consumer builds, not only shibuya's adapter test.
+
+**Milestone 7** — format, verify, commit:
 
 ```bash
 nix fmt
@@ -512,7 +635,7 @@ cabal build all
 cabal test all
 git add -A
 git commit -m "$(cat <<'EOF'
-feat: expose grouped reads on the umbrella API and release 0.5.0.0
+feat!: expose grouped reads and harden pgmq for 0.5.0.0
 
 The Pgmq and Pgmq.Effectful umbrella modules now export all six grouped
 reads -- readGrouped, readGroupedWithPoll, readGroupedRoundRobin,
@@ -530,10 +653,20 @@ module, so dropping any of these exports becomes a compile error rather
 than a silent API regression.
 
 Release all five library packages as 0.5.0.0 in lockstep. The client now
-targets pgmq 1.12.0.
+targets pgmq 1.12.0. Optional SQL parameters now honor their documented
+defaults, notification delivery survives crash recovery, queue names validate
+at every Haskell entry point, transient shutdown errors retry, and SQL NULL
+message bodies remain operable.
+
+BREAKING CHANGE: changeVisibilityTimeout and setVisibilityTimeoutAt now return
+Maybe Message across pgmq-hasql and pgmq-effectful.
 
 MasterPlan: docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md
 ExecPlan: docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md
+MasterPlan: docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md
+ExecPlan: docs/plans/13-fix-null-parameter-semantics-across-pop-read-and-notify-statements.md
+ExecPlan: docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md
+ExecPlan: docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md
 Intention: intention_01kxgh9geke2dayhx57qp6g9ye
 EOF
 )"
@@ -558,10 +691,12 @@ in scope". Restore it. Paste the error into Surprises & Discoveries. If the buil
 succeeds, your test module is importing an internal module somewhere and is worthless — find
 the import and remove it.
 
-**Nothing that worked before is broken.** The change is purely additive. A user who wrote
-`import Pgmq.Hasql.Sessions (readGroupedRoundRobin)` against 0.4.0.0 compiles unchanged against
-0.5.0.0. `cabal build all` and `cabal test all` are green, which covers the whole existing
-suite.
+**The breaking change is explicit and migrated.** Grouped-read exports remain additive: a user
+who imported `Pgmq.Hasql.Sessions (readGroupedRoundRobin)` continues to compile. Users of
+`changeVisibilityTimeout` or `setVisibilityTimeoutAt` must handle `Maybe Message`; the
+changelog names this and shibuya is compiled against the new result. `cabal build all` and
+`cabal test all` are green after every pre-existing positive visibility-timeout test asserts
+`Just` and the new missing-row tests assert `Nothing`.
 
 **All five library packages report 0.5.0.0** (`grep -n "^version:" */*.cabal`), with
 `pgmq-bench` still at 0.1.0.0. **No internal dependency bound still mentions 0.4** —
@@ -570,8 +705,13 @@ And `cabal build all` succeeds, which is the real proof: the packages pin each o
 `<0.5` upper bounds today, so a missed bound is a resolution failure, not a silent problem.
 
 **Every changelog tells the truth.** Six `CHANGELOG.md` files have a 0.5.0.0 entry.
-`pgmq-core` and `pgmq-config` say "version bump only". The others describe what actually
-changed, including the note that the umbrella-export change breaks nothing.
+`pgmq-core` describes validation and the channel helper; `pgmq-config` describes corrected
+optional-notification behavior and crash coverage. The others describe what actually changed,
+distinguishing additive grouped-read exports from the breaking visibility-timeout result.
+
+**Every in-scope consumer resolves coherently.** No keiro or shibuya component retains a 0.4
+pgmq bound, both repositories build and test green, and the rollout matrix accounts for
+Mori-discovered consumers that intentionally remain on 0.4.
 
 **The documentation no longer claims 1.11.** `grep -rn "1\.11" README.md docs/user/ CLAUDE.md`
 returns only deliberate historical references — the `0001` baseline genuinely *is* upstream's
@@ -580,9 +720,11 @@ returns only deliberate historical references — the `0001` baseline genuinely 
 
 ## Idempotence and Recovery
 
-**Every change in this plan is additive or textual.** New exports, new test modules, version
-strings, changelog entries, prose. Nothing is removed, no database is touched, no data is
-migrated. Any file can be restored with `git checkout -- <file>` and the milestone restarted.
+**Repository changes remain recoverable before the release commit.** New exports and tests are
+additive; version strings, bounds, changelogs, and prose can be corrected and revalidated.
+Plans 9 and 14 add append-only SQL migrations and must follow their own recovery rules. Plan 13
+contains the deliberate breaking type change. Do not describe the coordinated release as
+purely additive.
 
 **The tests are safe to run repeatedly.** They spin up throwaway PostgreSQL servers via
 `ephemeral-pg`; no external or production database is contacted. Queues are given unique names
@@ -613,9 +755,9 @@ publishing is wanted, do it deliberately and separately, after a human has revie
 
 ## Interfaces and Dependencies
 
-**No new package dependencies.** Every name involved is already defined in this repository;
-this plan only re-exports and documents them. The new test modules use `tasty`, `tasty-hunit`,
-`vector`, and `ephemeral-pg`, all of which are already test dependencies of both packages.
+**No new library dependency is introduced by this release plan.** The grouped-export tests use
+existing test dependencies. Plan 14 adds a direct `postgresql-libpq` test dependency for
+LISTEN assertions; it remains test-only.
 
 **Modules and files you will change:**
 
@@ -628,9 +770,12 @@ this plan only re-exports and documents them. The new test modules use `tasty`, 
 - `pgmq-hasql/pgmq-hasql.cabal`, `pgmq-effectful/pgmq-effectful.cabal` — `other-modules` for
   the new specs, plus the version bump.
 - `pgmq-core/pgmq-core.cabal`, `pgmq-migration/pgmq-migration.cabal`,
-  `pgmq-config/pgmq-config.cabal` — version bump only.
+  `pgmq-config/pgmq-config.cabal` — coordinated version and internal-bound bump after plans
+  9 and 13–15 have changed their package contents.
 - Six `CHANGELOG.md` files.
 - `README.md`, `docs/user/schema-migration.md`, `CLAUDE.md`, and a new `docs/design/` note.
+- External consumer Cabal files in keiro and every shibuya adapter/example/benchmark component,
+  plus shibuya's visibility-timeout consumer source.
 
 **Files you must NOT change:** `pgmq-bench/pgmq-bench.cabal` — the benchmark executable is
 unpublished and deliberately outside the lockstep versioning.
@@ -656,8 +801,20 @@ readGroupedHead :: (Pgmq :> es) => ReadGrouped -> Eff es (Vector Message)
 
 and the same two types.
 
-**What this plan consumes**, supplied by the two preceding plans, without which it cannot
-compile: `Pgmq.Hasql.Sessions.readGroupedHead` and `readGroupedHeadWithPoll` from
+**What this plan consumes**, supplied by its prerequisites: the names
+`Pgmq.Hasql.Sessions.readGroupedHead` and `readGroupedHeadWithPoll` from
 `docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md`, and
 `Pgmq.Effectful.Effect.readGroupedHead` and `readGroupedHeadWithPoll` from
-`docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md`.
+`docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md`; the
+breaking result types and corrected optional-parameter semantics from plan 13; the
+notification migration and channel helper from plan 14; and queue validation, transient
+classification, and nullable-body behavior from plan 15.
+
+
+## Revision Note
+
+2026-07-23: Expanded this existing release plan to be the single release owner for
+MasterPlans 2 and 3. Added hardening prerequisites, breaking-change documentation, complete
+package changelogs, Mori-backed consumer inventory, all shibuya component bounds, the
+shibuya `Maybe Message` source migration, explicit rei 0.4 retention, and full consumer
+build/test acceptance.

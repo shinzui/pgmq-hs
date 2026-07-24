@@ -41,7 +41,9 @@ After this initiative, a user can install the pgmq 1.12.0 schema through `pgmq-m
 (without needing the pgmq PostgreSQL extension, which most managed database providers
 disallow), call `readGroupedHead` from either the direct `pgmq-hasql` API or the
 `pgmq-effectful` effect API, and — under the traced interpreter — get an OpenTelemetry span
-for the operation automatically. All five packages ship together as 0.5.0.0.
+for the operation automatically. All five packages ship together as 0.5.0.0. That release is
+also the integration point for the hardening work coordinated by
+`docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md`.
 
 **In scope.** Vendoring upstream's 1.12.0 SQL and adding it as a native schema migration; the
 `pgmq-hasql` statements and sessions; the `pgmq-effectful` effect constructors and both
@@ -76,8 +78,9 @@ That gives four child plans:
 1. **SQL** (`pgmq-migration`) — vendor upstream 1.12.0 and add the native schema migration.
 2. **Database layer** (`pgmq-hasql`) — the statements and sessions that call the new functions.
 3. **Effect layer** (`pgmq-effectful`) — the effect constructors, both interpreters, and tracing.
-4. **Public API and release** — expose all six grouped reads on the umbrella modules, bump
-   versions, write changelogs and documentation.
+4. **Public API and release** — expose all six grouped reads on the umbrella modules, wait
+   for MasterPlan 3's three hardening plans, then bump versions, write complete changelogs,
+   and roll out the breaking 0.5 family to in-scope consumers.
 
 Each produces an independently verifiable behaviour. Plan 1 ends with a database that provably
 has the two new functions. Plan 2 ends with a test proving a grouped-head read returns one
@@ -99,12 +102,12 @@ would multiply the coordination overhead past the value it buys.
 **A note on how small the SQL delta turned out to be, and why that shaped everything.** Research
 established that `read_grouped_head` has *exactly* the same argument list and return type as the
 already-supported `read_grouped_rr`, and `read_grouped_head_with_poll` likewise matches
-`read_grouped_rr_with_poll`. That means no new parameter types, no new encoders, and no
-`pgmq-core` changes anywhere in the initiative — the existing `ReadGrouped` and
-`ReadGroupedWithPoll` types carry over unchanged. Had that not been true, a fifth plan for the
-shared types would have been needed, and it would have been a hard dependency of plans 2, 3, and
-4. It is worth stating what *didn't* need doing, because a reader who assumes a new feature
-implies new types will otherwise go looking for the plan that adds them.
+`read_grouped_rr_with_poll`. That means the grouped-head work needs no new parameter types,
+encoders, or `pgmq-core` type. The existing `ReadGrouped` and `ReadGroupedWithPoll` types carry
+over unchanged. MasterPlan 3 independently modifies `Pgmq.Types` for queue validation and the
+notification-channel helper before release. Had the grouped-head signatures differed, a fifth
+plan for their shared parameter types would have been needed and would have been a hard
+dependency of plans 2, 3, and 4.
 
 
 ## Exec-Plan Registry
@@ -114,10 +117,12 @@ implies new types will otherwise go looking for the plan that adds them.
 | 9 | Vendor pgmq 1.12.0 and add the native schema migration | docs/plans/9-vendor-pgmq-1-12-0-and-add-the-native-schema-migration.md | None | None | Not Started |
 | 10 | Add grouped-head read statements and sessions to pgmq-hasql | docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md | EP-9 | None | Not Started |
 | 11 | Add grouped-head read effects and traced spans to pgmq-effectful | docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md | EP-10 | None | Not Started |
-| 12 | Expose grouped reads on the umbrella API and release 0.5.0.0 | docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md | EP-10, EP-11 | None | Not Started |
+| 12 | Expose grouped reads on the umbrella API and release 0.5.0.0 | docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md | EP-10, EP-11, MP3 EP-13, MP3 EP-14, MP3 EP-15 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
-Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-9, EP-10).
+Local Hard Deps and Soft Deps reference other rows by their # prefix (for example EP-9 and
+EP-10). Cross-MasterPlan prerequisites name the parent and child explicitly (for example
+MP3 EP-13).
 
 Note: the plan numbers continue the repository's existing `docs/plans/` sequence, which already
 contained plans 1-8 from earlier, unrelated initiatives.
@@ -132,6 +137,10 @@ EP-9 (SQL migration)
   └─> EP-10 (pgmq-hasql statements + sessions)
         ├─> EP-11 (pgmq-effectful effects + tracing)
         └─> EP-12 (umbrella API + release)  <── also needs EP-11
+
+MP3 EP-13 (NULL semantics + Maybe results) ─┐
+MP3 EP-14 (notification crash safety)       ├─> EP-12
+MP3 EP-15 (validation + classification)    ─┘
 ```
 
 **EP-9 → EP-10 is a hard dependency, and the reason is the test database.** `pgmq-hasql`'s test
@@ -149,14 +158,15 @@ but it could not be verified, which under this repository's standards means it i
 `Sessions.readGroupedHeadWithPoll` directly. Without EP-10 those names do not exist and the
 package fails to build with "Variable not in scope".
 
-**EP-10, EP-11 → EP-12 is a hard dependency for the same reason.** EP-12 re-exports names that
-EP-10 and EP-11 define. It also cannot honestly write a changelog claiming pgmq 1.12.0 support
-before that support exists.
+**EP-10, EP-11, and MasterPlan 3 EP-13 through EP-15 → EP-12 are hard dependencies.** EP-12
+re-exports names that EP-10 and EP-11 define. It also owns the only 0.5.0.0 version bump,
+complete changelogs, and consumer rollout, so it cannot release while any hardening behavior
+or breaking result type remains unfinished.
 
-**Nothing can proceed in parallel.** This is a genuinely serial initiative, which is worth
-stating plainly rather than dressing up: the work is a single feature threaded through four
-layers, and each layer needs the one below it. There is no fan-out to exploit. The compensating
-benefit is that each plan is small, and the chain is short.
+**The grouped-head chain is serial, while MasterPlan 3 can proceed in parallel.** EP-9 through
+EP-11 still form one feature threaded through three layers. The three hardening plans have
+independent behavior and test surfaces. EP-12 is the join point and must wait for all five
+prerequisites.
 
 **The one place a reader might expect a dependency and find none:** EP-9 does *not* depend on
 anything, and in particular it does not need to know what the Haskell API will look like. It
@@ -207,8 +217,9 @@ data ReadGroupedWithPoll = ReadGroupedWithPoll
 The existing code already sets this precedent — `readGrouped` and `readGroupedRoundRobin` share
 `ReadGrouped` today. All three child plans that touch Haskell record this in their own Decision
 Logs. Their encoders (`readGroupedEncoder`, `readGroupedWithPollEncoder` in
-`pgmq-hasql/src/Pgmq/Hasql/Encoders.hs`) are likewise reused unchanged. **Consequence:
-`pgmq-core` is not modified anywhere in this initiative.**
+`pgmq-hasql/src/Pgmq/Hasql/Encoders.hs`) are likewise reused unchanged. **Consequence for the
+grouped-head feature: no new grouped-read type is added to `pgmq-core`; MasterPlan 3's
+independent changes to that package must still be present at release.**
 
 **3. The Haskell function names.** *(EP-10 defines for `pgmq-hasql`; EP-11 defines for
 `pgmq-effectful`; EP-12 re-exports both.)*
@@ -240,12 +251,17 @@ asserts on that attribute specifically, because a copy-paste slip that ran the r
 under the wrong label would otherwise mislabel every trace in production while all functional
 tests still passed.
 
-**5. The lockstep package version.** *(EP-12 owns.)*
+**5. The lockstep package version and consumer rollout.** *(EP-12 owns; MasterPlan 3
+EP-13 defines the breaking reason.)*
 
-All five library packages move 0.4.0.0 → 0.5.0.0 together, per the repository's established
-convention (the root `CHANGELOG.md` says "All packages share the 0.4.0.0 version", and unchanged
-packages carry a "Version bump only — coordinated release" note). `pgmq-bench` is at 0.1.0.0, is
+All five library packages move 0.4.0.1 → 0.5.0.0 together, per the repository's established
+convention (the root `CHANGELOG.md` says "All packages share the 0.4.0.1 version").
+`pgmq-bench` is at 0.1.0.0, is
 unpublished, and is deliberately outside the lockstep. No other plan touches a version.
+EP-13 changes two public results from `Message` to `Maybe Message`; this makes 0.5.0.0 a
+breaking pre-1.0 PVP bump rather than an additive feature bump. EP-12 also owns all keiro and
+shibuya bounds, the shibuya source migration, full consumer builds/tests, and the explicit
+record of Mori-discovered consumers that remain on 0.4.
 
 **6. The pgmq 1.11 schema contract — an integration point that must NOT move.** *(Nobody
 changes it. Named here because it looks like it should change, and it must not.)*
@@ -279,8 +295,9 @@ EP-9's Decision Log too.
 - [ ] EP-12: `Pgmq` umbrella exports all six grouped reads plus `ReadGrouped(..)` / `ReadGroupedWithPoll(..)`.
 - [ ] EP-12: `Pgmq.Effectful` umbrella exports the same.
 - [ ] EP-12: `UmbrellaExportsSpec` in both packages makes a dropped export a compile error.
-- [ ] EP-12: All five packages bumped to 0.5.0.0; six changelogs written.
-- [ ] EP-12: README, user docs, and a 1.12.0 design note updated; release commit made.
+- [ ] EP-12: MasterPlan 3 EP-13, EP-14, and EP-15 confirmed complete before any version bump.
+- [ ] EP-12: All five packages bumped to 0.5.0.0; six complete changelogs cover grouped-head support and every hardening change.
+- [ ] EP-12: README, user docs, and design notes updated; all keiro/shibuya bounds and shibuya source migrated; consumer matrix recorded; release commit made.
 
 
 ## Surprises & Discoveries
@@ -343,6 +360,12 @@ EP-12, rather than adding the new functions to an API where their four siblings 
 test in `pgmq-effectful`.** So EP-10's polling test and EP-11's traced grouped test have no
 sibling to copy and are specified from scratch in their plans.
 
+**The release acquired three hardening prerequisites after the original plan was written.**
+Plan validation on 2026-07-23 found a breaking `Maybe Message` change, a notification
+crash-safety migration, queue-name validation, transient-classification corrections, and a
+broader consumer-bound surface. EP-12 is now the single join/release plan instead of allowing
+MasterPlan 3 to choose a conditional last lander.
+
 
 ## Decision Log
 
@@ -354,8 +377,8 @@ sibling to copy and are specified from scratch in their plans.
   Rationale: The layer boundaries are where the hard dependencies actually fall — each layer literally cannot compile or cannot be tested without the one below it. A decomposition by feature (one plan per new function) would have produced two plans that each touch all four layers, duplicating all the context and making neither independently verifiable. See Decomposition Strategy.
   Date: 2026-07-14
 
-- Decision: Reuse the existing `ReadGrouped` and `ReadGroupedWithPoll` types across all layers; add no new types and do not modify `pgmq-core`.
-  Rationale: The new SQL functions have signatures identical to the round-robin pair we already support, so the existing types fit exactly, and the existing code already shares these types across multiple functions. A structurally identical duplicate type would add a concept for users to learn and a second encoder to keep in sync, for zero type safety. Recorded in the Decision Logs of EP-10 and EP-11 as well, because that is where someone would be tempted to add one.
+- Decision: Reuse the existing `ReadGrouped` and `ReadGroupedWithPoll` types across the grouped-head layers; add no new grouped-read type to `pgmq-core`.
+  Rationale: The new SQL functions have signatures identical to the round-robin pair we already support, so the existing types fit exactly, and the existing code already shares these types across multiple functions. A structurally identical duplicate type would add a concept for users to learn and a second encoder to keep in sync, for zero type safety. MasterPlan 3's unrelated queue-validation and channel-helper work may still modify `Pgmq.Types`. Recorded in the Decision Logs of EP-10 and EP-11 as well, because that is where someone would be tempted to add a grouped-read type.
   Date: 2026-07-14
 
 - Decision: Leave `pgmq-migration/src/Pgmq/Migration/SchemaContract.hs` (`pgmqV1_11StateValidator`, evidence key `pgmq_schema_contract_v1.11`) completely unchanged.
@@ -371,10 +394,24 @@ sibling to copy and are specified from scratch in their plans.
   Date: 2026-07-14
 
 - Decision: Release as 0.5.0.0 across all five library packages in lockstep; do not publish to Hackage as part of this initiative.
-  Rationale: Lockstep versioning is the established convention here (the root changelog says all packages share a version, and unchanged packages carry a "version bump only" note). A minor bump is correct under the Package Versioning Policy: the release is additive — new functions, new exports, a new migration — with no removals and no signature changes. Publishing is deliberately excluded because it is irreversible and deserves a separate, human-reviewed step.
-  Date: 2026-07-14
+  Rationale: Lockstep versioning is the established convention here. MasterPlan 3 EP-13 now makes the release breaking by changing two public result types to `Maybe Message`, so 0.5.0.0 is required rather than merely convenient for additive grouped-head work. Publishing remains excluded because it is irreversible and deserves a separate, human-reviewed step.
+  Date: 2026-07-23
+
+- Decision: EP-12 is the only version, final-changelog, and consumer-rollout owner across
+  MasterPlans 2 and 3.
+  Rationale: One join point keeps all package versions and consumer bounds on the same source
+  state and eliminates competing last-lander instructions.
+  Date: 2026-07-23
 
 
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
+
+
+## Revision Note
+
+2026-07-23: Added MasterPlan 3 plans 13–15 as hard prerequisites of EP-12, made EP-12 the
+single 0.5.0.0 release and consumer-rollout owner, corrected the PVP rationale to account for
+the breaking `Maybe Message` results, and expanded release acceptance to complete changelogs,
+all keiro/shibuya components, and a Mori-backed consumer matrix.
