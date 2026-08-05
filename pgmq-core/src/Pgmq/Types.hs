@@ -28,8 +28,9 @@ module Pgmq.Types
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON, Value)
-import Data.Char (isAlphaNum, isAscii)
+import Data.Aeson (FromJSON (..), ToJSON, Value)
+import Data.Aeson qualified as Aeson
+import Data.Char (isAlphaNum, isAscii, isDigit, isLower)
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -74,12 +75,19 @@ data Message = Message
   deriving stock (Eq, Generic, Show)
 
 newtype QueueName = QueueName Text
-  deriving newtype (Eq, Ord, FromJSON, ToJSON)
+  deriving newtype (Eq, Ord, ToJSON)
   deriving stock (Show, Generic)
 
 instance Lift QueueName where
   lift (QueueName t) = [|QueueName t|]
   liftTyped (QueueName t) = [||QueueName t||]
+
+-- | Validates via 'parseQueueName', so JSON- and config-loaded names get
+-- exactly the same checks as programmatic construction. A derived instance
+-- would bypass the smart constructor entirely.
+instance FromJSON QueueName where
+  parseJSON = Aeson.withText "QueueName" $ \t ->
+    either (fail . show) pure (parseQueueName t)
 
 queueNameToText :: QueueName -> Text
 queueNameToText (QueueName t) = t
@@ -90,16 +98,43 @@ data PgmqError
   | InvalidTopicPattern Text
   deriving stock (Show, Generic)
 
--- Adopted from https://github.com/tembo-io/pgmq/blob/e4d4b84bf302df77be2d1f877c5cf8ef8861bfc7/pgmq-rs/src/util.rs#L94
+-- | Parse a queue name: non-empty, at most 47 characters, drawn from lowercase
+-- ASCII letters, digits, and underscore only.
+--
+-- Lowercase-only is a correctness requirement, not a style choice. pgmq's SQL
+-- lowercases /physical/ table names (@pgmq.format_table_name@) but stores the
+-- caller's /original/ casing in @pgmq.meta@, and the notification trigger looks
+-- up the /lowercased/ name extracted from the physical table. A mixed-case name
+-- therefore aliases: @MyQueue@ and @myqueue@ are two metadata identities
+-- sharing one physical table (interleaved messages; dropping either destroys
+-- the other's data), and notification throttles configured under a mixed-case
+-- name are never matched by the trigger. Rejecting anything but lowercase makes
+-- all three representations agree. Names are deliberately not normalized:
+-- silent lowercasing would re-introduce the aliasing against pre-existing
+-- mixed-case metadata and make the parsed name disagree with what the caller
+-- wrote.
+--
+-- Upgrade note: a database that already contains mixed-case rows in
+-- @pgmq.meta@ will fail @listQueues@ decoding under this stricter parser (the
+-- decoder re-validates names read back from the database). Run the mixed-case
+-- remediation described in @docs/design/016-queue-name-validation.md@ before
+-- upgrading such a deployment.
+--
+-- Length check adopted from
+-- https://github.com/tembo-io/pgmq/blob/e4d4b84bf302df77be2d1f877c5cf8ef8861bfc7/pgmq-rs/src/util.rs#L94
 parseQueueName :: Text -> Either PgmqError QueueName
 parseQueueName t
+  | T.null t = Left $ InvalidQueueName "The queue name is empty."
   | not isShortEnough = Left $ InvalidQueueName "The queue name is too long."
-  | not hasValidCharacters = Left $ InvalidQueueName "The queue name contains invalid characters."
+  | not hasValidCharacters =
+      Left $
+        InvalidQueueName
+          "The queue name contains invalid characters (allowed: lowercase ASCII letters, digits, underscore)."
   | otherwise = Right $ QueueName t
   where
     isShortEnough = T.length t <= maxQueueNameLength
     hasValidCharacters = T.all isValidChar t
-    isValidChar c = (isAscii c && isAlphaNum c) || c == '_'
+    isValidChar c = (isAscii c && (isLower c || isDigit c)) || c == '_'
 
     -- PostgreSQL identifier length information
     -- https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS

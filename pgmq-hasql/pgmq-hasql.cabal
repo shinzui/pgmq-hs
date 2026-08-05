@@ -82,6 +82,7 @@ test-suite pgmq-hasql-test
     Generators
     MessageSpec
     MetricsSpec
+    MixedCaseRemediationSpec
     NotifyChannelSpec
     NotifyRaceSpec
     NullBodySpec

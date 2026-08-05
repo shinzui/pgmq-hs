@@ -95,6 +95,31 @@ where a missing row genuinely indicates corruption. Vector-returning batch state
 already satisfy this — zero rows decode to an empty vector.
 
 
+## A NULL cell in reachable data is data, not failure
+
+The third sibling rule, adopted 2026-08-05 with plan 15. When a column is nullable in the
+schema and any producer can legally write NULL to it, the decoder must map that NULL to a
+value rather than fail the batch.
+
+The queue table's `message` column is nullable and `pgmq.send('q', NULL::jsonb)` is legal
+SQL, so any non-Haskell producer (psql, another language's client, a trigger) can insert
+a NULL-bodied message. `messageDecoder` required a non-null body, so one such row made
+every read batch containing it fail at decode — after the read statement had already
+bumped `vt` and `read_ct` for the whole batch, because the statement succeeded and only
+its result failed to decode. The row could not be seen, read, or archived through the
+Haskell client, and it re-poisoned every batch each time its visibility timeout lapsed.
+
+The fix decodes SQL NULL as JSON `null` (`MessageBody Aeson.Null`). Accepted conflation,
+recorded here: a SQL NULL body and an explicitly-sent JSON `null` body are
+indistinguishable on read. That is the honest merged semantics — both mean "no usable
+payload" — and it makes the poison row visible (`body == MessageBody Null`), routable,
+and dead-letterable through the normal API. "Document single-client ownership" was
+rejected because the queue tables are plain SQL any producer can write to; a document
+cannot un-arm the trap. Changing `Message.body` to `Maybe MessageBody` was rejected as a
+second gratuitous break on top of plan 13's already-breaking release, buying no
+information the `Null` mapping does not carry.
+
+
 ## Where this is enforced
 
 `pgmq-hasql/test/NullSemanticsSpec.hs` carries one scope-widening guard per readable
@@ -107,6 +132,10 @@ sharper than a single failed call: `ensureQueues` is a plain `Session` in which 
 statement autocommits, so a queue created in one statement stays created when a later
 statement fails. A NULL-parameter failure there is not transient — it recurs on every
 application startup, forever.
+
+`pgmq-hasql/test/NullBodySpec.hs` carries the NULL-cell rule: a SQL-inserted NULL body
+reads back as JSON `null` in a full batch and is archivable, and the whole-batch
+`read_ct` bump is pinned as evidence of what the decode failure used to leave behind.
 
 
 ## Related documents

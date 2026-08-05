@@ -13,6 +13,8 @@ module Pgmq.Effectful.Interpreter
 where
 
 import Control.Exception (Exception)
+import Data.Text (Text)
+import Data.Text qualified as T
 import Effectful (Eff, IOE, (:>))
 import Effectful qualified
 import Effectful.Dispatch.Dynamic (interpret)
@@ -53,10 +55,14 @@ fromUsageError = \case
 -- | Is this error plausibly transient — i.e., worth retrying?
 --
 -- Returns 'True' for acquisition timeouts, networking connection errors,
--- uncategorized libpq connection errors, and session-level connection
--- drops. All other errors (authentication failure, compatibility
--- mismatches, missing types, statement errors, driver bugs) are treated
--- as permanent.
+-- uncategorized libpq connection errors, session-level connection drops,
+-- and server-reported statement errors whose SQLSTATE names a transient
+-- condition: @40001@ (serialization_failure), @40P01@ (deadlock_detected),
+-- @55P03@ (lock_not_available), @57P01@ (admin_shutdown), @57P02@
+-- (crash_shutdown), @57P03@ (cannot_connect_now), and class @53@
+-- (insufficient resources). All other errors (authentication failure,
+-- compatibility mismatches, missing types, other statement errors,
+-- decode\/row-count mismatches, driver bugs) are treated as permanent.
 --
 -- Note: 'HasqlErrors.OtherConnectionError' is classed as transient here
 -- despite hasql's documentation calling it \"not transient by default\",
@@ -72,10 +78,27 @@ isTransient = \case
     HasqlErrors.OtherConnectionError _ -> True
   PgmqSessionError e -> case e of
     HasqlErrors.ConnectionSessionError _ -> True
-    HasqlErrors.StatementSessionError {} -> False
+    HasqlErrors.StatementSessionError _ _ _ _ _ statementError ->
+      case statementError of
+        HasqlErrors.ServerStatementError (HasqlErrors.ServerError code _ _ _ _) ->
+          isTransientSqlState code
+        _ -> False
     HasqlErrors.ScriptSessionError {} -> False
     HasqlErrors.MissingTypesSessionError _ -> False
     HasqlErrors.DriverSessionError _ -> False
+
+-- | SQLSTATEs that indicate a transient, retry-worthy condition: @40001@
+-- serialization_failure, @40P01@ deadlock_detected, @55P03@
+-- lock_not_available, @57P01@ admin_shutdown, @57P02@ crash_shutdown,
+-- @57P03@ cannot_connect_now, and class @53@ (insufficient resources —
+-- 53000\/53100\/53200\/53300\/53400). These arrive as server errors inside
+-- 'HasqlErrors.StatementSessionError' and are precisely the errors retries
+-- exist for. Everything else reported by the server is permanent for retry
+-- purposes.
+isTransientSqlState :: Text -> Bool
+isTransientSqlState code =
+  code `elem` ["40001", "40P01", "55P03", "57P01", "57P02", "57P03"]
+    || "53" `T.isPrefixOf` code
 
 -- | Legacy error type. Retained for one release cycle; migrate to
 -- 'PgmqRuntimeError'. Will be removed in pgmq-effectful 0.3.0.

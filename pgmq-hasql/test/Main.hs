@@ -8,6 +8,7 @@ import AllFunctionsDecoderSpec qualified
 import DecoderValidationSpec qualified
 import EphemeralDb (withPgmqDb)
 import MessageSpec qualified
+import MixedCaseRemediationSpec qualified
 import NotifyChannelSpec qualified
 import NotifyRaceSpec qualified
 import NullBodySpec qualified
@@ -31,10 +32,13 @@ main = do
               NullSemanticsSpec.tests pool,
               NullBodySpec.tests pool,
               NotifyRaceSpec.tests pool,
-              -- Constructs mixed-case pgmq.meta rows, which poison listQueues
-              -- decoding for every concurrent test — so it runs on its own
-              -- dedicated PostgreSQL instance, never the shared pool.
+              -- Both construct mixed-case pgmq.meta rows, which poison
+              -- listQueues decoding for every concurrent test — so each runs
+              -- on its own dedicated PostgreSQL instance, never the shared
+              -- pool. They are separate instances because the remediation
+              -- sweeps every mixed-case row in its database.
               AliasingSpec.tests,
+              MixedCaseRemediationSpec.tests,
               -- Needs the Database handle: LISTEN/NOTIFY has no hasql API, so
               -- the round-trip test opens a raw libpq connection.
               NotifyChannelSpec.tests pool db,

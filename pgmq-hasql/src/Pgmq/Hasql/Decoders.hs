@@ -11,7 +11,9 @@ module Pgmq.Hasql.Decoders
   )
 where
 
+import Data.Aeson qualified as Aeson
 import Data.Bifunctor (first)
+import Data.Maybe (fromMaybe)
 import Data.Text (pack)
 import Hasql.Decoders qualified as D
 import Pgmq.Hasql.Statements.Types (QueueMetrics (..))
@@ -30,6 +32,14 @@ import Pgmq.Types
 
 -- | Decoder for pgmq.message_record type
 -- Column order matches pgmq SQL: msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers
+--
+-- The @message@ column is nullable in the queue table, and
+-- @pgmq.send(queue, NULL::jsonb)@ is legal SQL any non-Haskell producer can
+-- issue. A SQL NULL body decodes as JSON @null@ (@MessageBody Aeson.Null@) —
+-- an accepted conflation with an explicitly-sent JSON @null@ body, since both
+-- mean \"no usable payload\". Requiring a non-null cell here would instead
+-- fail the whole batch at decode, after the read statement had already bumped
+-- @vt@ and @read_ct@ for every message in it, leaving an invisible poison row.
 messageDecoder :: D.Row Message
 messageDecoder =
   ( \msgId readCt enqueuedAt lastReadAt vt body headers ->
@@ -48,7 +58,7 @@ messageDecoder =
     <*> D.column (D.nonNullable D.timestamptz) -- enqueued_at
     <*> D.column (D.nullable D.timestamptz) -- last_read_at
     <*> D.column (D.nonNullable D.timestamptz) -- vt
-    <*> (MessageBody <$> D.column (D.nonNullable D.jsonb)) -- message
+    <*> (MessageBody . fromMaybe Aeson.Null <$> D.column (D.nullable D.jsonb)) -- message (SQL NULL -> JSON null)
     <*> D.column (D.nullable D.jsonb) -- headers
 
 messageIdDecoder :: D.Row MessageId

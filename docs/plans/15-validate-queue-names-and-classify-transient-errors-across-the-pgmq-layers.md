@@ -56,12 +56,15 @@ consumer-impact handoff for the single release owner, plan 12.
       red (whole-batch decode failure) and the `read_ct`-bump evidence green;
       ClassificationSpec extended — all nine transient-SQLSTATE assertions red.
       Transcripts recorded in Surprises & Discoveries.
-- [ ] M2 (fix): `parseQueueName` rejects uppercase and empty; `FromJSON QueueName`
-      validates via `parseQueueName`; new `pgmq-core-test` suite green; `isTransient`
-      whitelists 40001/40P01/55P03/57P01/57P02/57P03/53xxx inside
-      `StatementSessionError`;
-      `messageDecoder` maps SQL NULL to JSON null; all M1 tests green; mixed-case
-      remediation written and tested against throttle rows and topic bindings.
+- [x] M2 (2026-08-05, fix): `parseQueueName` rejects uppercase and empty; `FromJSON
+      QueueName` validates via `parseQueueName`; new `pgmq-core-test` suite green;
+      `isTransient` whitelists 40001/40P01/55P03/57P01/57P02/57P03/53xxx inside
+      `StatementSessionError`; `messageDecoder` maps SQL NULL to JSON null; all M1 red
+      tests green; mixed-case remediation documented in design note 016 and proven by
+      `MixedCaseRemediationSpec` for both the twin and no-twin cases, including rerun
+      idempotence, `bound_at` preservation, and the trigger matching the throttle row
+      after remediation. Design notes 016 and 017 written; 014 extended with the
+      NULL-cell rule. `cabal test all` green across all five suites.
 - [ ] M3 (release handoff): full pgmq-hs suite green; exact package and root CHANGELOG
       material written; plan 12's consumer rollout checklist verified to include all
       shibuya components and every Mori-discovered direct consumer; no version bumped here.
@@ -144,6 +147,21 @@ producer):
   ghci> fromJSON (String (T.replicate 60 "x")) :: Result QueueName
   Success (QueueName "xxxx…60 chars…")
   ```
+
+- M2 (2026-08-05): the planned remediation procedure (snapshot children, delete them,
+  rename the parent, reinsert) was replaced by a simpler shape with the same guarantees:
+  insert the canonical parent first, `UPDATE` the children onto it, then delete the
+  mixed-case parent. See the Decision Log. The functional proof that remediation heals
+  notification — a post-remediation send stamps `last_notified_at` off the epoch because
+  the trigger's lowercase lookup finally matches — passed on the first green run.
+- M2 (2026-08-05): no caller anywhere in the repository constructs a name the stricter
+  parser rejects — every fixture generator and literal is lowercase (`test_queue_`,
+  `cfg_test_`, `crash_test_`, `race_test_`, `bench_`, …), verified by grep across all
+  packages including `pgmq-bench`. The tightening breaks no in-repo code, and
+  `cabal test all` stayed green across all five suites on the first post-fix run
+  (pgmq-hasql 73 including the three NullBodySpec and two MixedCaseRemediationSpec
+  tests, pgmq-effectful 30 with all thirteen new classification cases, the new
+  pgmq-core-test 12, pgmq-config, pgmq-migration).
 
 
 ## Decision Log
