@@ -77,6 +77,7 @@ test-suite pgmq-config-test
   other-modules:
     ConfigSpec
     EphemeralDb
+    NotifyCrashSpec
 
   default-extensions:
     DeriveGeneric
@@ -88,19 +89,22 @@ test-suite pgmq-config-test
     OverloadedStrings
 
   build-depends:
-    , base            >=4.18  && <5
-    , ephemeral-pg    >=0.2.1
-    , generic-lens    ^>=2.2  || ^>=2.3
+    , aeson             ^>=2.2
+    , base              >=4.18   && <5
+    , bytestring        >=0.11   && <0.13
+    , ephemeral-pg      >=0.2.1
+    , generic-lens      ^>=2.2   || ^>=2.3
     , hasql
-    , hasql-pool      ^>=1.4
-    , lens            ^>=5.3
+    , hasql-pool        ^>=1.4
+    , lens              ^>=5.3
     , pg-migrate
     , pgmq-config
     , pgmq-core
     , pgmq-hasql
     , pgmq-migration
-    , random          ^>=1.2
-    , tasty           ^>=1.5
-    , tasty-hunit     ^>=0.10
+    , postgresql-libpq  >=0.10.1 && <0.12
+    , random            ^>=1.2
+    , tasty             ^>=1.5
+    , tasty-hunit       ^>=0.10
     , text
-    , time            ^>=1.14
+    , time              ^>=1.14

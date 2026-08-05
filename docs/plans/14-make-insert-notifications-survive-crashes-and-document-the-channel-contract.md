@@ -43,12 +43,15 @@ immediate-shutdown restart.
 
 ## Progress
 
-- [ ] M1 (repro): crash-cycle test written against a dedicated ephemeral-pg instance and
-      confirmed red (send after immediate-shutdown recovery produces no notification);
-      concurrent-enable race test written, repro attempt made and outcome recorded
-      (42710 observed, or best-effort transcript recorded in Surprises & Discoveries);
-      partitioned re-entry documented as code-verified (no pg_partman in the test
-      environment — `pgmq-hasql/test/QueueSpec.hs` line 28).
+- [x] M1 (repro) (2026-08-05): crash-cycle test `pgmq-config/test/NotifyCrashSpec.hs`
+      written against a dedicated ephemeral-pg instance and confirmed red (send after
+      immediate-shutdown recovery produces no notification, preconditions green);
+      concurrent-enable race test `pgmq-hasql/test/NotifyRaceSpec.hs` written and
+      confirmed red — 42710 observed on ~28% of concurrent calls, so PGH-8 is now
+      live-verified rather than plausible. Transcripts in Surprises & Discoveries.
+- [ ] M1 remaining: partitioned re-entry documented as code-verified (no pg_partman in
+      the test environment — `pgmq-hasql/test/QueueSpec.hs` line 28); the partman-gated
+      test ships with M2's guard.
 - [ ] M2 (fix): new migration file using the next free number in the live manifest,
       re-creating
       `pgmq.notify_queue_listeners` (fail-open fallback), `pgmq.enable_notify_insert`
@@ -83,8 +86,53 @@ own migration; full live crash cycle):
   `throttleMs = Just`; with `Nothing` it hits plan 13's 23502 until that plan (or this
   plan's migration) lands.
 
-(Add new discoveries below as work proceeds — in particular the M1 race-repro outcome and
-the crash-test transcript.)
+M1 implementation (2026-08-05):
+
+- **The crash test needs an explicit `CHECKPOINT` before the SIGQUIT.** `ephemeral-pg`'s
+  `defaultPostgresSettings` (`src/EphemeralPg/Config.hs` lines 172-184) turn off `fsync`,
+  `synchronous_commit`, and `full_page_writes` for speed. Without a checkpoint the
+  immediate shutdown discarded every commit still sitting in WAL buffers — including the
+  pgmq schema install — and the post-crash pool failed with
+  `SQLSTATE 3F000 schema "pgmq" does not exist`, long before it could observe anything
+  about notifications. `CHECKPOINT` flushes WAL and dirty buffers to the OS, which
+  survives a process kill, while leaving the unlogged throttle table exactly as
+  vulnerable as it is in production: crash recovery still resets unlogged relations to
+  their init fork. Any future test in this repository that crashes PostgreSQL must
+  checkpoint first.
+- **PGH-6 red transcript** (`cabal test pgmq-config-test`):
+
+  ```text
+  NotifyCrashSpec
+    post-crash: throttle row truncated, trigger intact: OK
+    post-crash: send delivers a notification:           FAIL
+      test/NotifyCrashSpec.hs:89:
+      expected a notification on "pgmq.q_crash_test_60745.INSERT" within 2s after crash recovery, got none
+    post-crash: a reconcile restores the throttle row:  OK
+  ```
+
+  The preconditions confirm the review's diagnosis precisely: the throttle row is gone,
+  the trigger is still installed, and the pre-crash message is still in the queue.
+- **PGH-8 is confirmed live, not merely plausible.** The race reproduces reliably once
+  the pool is warm — three consecutive runs of 200 iterations (400 concurrent calls)
+  produced 127, 112, and 112 duplicate-object failures, roughly a 28% collision rate:
+
+  ```text
+  Notification Enable Race
+    concurrent enable_notify_insert never raises 42710 (n=200):      FAIL (1.95s)
+      127 of 400 concurrent enable_notify_insert calls failed with duplicate_object (42710).
+      First: ... (ServerError "42710" "trigger \"trigger_notify_queue_insert_listeners\"
+      for relation \"q_race_test_66208\" already exists" ...)
+  ```
+
+  The interleaving is exactly the one this plan predicted: on a fresh queue the internal
+  `DROP TRIGGER IF EXISTS` finds nothing and takes no lock, so both callers pass it; the
+  loser then blocks on the throttle row's unique constraint until the winner commits,
+  resumes, and creates a trigger that now exists.
+- The `shutdownMode` field name is shared by `EphemeralPg.Config` and
+  `EphemeralPg.Database`, so `db {Pg.shutdownMode = ...}` is an ambiguous record update.
+  The crash test imports `EphemeralPg.Database` qualified for that one selector.
+
+(Add new discoveries below as work proceeds.)
 
 
 ## Decision Log
@@ -159,6 +207,23 @@ the crash-test transcript.)
   exposes connection strings as `Text`, while libpq consumes `ByteString`, so the test uses
   `Data.Text.Encoding.encodeUtf8` for connection info and SQL commands.
   Date: 2026-07-23
+
+- Decision: The crash test is one crash cycle shared by three assertions via tasty's
+  `withResource`, rather than three independent cycles or one monolithic test case.
+  Rationale: Starting, migrating, crashing and recovering a PostgreSQL instance costs
+  about two seconds; running it once keeps the suite fast while still reporting the
+  preconditions (throttle truncated, trigger intact, message survived), the delivery
+  assertion, and the reconcile heal as separate named results — so a future failure says
+  which property broke.
+  Date: 2026-08-05
+
+- Decision: Raise the race test to 200 iterations (400 concurrent calls) rather than the
+  50 the plan first suggested.
+  Rationale: At 50 iterations the first observed run caught only one collision; at 200 it
+  catches over a hundred, every run, in under two seconds. The test's post-fix job is to
+  detect a regression that reintroduces the window, and a guard that fires reliably is
+  worth the extra 1.5 seconds.
+  Date: 2026-08-05
 
 (Record further decisions as they are made, with dates.)
 

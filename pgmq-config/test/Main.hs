@@ -4,6 +4,7 @@ module Main (main) where
 
 import ConfigSpec qualified
 import EphemeralDb (withPgmqDb)
+import NotifyCrashSpec qualified
 import Test.Tasty (defaultMain, testGroup)
 
 main :: IO ()
@@ -12,7 +13,10 @@ main = do
     let tree =
           testGroup
             "pgmq-config"
-            [ ConfigSpec.tests pool
+            [ ConfigSpec.tests pool,
+              -- NotifyCrashSpec manages its own PostgreSQL instance: it crashes
+              -- the server, which the shared pool above could not survive.
+              NotifyCrashSpec.tests
             ]
     defaultMain tree
   case result of
