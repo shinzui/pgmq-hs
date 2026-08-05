@@ -97,6 +97,16 @@ adds the complete server-side guard for non-Haskell callers. EP-14 must take the
 manifest number after every migration already present; it must never edit the immutable
 `0001-install-v1.11.0.sql`.
 
+The migration directory is also shared with MasterPlan 2 EP-9, and that coupling goes beyond
+numbering. EP-9 adds a schema-convergence test asserting that every `pgmq` function body after
+the full ledger matches a fresh install of the vendored upstream `pgmq.sql`. EP-14's three
+`CREATE OR REPLACE FUNCTION` statements deliberately diverge from upstream, so if EP-9 has
+already landed, EP-14 must add those three signatures to that test's deliberate-deviation
+allowlist in the same commit, each with a comment naming the decision that authorises it.
+Repairing the failure by removing the body comparison is forbidden — it would discard the
+guarantee for every function this repository does not own. See Integration Point 7 of
+`docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md`.
+
 `pgmq-core/src/Pgmq/Types.hs` is shared by EP-14 and EP-15. EP-14 defines and exports
 `notifyChannelName`; EP-15 replaces derived `FromJSON QueueName` with validation. The final
 lander must preserve both changes and run `pgmq-core-test`.
@@ -157,6 +167,12 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 
 
 ## Revision Note
+
+2026-08-05: Recorded the schema-convergence coupling with MasterPlan 2 EP-9 in Integration
+Points, and required EP-14 to allowlist its three deliberately-diverging function bodies in
+that test when EP-9 has already landed. Found while validating
+`docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md`; both MasterPlans had recorded
+the manifest-numbering half of the shared-ledger coupling but neither had recorded this half.
 
 2026-07-23: Relocated this MasterPlan and its child plans from keiro into the authoritative
 pgmq-hs repository. Incorporated the validation findings for existing `Maybe Message` tests,

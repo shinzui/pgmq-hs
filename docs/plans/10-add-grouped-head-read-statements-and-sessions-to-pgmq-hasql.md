@@ -102,7 +102,7 @@ here would fail with a PostgreSQL error saying the function does not exist. Chec
 The repository root is `/Users/shinzui/Keikaku/bokuno/libraries/pgmq-hs-project/pgmq-hs`.
 All paths below are relative to it, and every command runs from there.
 
-Enter the development shell first — it provides GHC 9.12.2, `cabal`, and the PostgreSQL
+Enter the development shell first — it provides GHC 9.12.4, `cabal`, and the PostgreSQL
 binaries the tests need:
 
 ```bash

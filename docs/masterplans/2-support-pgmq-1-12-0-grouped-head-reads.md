@@ -56,10 +56,11 @@ of the four existing grouped reads (`readGrouped`, `readGroupedWithPoll`,
 them close to undiscoverable. The two new functions would inherit the same fate. All six are
 exposed on the umbrella API, together, as part of this initiative.
 
-**Explicitly out of scope.** Upstream's ~30 other commits between v1.11.0 and v1.12.0 are all
-changes to upstream's *Rust* client (`pgmq-rs`) — a `Queue` trait, diesel and rust-postgres
-implementations, dependency upgrades. They have no SQL surface and therefore no bearing on a
-Haskell client. Also out of scope: publishing to Hackage (the release here is a repository
+**Explicitly out of scope.** Upstream landed 42 commits between `v1.11.0` and the pinned
+`08ace40`; only five touch `pgmq-extension/sql/`, and the rest are upstream's *Rust* client
+(`pgmq-rs`) — a `Queue` trait, diesel and rust-postgres implementations, dependency upgrades —
+plus docs, CI, and packaging. None of the excluded commits changes the SQL surface a Haskell
+client sees. Also out of scope: publishing to Hackage (the release here is a repository
 commit and version bump; publishing should be a separate, human-reviewed step), and any change
 to the pgmq 1.11 schema contract used for legacy history import (see the Decision Log — changing
 it would break existing users).
@@ -243,7 +244,10 @@ they are a user-visible contract.)*
 
 EP-11's traced interpreter labels the new operations `"pgmq.read_grouped_head"` and
 `"pgmq.read_grouped_head_with_poll"`. These strings appear in users' trace viewers and in their
-alerting queries. Note the convention, which surprises people: the OpenTelemetry span *name* is
+alerting queries. The interpreter emits each value under **two** attribute keys — the legacy
+`db.operation` and the OpenTelemetry 1.24 `db.operation.name` (see
+`pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs` and `docs/plans/6-otel-semantic-conventions-v1-24.md`) —
+so both move together and neither may be labelled independently. Note the convention, which surprises people: the OpenTelemetry span *name* is
 derived from the messaging operation and the queue (`"receive orders"`), **not** from the SQL
 function — the function name lands only in the `db.operation` attribute. So every pgmq read
 produces a span named `receive <queue>`, and they are told apart by `db.operation`. EP-11's test
@@ -276,13 +280,43 @@ have `read_grouped_head`. Adding 1.12.0 functions to the list would cause the im
 reject exactly the databases it exists to accept. It stays pinned at 1.11. This is recorded in
 EP-9's Decision Log too.
 
+**7. The migration ledger and the schema-convergence test.** *(EP-9 owns within this
+MasterPlan; **shared with MasterPlan 3 EP-14**, which also adds a migration.)*
+
+`pgmq-migration/migrations/manifest` and the numbered SQL files in that directory are appended
+to by two plans on two different MasterPlans: EP-9 adds `0003-upgrade-v1.12.0.sql`, and
+`docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md`
+adds a further migration containing three `CREATE OR REPLACE FUNCTION` statements
+(`pgmq.notify_queue_listeners`, `pgmq.enable_notify_insert`, `pgmq.create_partitioned`).
+Neither plan reserves a number in advance; whichever lands second reads the live manifest and
+claims the next free one. Both MasterPlans record this rule identically.
+
+There is a second, sharper coupling that numbering alone does not cover. **EP-9's
+schema-convergence test asserts that every `pgmq` function's `pg_proc.prosrc` after the full
+migration ledger equals a fresh install of the vendored upstream `pgmq.sql`.** EP-14's
+migration deliberately makes three functions diverge from upstream — that divergence is its
+whole point. So:
+
+- If EP-9 lands first (the expected order), EP-14 **will** break EP-9's convergence test on
+  those three function bodies, and the failure is correct behaviour rather than a defect.
+- The convergence test must therefore be written from the outset with an explicit,
+  named allowlist of functions that pgmq-hs deliberately redefines locally, empty when EP-9
+  lands and extended by whichever plan introduces a deviation. The allowlist compares
+  signatures only for listed functions and full bodies for everything else, so the guarantee
+  is narrowed exactly where a deliberate decision was recorded and nowhere else.
+- Silencing the failure by dropping body comparison wholesale is forbidden: that would discard
+  the guarantee for the ~55 functions that must still match upstream byte-for-byte.
+
+EP-9 owns building the mechanism; EP-14 owns adding its three entries to it. EP-12 must not
+release with a red or weakened convergence test.
+
 
 ## Progress
 
 - [ ] EP-9: Vendor subtree advanced to upstream commit `08ace4087dbf00e51704c5a3d9df2e15fd566127`, new upgrade scripts verified free of extension-only SQL.
 - [ ] EP-9: `0003-upgrade-v1.12.0.sql` added and wired into the manifest; `pgmq-migration` builds.
 - [ ] EP-9: Existing tests updated for a three-migration component; byte-provenance re-pointed at `0003`, `0001` pinned by MD5.
-- [ ] EP-9: Schema-convergence test proves the `0001 + 0003` upgrade path matches a fresh install of the vendored 1.12.0 `pgmq.sql`.
+- [ ] EP-9: Schema-convergence test proves the `0001 + 0002 + 0003` upgrade path matches a fresh install of the vendored 1.12.0 `pgmq.sql`, with an explicit (initially empty) allowlist for functions pgmq-hs deliberately redefines locally.
 - [ ] EP-9: `docs/user/schema-migration.md`, `CLAUDE.md`, and the vendoring design note updated.
 - [ ] EP-10: `readGroupedHead` / `readGroupedHeadWithPoll` `Statement` values added to `pgmq-hasql`.
 - [ ] EP-10: Session wrappers added and exported.
@@ -295,7 +329,7 @@ EP-9's Decision Log too.
 - [ ] EP-12: `Pgmq` umbrella exports all six grouped reads plus `ReadGrouped(..)` / `ReadGroupedWithPoll(..)`.
 - [ ] EP-12: `Pgmq.Effectful` umbrella exports the same.
 - [ ] EP-12: `UmbrellaExportsSpec` in both packages makes a dropped export a compile error.
-- [ ] EP-12: MasterPlan 3 EP-13, EP-14, and EP-15 confirmed complete before any version bump.
+- [ ] EP-12: MasterPlan 3 EP-13, EP-14, and EP-15 confirmed complete before any version bump; schema-convergence test green with EP-14's three deliberate deviations allowlisted.
 - [ ] EP-12: All five packages bumped to 0.5.0.0; six complete changelogs cover grouped-head support and every hardening change.
 - [ ] EP-12: README, user docs, and design notes updated; all keiro/shibuya bounds and shibuya source migrated; consumer matrix recorded; release commit made.
 
@@ -319,10 +353,20 @@ $ git -C <upstream> log -1 --format='%H %s' origin/main
 08ace4087dbf00e51704c5a3d9df2e15fd566127 prepare extension v1.12.0 (#566)
 ```
 
-**The SQL delta is far smaller than the commit count suggests.** Roughly forty commits landed
-upstream between v1.11.0 and v1.12.0, but nearly all are changes to upstream's Rust client. The
-entire SQL surface change is two new functions, one dropped function overload, and some
-`pg_dump` housekeeping. A reviewer who counts commits will badly overestimate this initiative.
+**The SQL delta is far smaller than the commit count suggests.** 42 commits landed upstream
+between `v1.11.0` and the pinned `08ace40`, but only five touch `pgmq-extension/sql/` and the
+net change to `pgmq.sql` is 100 inserted and 10 deleted lines. The entire SQL surface change is
+two new functions, one dropped function overload, some `pg_dump` housekeeping, and a relocation
+of the `pg_monitor` grants. A reviewer who counts commits will badly overestimate this
+initiative.
+
+**The relocated `pg_monitor` grants are cosmetic and do not threaten convergence.** Upstream
+moved the `GRANT ... TO pg_monitor` / `ALTER DEFAULT PRIVILEGES` block in `pgmq.sql` from after
+the table definitions to immediately after `pgmq.meta`, precisely so a fresh install's `pg_dump`
+matches an upgraded database's; the upgrade scripts have no counterpart statement. The resulting
+`relacl` on all three `pgmq` tables and the `pg_default_acl` rows are identical either way,
+because `ALTER DEFAULT PRIVILEGES` bakes its grant into `relacl` at table-creation time. EP-9's
+snapshot does not compare ACLs in any case, so this cannot produce a false failure.
 
 **The new functions have identical signatures to functions we already support.**
 `read_grouped_head(text,integer,integer)` matches `read_grouped_rr`, and
@@ -366,6 +410,26 @@ crash-safety migration, queue-name validation, transient-classification correcti
 broader consumer-bound surface. EP-12 is now the single join/release plan instead of allowing
 MasterPlan 3 to choose a conditional last lander.
 
+**MasterPlan 3 EP-14's migration collides with EP-9's convergence test, and neither plan
+said so.** Found during validation on 2026-08-05. EP-14 adds three `CREATE OR REPLACE FUNCTION`
+statements that intentionally diverge from upstream, while EP-9's convergence test asserts every
+`pg_proc.prosrc` matches a fresh vendored install; EP-9's guidance for a body mismatch was
+"that is a real upstream divergence — open an upstream issue", which would misdiagnose a
+deliberate local change as an upstream bug. Neither MasterPlan's Integration Points listed the
+migration directory as shared. Fixed by Integration Point 7 and by giving the convergence test
+an explicit deviation allowlist from the outset. The manifest-numbering half of the collision
+*was* already handled — MasterPlan 3 tells EP-14 to read the live manifest rather than reserve
+a number.
+
+**Mori reports more package-level consumers than EP-12 names.** `mori registry dependents
+shinzui/pgmq-hs --packages` lists package-level pgmq dependencies in `mori://shinzui/mori-app`,
+`mori://shinzui/mori-rei-app`, and `mori://tan/mls-service-v2` (the last depends on four pgmq
+packages directly) in addition to the in-scope `mori://shinzui/keiro` and
+`mori://shinzui/shibuya-pgmq-adapter` and the explicitly-retained `mori://shinzui/rei`. EP-12's
+rollout already requires every newly discovered consumer to be classed as upgraded or
+deliberately retained, so the process covers them; they are named here so the matrix cannot
+quietly omit them.
+
 
 ## Decision Log
 
@@ -403,6 +467,29 @@ MasterPlan 3 to choose a conditional last lander.
   state and eliminates competing last-lander instructions.
   Date: 2026-07-23
 
+- Decision: Build the schema-convergence test with an explicit allowlist of functions that
+  pgmq-hs deliberately redefines away from upstream, rather than an unconditional
+  every-function-body equality assertion.
+  Rationale: MasterPlan 3 EP-14's migration redefines `pgmq.notify_queue_listeners`,
+  `pgmq.enable_notify_insert`, and `pgmq.create_partitioned` on purpose, so an unconditional
+  assertion turns red the moment that plan lands, on a change that is correct. The two
+  alternatives are both worse: dropping body comparison entirely discards the guarantee for
+  every other function, which is the whole reason the test exists; and making EP-9 a hard
+  dependency of EP-14 (or vice versa) invents an ordering constraint where only a shared
+  mechanism is needed. The allowlist keeps the strong guarantee everywhere it still applies and
+  forces each deviation to be named where a reader will find the decision that authorised it.
+  Recorded in EP-9's Decision Log as well, since EP-9 builds the mechanism.
+  Date: 2026-08-05
+
+- Decision: Record cross-repository consumers as `mori://` URIs in this MasterPlan and its
+  children rather than as bare absolute filesystem paths.
+  Rationale: The global agent instructions require canonical `mori://` URIs for durable
+  cross-repository references. EP-12's rollout section identified keiro and shibuya only by
+  machine-local absolute paths, which do not survive a different checkout root and do not name
+  the owning project. Commands that must run in a working tree still show a resolved path, but
+  the reference itself is now the URI.
+  Date: 2026-08-05
+
 
 ## Outcomes & Retrospective
 
@@ -415,3 +502,20 @@ MasterPlan 3 to choose a conditional last lander.
 single 0.5.0.0 release and consumer-rollout owner, corrected the PVP rationale to account for
 the breaking `Maybe Message` results, and expanded release acceptance to complete changelogs,
 all keiro/shibuya components, and a Mori-backed consumer matrix.
+
+2026-08-05: Validation pass against upstream pgmq, the vendored tree, and the working tree.
+Every load-bearing claim was re-verified and held: the pin `08ace40` is still `origin/main` and
+upstream still has no `v1.12.0` tag; the two new functions' signatures match `read_grouped_rr`
+and `read_grouped_rr_with_poll` exactly; `pgmq--1.11.1--1.12.0.sql` really does contain exactly
+one statement; the `enable_notify_insert(text)` drop is a no-op against this repository's
+two-argument declaration; all five library packages are at 0.4.0.1; the schema contract lists
+exactly 58 functions; none of the four existing grouped reads is exported from `Pgmq` or
+`Pgmq.Effectful`; and `pgmq-effectful` has no grouped-read test of any kind while no grouped
+polling test exists anywhere. Changes made: added Integration Point 7 covering the migration
+ledger shared with MasterPlan 3 EP-14 and the convergence-test deviation allowlist that
+collision requires; recorded the allowlist and `mori://` reference decisions in the Decision
+Log; corrected the upstream commit characterisation (42 commits, five touching SQL) in both
+Vision and Surprises; documented that the relocated `pg_monitor` grants cannot cause a false
+convergence failure; noted that the traced interpreter emits `db.operation.name` alongside
+`db.operation`; named the three additional Mori-reported package-level consumers; and fixed the
+`0001 + 0003` progress item to `0001 + 0002 + 0003`.

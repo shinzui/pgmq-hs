@@ -60,7 +60,7 @@ and that the upgraded schema is indistinguishable from a fresh 1.12.0 install.
 - [ ] Milestone 1: vendor tree advanced to upstream pgmq at commit `08ace4087dbf00e51704c5a3d9df2e15fd566127` ("prepare extension v1.12.0"), with the two new upgrade scripts present under `vendor/pgmq/pgmq-extension/sql/` and confirmed free of extension-only SQL patterns.
 - [ ] Milestone 2: `pgmq-migration/migrations/0003-upgrade-v1.12.0.sql` added, listed in the manifest, and the two new vendored upgrade scripts added to `extra-source-files`; `cabal build pgmq-migration` succeeds.
 - [ ] Milestone 3: `pgmq-migration/test/Main.hs` updated — byte-provenance test re-pointed at `0003`, `0001` baseline pinned by hash, migration counts and history-import outcome lists updated from two migrations to three; `cabal test pgmq-migration:pgmq-migration-test` passes.
-- [ ] Milestone 4: schema-convergence test added proving the `0001 + 0002 + 0003` upgrade path produces the same `pgmq` schema as a fresh install of the vendored 1.12.0 `pgmq.sql`; suite passes.
+- [ ] Milestone 4: schema-convergence test added proving the `0001 + 0002 + 0003` upgrade path produces the same `pgmq` schema as a fresh install of the vendored 1.12.0 `pgmq.sql`, carrying an explicit (initially empty) allowlist of functions this repository deliberately redefines; suite passes.
 - [ ] Milestone 5: `docs/user/schema-migration.md` and `CLAUDE.md` updated to describe the three-migration component; `nix fmt` clean.
 
 
@@ -92,6 +92,11 @@ and that the upgraded schema is indistinguishable from a fresh 1.12.0 install.
   Date: 2026-07-14
 
 
+- Decision: Write the schema-convergence test with a deliberate-deviation allowlist (signature-only comparison for listed functions, signature-and-body for all others), empty when this plan lands.
+  Rationale: `docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md` adds a later migration that redefines `pgmq.notify_queue_listeners`, `pgmq.enable_notify_insert`, and `pgmq.create_partitioned` on purpose. An unconditional body-equality assertion turns red the moment that lands, on a correct change, and the tempting repair — deleting the body comparison — would throw away the guarantee for the other ~55 functions, which is the only reason this test exists. Making the two plans hard dependencies of each other was rejected: they need a shared mechanism, not an ordering. This also means a body mismatch has two distinct diagnoses, and the plan now tells you how to tell them apart. Recorded in `docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md` Integration Point 7 as well.
+  Date: 2026-08-05
+
+
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
@@ -105,7 +110,7 @@ The repository root is `/Users/shinzui/Keikaku/bokuno/libraries/pgmq-hs-project/
 All paths below are relative to it. Every command in this plan is run from the repository
 root unless stated otherwise.
 
-Enter the development shell first — it provides GHC 9.12.2, `cabal`, and PostgreSQL
+Enter the development shell first — it provides GHC 9.12.4, `cabal`, and PostgreSQL
 binaries:
 
 ```bash
@@ -496,17 +501,37 @@ at the offending object rather than at an arbitrary reordering.
 not include the schema comment in the snapshot, or the test will fail for a reason that is
 not a defect. (Do not "fix" this by removing `0002` — the canary is a deliberate feature.)
 
-**If the test fails on function bodies.** Before assuming your concatenation is wrong,
-check whether the divergence is upstream's. Two facts are already established and should
-reassure you: the body of `pgmq._ensure_pg_partman_installed` is byte-identical between
-upstream `v1.11.0` and upstream `main` (verified by diffing them), so its `CREATE OR REPLACE`
-in the upgrade script is a genuine no-op; and the bodies of `read_grouped_head` and
-`read_grouped_head_with_poll` are character-for-character the same in the upgrade scripts as
-in `pgmq.sql`, including an idiosyncratic stray tab before `WHERE q.vt <= clock_timestamp()`.
-So the bodies are expected to match. If they nonetheless do not, that is a real upstream
-divergence: record it in Surprises & Discoveries with the exact diff, narrow the snapshot to
-signatures only so the suite still guards object identity, and open an upstream issue. Do not
-paper over it by weakening the test silently.
+**Give the test a deliberate-deviation allowlist from the start, even though it is empty
+today.** Define, next to the test, a named list of `pgmq` function signatures that this
+repository knowingly redefines away from upstream. For any function on that list, compare the
+signature only; for every function not on it, compare signature *and* body. When you write the
+test the list is empty and every body is compared.
+
+The list is not speculative. `docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md`,
+under `docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md`, ships a
+later migration whose whole purpose is to redefine three functions —
+`pgmq.notify_queue_listeners`, `pgmq.enable_notify_insert`, and `pgmq.create_partitioned` —
+with crash-fallback, advisory-locking, and idempotence behaviour upstream does not have. When
+that plan lands it adds those three signatures to this list, with a comment pointing at the
+decision that authorised each. Without the mechanism, that plan turns this test red on a change
+that is correct, and the obvious "fix" — deleting the body comparison — would silently discard
+the guarantee for the other ~55 functions. Document the list's contract in a comment above it:
+*an entry means "pgmq-hs deliberately owns this function's body; a plan recorded why".*
+
+**If the test fails on function bodies.** First check whether the function is one this
+repository deliberately owns (the allowlist above) — if a hardening plan has landed a
+redefinition and not allowlisted it, that is the bug, and the fix is the allowlist entry plus
+its justifying comment, not a weaker assertion. Otherwise, check whether the divergence is
+upstream's. Two facts are already established and should reassure you: the body of
+`pgmq._ensure_pg_partman_installed` is byte-identical between upstream `v1.11.0` and upstream
+`main` (verified by diffing them), so its `CREATE OR REPLACE` in the upgrade script is a
+genuine no-op; and the bodies of `read_grouped_head` and `read_grouped_head_with_poll` are
+character-for-character the same in the upgrade scripts as in `pgmq.sql`, including an
+idiosyncratic stray tab before `WHERE q.vt <= clock_timestamp()`. So the bodies are expected to
+match. If they nonetheless do not, that is a real upstream divergence: record it in Surprises &
+Discoveries with the exact diff, narrow the snapshot to signatures only so the suite still
+guards object identity, and open an upstream issue. Do not paper over it by weakening the test
+silently.
 
 **Acceptance.** The new test passes. Then prove it is not vacuous: temporarily remove the
 `read_grouped_head` definition from `0003-upgrade-v1.12.0.sql`, re-run the suite, and confirm

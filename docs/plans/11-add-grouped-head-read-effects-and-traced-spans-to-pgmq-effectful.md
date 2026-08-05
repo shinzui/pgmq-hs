@@ -101,7 +101,7 @@ That must print the exports and definitions of `readGroupedHead` and
 
 The repository root is `/Users/shinzui/Keikaku/bokuno/libraries/pgmq-hs-project/pgmq-hs`.
 All paths are relative to it and all commands run from there. Enter the development shell
-first, which provides GHC 9.12.2, `cabal`, and the PostgreSQL binaries the tests need:
+first, which provides GHC 9.12.4, `cabal`, and the PostgreSQL binaries the tests need:
 
 ```bash
 nix develop

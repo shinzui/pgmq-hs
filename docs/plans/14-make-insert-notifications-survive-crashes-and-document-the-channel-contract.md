@@ -53,8 +53,9 @@ immediate-shutdown restart.
       re-creating
       `pgmq.notify_queue_listeners` (fail-open fallback), `pgmq.enable_notify_insert`
       (advisory lock + COALESCE-250 guard, absorbing plan 13's server-side half), and
-      `pgmq.create_partitioned` (pg_partman idempotence guard); manifest updated;
-      migration + hasql + config suites green; M1 crash test green.
+      `pgmq.create_partitioned` (pg_partman idempotence guard); manifest updated; all three
+      functions allowlisted in MasterPlan 2 plan 9's schema-convergence test if that test
+      exists yet; migration + hasql + config suites green; M1 crash test green.
 - [ ] M3 (channel contract): `notifyChannelName` exported from `Pgmq.Types`; the false
       haddock in `QueueManagement.hs` corrected; LISTEN round-trip test green
       (notification received on exactly the channel the helper computes); poll-fallback
@@ -364,6 +365,20 @@ function, and `vendor/pgmq/pgmq-extension/sql/pgmq.sql`. Use the newest effectiv
 base and add only the changes described below. Do not blindly re-create the 1.11.0 body over a
 newer upstream definition. Record the comparison and chosen base commit in Surprises &
 Discoveries.
+
+**If MasterPlan 2 plan 9 has already landed, you must also allowlist these three functions in
+its schema-convergence test, in the same commit as this migration.** That test asserts that
+every `pgmq` function body after the full migration ledger matches a fresh install of the
+vendored upstream `pgmq.sql`. All three functions below deliberately diverge from upstream, so
+without the allowlist entries `cabal test pgmq-migration:pgmq-migration-test` goes red on a
+change that is correct. Plan 9 builds the allowlist for exactly this purpose (see
+`docs/plans/9-vendor-pgmq-1-12-0-and-add-the-native-schema-migration.md`, Milestone 4, and
+Integration Point 7 of `docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md`). Add one
+entry per function with a comment naming the decision here that authorises the deviation. Do
+**not** repair the failure by removing the body comparison — that would drop the guarantee for
+every function this repository does *not* own. If plan 9 has not landed yet, there is no
+convergence test and nothing to do; plan 9 lands with an empty allowlist and its own tests
+still pass.
 
 First, the trigger function — the effective body (the 1.11.0 baseline is at install SQL lines
 1566-1592) plus the fail-open branch:

@@ -130,7 +130,7 @@ Both counts must be greater than zero.
 
 The repository root is `/Users/shinzui/Keikaku/bokuno/libraries/pgmq-hs-project/pgmq-hs`.
 All paths are relative to it and all commands run from there. Enter the development shell
-first — it provides GHC 9.12.2, `cabal`, and the PostgreSQL binaries the tests need:
+first — it provides GHC 9.12.4, `cabal`, and the PostgreSQL binaries the tests need:
 
 ```bash
 nix develop
@@ -476,11 +476,13 @@ checkout's `pgmq-core`, `pgmq-hasql`, `pgmq-effectful`, `pgmq-migration`, and `p
 directories to the existing `packages:` stanza, and invoke Cabal with
 `--project-file=cabal.project.release-candidate`. Never commit this machine-local file.
 
-In `/Users/shinzui/Keikaku/bokuno/keiro/keiro-pgmq/keiro-pgmq.cabal`, update every library and
-test-suite pgmq family bound to `>=0.5 && <0.6`, including `pgmq-migration`, then run:
+In `mori://shinzui/keiro`, package `keiro-pgmq` (resolve the checkout with
+`mori path mori://shinzui/keiro`; at time of writing `/Users/shinzui/Keikaku/bokuno/keiro`),
+update every library and test-suite pgmq family bound in `keiro-pgmq/keiro-pgmq.cabal` to
+`>=0.5 && <0.6`, including `pgmq-migration`, then run:
 
 ```bash
-cd /Users/shinzui/Keikaku/bokuno/keiro
+cd "$(mori path mori://shinzui/keiro | tail -1)"
 cabal --project-file=cabal.project.release-candidate \
   test keiro-pgmq-test --test-show-details=direct
 ```
@@ -490,7 +492,9 @@ grown, record the new baseline rather than forcing the old count; failures must 
 Keiro's three visibility-timeout calls discard the result with `void`, so no source change is
 expected.
 
-In `/Users/shinzui/Keikaku/bokuno/shibuya-project/shibuya-pgmq-adapter`, update **every**
+In `mori://shinzui/shibuya-pgmq-adapter` (resolve with
+`mori path mori://shinzui/shibuya-pgmq-adapter`; at time of writing
+`/Users/shinzui/Keikaku/bokuno/shibuya-project/shibuya-pgmq-adapter`), update **every**
 `^>=0.4` pgmq bound, not only the adapter library:
 
 - the library and test-suite stanzas in
@@ -507,7 +511,7 @@ visibility-time tracking unchanged.
 Validate the whole repository, including components that the old `just test` command skipped:
 
 ```bash
-cd /Users/shinzui/Keikaku/bokuno/shibuya-project/shibuya-pgmq-adapter
+cd "$(mori path mori://shinzui/shibuya-pgmq-adapter | tail -1)"
 cabal --project-file=cabal.project.release-candidate \
   build all --enable-tests --enable-benchmarks
 cabal --project-file=cabal.project.release-candidate \
@@ -515,9 +519,14 @@ cabal --project-file=cabal.project.release-candidate \
 ```
 
 Finally, preserve a rollout matrix in this plan's Outcomes & Retrospective. Mori currently
-finds direct `^>=0.4` pins in rei. Rei is out of scope and may continue resolving the published
-0.4 family; state that explicitly. Any newly discovered consumer must be assigned one of two
-states with evidence: upgraded and tested on 0.5, or intentionally retained on 0.4. Do not use
+finds direct `^>=0.4` pins in `mori://shinzui/rei` (package `rei-core`). Rei is out of scope and
+may continue resolving the published 0.4 family; state that explicitly. Mori also reports
+package-level pgmq dependencies in `mori://shinzui/mori-app`, `mori://shinzui/mori-rei-app`,
+and `mori://tan/mls-service-v2` — the last depends directly on `pgmq-core`, `pgmq-hasql`,
+`pgmq-effectful`, and `pgmq-migration`, and is in a different owning namespace. Classify each
+of them explicitly; do not let the inventory step silently drop a consumer it did find. Any
+newly discovered consumer must be assigned one of two states with evidence: upgraded and tested
+on 0.5, or intentionally retained on 0.4. Do not use
 "all consumers upgraded" when the matrix contains retained consumers.
 
 **Acceptance.** Every keiro and shibuya bound in scope names 0.5, shibuya source handles the
