@@ -58,9 +58,9 @@ and that the upgraded schema is indistinguishable from a fresh 1.12.0 install.
 ## Progress
 
 - [ ] Milestone 1: vendor tree advanced to upstream pgmq at commit `08ace4087dbf00e51704c5a3d9df2e15fd566127` ("prepare extension v1.12.0"), with the two new upgrade scripts present under `vendor/pgmq/pgmq-extension/sql/` and confirmed free of extension-only SQL patterns.
-- [ ] Milestone 2: `pgmq-migration/migrations/0003-upgrade-v1.12.0.sql` added, listed in the manifest, and the two new vendored upgrade scripts added to `extra-source-files`; `cabal build pgmq-migration` succeeds.
-- [ ] Milestone 3: `pgmq-migration/test/Main.hs` updated — byte-provenance test re-pointed at `0003`, `0001` baseline pinned by hash, migration counts and history-import outcome lists updated from two migrations to three; `cabal test pgmq-migration:pgmq-migration-test` passes.
-- [ ] Milestone 4: schema-convergence test added proving the `0001 + 0002 + 0003` upgrade path produces the same `pgmq` schema as a fresh install of the vendored 1.12.0 `pgmq.sql`, carrying an explicit (initially empty) allowlist of functions this repository deliberately redefines; suite passes.
+- [ ] Milestone 2: `<NNNN>-upgrade-v1.12.0.sql` added at the next free manifest number (`0003` if this plan lands first, `0004` if plan 14's migration is already there), listed in the manifest, and the two new vendored upgrade scripts added to `extra-source-files`; `cabal build pgmq-migration` succeeds.
+- [ ] Milestone 3: `pgmq-migration/test/Main.hs` updated — byte-provenance test re-pointed at the new migration, `0001` baseline pinned by hash, migration counts and history-import outcome lists grown by one from whatever the live manifest holds; `cabal test pgmq-migration:pgmq-migration-test` passes.
+- [ ] Milestone 4: schema-convergence test added proving the full migration ledger produces the same `pgmq` schema as a fresh install of the vendored 1.12.0 `pgmq.sql`, carrying an explicit deliberate-deviation allowlist — seeded with plan 14's three functions if that migration has landed, empty otherwise; suite passes.
 - [ ] Milestone 5: `docs/user/schema-migration.md` and `CLAUDE.md` updated to describe the three-migration component; `nix fmt` clean.
 
 
@@ -75,7 +75,11 @@ and that the upgraded schema is indistinguishable from a fresh 1.12.0 install.
   Rationale: Upstream has not tagged `v1.12.0` yet. Its newest tag is `v1.11.1`; the tip of `main` is the commit `prepare extension v1.12.0 (#566)`, which sets `default_version = '1.12.0'` in `pgmq.control`. `CLAUDE.md` instructs a tag-based `git subtree pull`, which cannot run as written. Pinning to the exact SHA gives identical bytes with reproducible provenance and unblocks the rest of the initiative. A follow-up re-pull once the tag lands should be a byte-level no-op; if it is not, that is a real upstream change and must be reviewed.
   Date: 2026-07-14
 
-- Decision: Keep `pgmq-migration/migrations/0001-install-v1.11.0.sql` byte-for-byte immutable and add the 1.12.0 changes as a new appended migration `0003-upgrade-v1.12.0.sql`.
+- Decision: Do not reserve a migration number. Read `pgmq-migration/migrations/manifest` at implementation time and claim the next free one; this plan's `0003-upgrade-v1.12.0.sql` is an illustration of the filename, and the slug is the part that is fixed.
+  Rationale: The decision on 2026-08-05 to implement `docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md` first means its plan 14 migration will very likely occupy `0003` before this plan runs, making this one `0004`. External keiro MasterPlan 17 plans 116 and 118 may also append. A plan that hard-codes a number silently collides with whatever actually landed, and the manifest is the executable authority in a way no plan can be. Ordering is safe in both directions: the vendored upgrade scripts redefine only `read_grouped_head`, `_ensure_pg_partman_installed`, and `read_grouped_head_with_poll`, none of which plan 14 touches, so neither migration can clobber the other (verified 2026-08-05).
+  Date: 2026-08-05
+
+- Decision: Keep `pgmq-migration/migrations/0001-install-v1.11.0.sql` byte-for-byte immutable and add the 1.12.0 changes as a new appended migration (`0003-upgrade-v1.12.0.sql` if this plan lands first).
   Rationale: `CLAUDE.md` mandates it, but there is a concrete mechanical reason too. `pgmq-migration` embeds migration bytes at compile time and the `hasql-migration` history-import route in `pgmq-migration/src/Pgmq/Migration/History/HasqlMigration.hs` re-hashes the bytes of the *first* manifest entry (`directPayload = case embeddedMigrationEntries of (_, payload) :| _ -> payload`) and compares the MD5 against a checksum recorded in a user's pre-existing legacy ledger (`+qm4gAAF+A+99qM9BxGD0g==`). Editing `0001` would change that hash and would make every existing user's history import fail with `HasqlMigrationChecksumMismatch`. Appending is safe; editing or reordering is not.
   Date: 2026-07-14
 
@@ -303,9 +307,40 @@ accept it.
 prints `1.12.0`; the grep for `ALTER EXTENSION` and `@extschema@` across the two new scripts
 returns nothing.
 
-### Milestone 2 — Add the `0003` migration and wire it into the build
+### Milestone 2 — Add the upgrade migration and wire it into the build
 
-**Scope.** Create `pgmq-migration/migrations/0003-upgrade-v1.12.0.sql` as the byte-exact
+> **Read this before you create any file: your migration number may not be `0003`.**
+>
+> This plan writes the new migration as `0003-upgrade-v1.12.0.sql` throughout, because `0003`
+> was the next free number when the plan was authored. **That is an illustration, not a
+> reservation.** The manifest is the only authority. Run:
+>
+> ```bash
+> cat pgmq-migration/migrations/manifest
+> ```
+>
+> and claim the next free sequential number after every entry actually present, leaving no
+> gap. As of 2026-08-05 the decision is to implement
+> `docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md` **first**,
+> and its plan
+> `docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md`
+> also appends a migration — so if that has landed, the manifest already holds three entries
+> and yours is `0004-upgrade-v1.12.0.sql`. Wherever this plan says `0003`, substitute the
+> number you actually claimed; the slug `upgrade-v1.12.0` does not change. Two consequences
+> follow, both handled where they arise below: Milestone 3's counts go from *N* to *N+1*
+> rather than specifically from two to three, and Milestone 4's convergence allowlist starts
+> populated rather than empty.
+>
+> Ordering is safe in either direction. The two vendored upgrade scripts contain only four
+> top-level statements between them — `CREATE OR REPLACE` of `pgmq.read_grouped_head`,
+> `pgmq._ensure_pg_partman_installed`, and `pgmq.read_grouped_head_with_poll`, plus
+> `DROP FUNCTION IF EXISTS pgmq.enable_notify_insert(queue_name text)`. None of them touches
+> the three functions plan 14 hardens (`pgmq.notify_queue_listeners`,
+> `pgmq.enable_notify_insert(text,integer)`, `pgmq.create_partitioned`), and that `DROP`
+> targets a one-argument overload this repository never had. So this migration applied after
+> plan 14's cannot clobber its work. Verified 2026-08-05.
+
+**Scope.** Create the new migration file as the byte-exact
 concatenation of the two new vendored upgrade scripts, add it to the manifest, and add the
 two vendored scripts to the package's `extra-source-files` so they ship in the source
 tarball (the test suite reads them from disk to verify provenance). At the end of this
@@ -317,7 +352,8 @@ test asserts it yet.
 `pgmq-migration/migrations/0003-upgrade-v1.12.0.sql` — new file, generated, never
 hand-edited. Generate it with the `cat` command in Concrete Steps rather than typing SQL.
 
-`pgmq-migration/migrations/manifest` — append one line. The file must end up as exactly:
+`pgmq-migration/migrations/manifest` — append one line. If nothing else has landed since this
+plan was authored, the file ends up as exactly:
 
 ```text
 0001-install-v1.11.0.sql
@@ -325,7 +361,10 @@ hand-edited. Generate it with the `cat` command in Concrete Steps rather than ty
 0003-upgrade-v1.12.0.sql
 ```
 
-Order matters: it is application order. `0003` goes last. Never reorder the existing lines —
+If plan 14's migration landed first, its filename sits at line 3 and yours becomes line 4.
+Either way you **append**; you never insert.
+
+Order matters: it is application order. Your new entry goes last. Never reorder existing lines —
 `HasqlMigration.hs` takes `head` of the embedded entries to find the `0001` payload whose
 MD5 it must match, so moving `0001` off the front silently breaks history import for every
 existing user.
@@ -414,8 +453,11 @@ legacy `public.schema_migrations` table, and the `pgmigrate` ledger schema betwe
    leaving a stale name is exactly the kind of thing that misleads the next reader.
 
 3. **`testNativeRunner`.** It runs the plan twice and asserts the per-migration outcome
-   lists `[AppliedNow, AppliedNow]` then `[AlreadyApplied, AlreadyApplied]`. Both become
-   three-element lists. While you are here, extend its post-conditions: it already asserts
+   lists `[AppliedNow, AppliedNow]` then `[AlreadyApplied, AlreadyApplied]`. Both grow by one
+   element for the migration you add — to three elements against the two-entry manifest this
+   plan was authored on, or four if plan 14's migration landed first. Read the manifest and
+   count rather than hard-coding the number from this plan. While you are here, extend its
+   post-conditions: it already asserts
    `functionExists c "pgmq.metrics_all()" >>= (@?= True)`. Add the two new functions, which
    is the first place anything actually proves 1.12.0 landed:
 
@@ -428,13 +470,15 @@ legacy `public.schema_migrations` table, and the `pgmigrate` ledger schema betwe
 
 4. **`testDirectHistoryImport` and `testEquivalentHistoryImport`.** Both perform the same
    "canary flow" after importing history: they verify the plan, expect the un-applied
-   migrations to be reported as pending, run the plan, and expect those to apply. With a
-   third migration, the pending list grows. The `issues` assertion currently expects
+   migrations to be reported as pending, run the plan, and expect those to apply. Every
+   migration after `0001` is pending in this flow, so the pending list grows by one for each
+   migration added since this plan was authored. The `issues` assertion currently expects
    `[PendingMigration canaryId]` where `canaryId` is `migrationId "pgmq"
-   "0002-schema-management-comment"`; it must now expect both `0002` and the new
-   `0003-upgrade-v1.12.0` migration ids. The outcome assertion `[AlreadyApplied, AppliedNow]`
-   becomes `[AlreadyApplied, AppliedNow, AppliedNow]`, and the repeated-run assertion
-   `[AlreadyApplied, AlreadyApplied]` becomes a three-element list.
+   "0002-schema-management-comment"`; it must now expect `0002`, your new
+   `upgrade-v1.12.0` migration id, and plan 14's if that landed first — in manifest order.
+   The outcome assertion `[AlreadyApplied, AppliedNow]` gains one `AppliedNow` per added
+   migration, and the repeated-run assertion `[AlreadyApplied, AlreadyApplied]` grows to
+   match. Derive the expected lists from the manifest you actually have.
 
    Do not change the ledger filenames or checksums these tests insert (`'pgmq_v1.11.0'` with
    checksum `'+qm4gAAF+A+99qM9BxGD0g=='`, and the two-step pair). Those describe a *legacy*
@@ -501,22 +545,33 @@ at the offending object rather than at an arbitrary reordering.
 not include the schema comment in the snapshot, or the test will fail for a reason that is
 not a defect. (Do not "fix" this by removing `0002` — the canary is a deliberate feature.)
 
-**Give the test a deliberate-deviation allowlist from the start, even though it is empty
-today.** Define, next to the test, a named list of `pgmq` function signatures that this
-repository knowingly redefines away from upstream. For any function on that list, compare the
-signature only; for every function not on it, compare signature *and* body. When you write the
-test the list is empty and every body is compared.
+**Give the test a deliberate-deviation allowlist.** Define, next to the test, a named list of
+`pgmq` function signatures that this repository knowingly redefines away from upstream. For any
+function on that list, compare the signature only; for every function not on it, compare
+signature *and* body. Document the list's contract in a comment above it: *an entry means
+"pgmq-hs deliberately owns this function's body; a plan recorded why".*
 
-The list is not speculative. `docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md`,
+**What the list contains depends on what has landed, so check.**
+`docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md`,
 under `docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md`, ships a
-later migration whose whole purpose is to redefine three functions —
-`pgmq.notify_queue_listeners`, `pgmq.enable_notify_insert`, and `pgmq.create_partitioned` —
-with crash-fallback, advisory-locking, and idempotence behaviour upstream does not have. When
-that plan lands it adds those three signatures to this list, with a comment pointing at the
-decision that authorised each. Without the mechanism, that plan turns this test red on a change
-that is correct, and the obvious "fix" — deleting the body comparison — would silently discard
-the guarantee for the other ~55 functions. Document the list's contract in a comment above it:
-*an entry means "pgmq-hs deliberately owns this function's body; a plan recorded why".*
+migration whose whole purpose is to redefine three functions — `pgmq.notify_queue_listeners`,
+`pgmq.enable_notify_insert`, and `pgmq.create_partitioned` — with crash-fallback,
+advisory-locking, and idempotence behaviour upstream does not have. **As of 2026-08-05 that
+MasterPlan is being implemented first**, so expect the migration to be present already:
+
+```bash
+grep -l 'notify_queue_listeners' pgmq-migration/migrations/*.sql
+```
+
+- **If plan 14's migration is present**, seed the list with those three signatures when you
+  write the test, each with a comment naming the decision in plan 14 that authorised it.
+  Without the entries your new test fails the moment you add it, on behaviour that is correct.
+- **If it is not present**, the list starts empty and every body is compared; plan 14 adds its
+  three entries when it lands.
+
+Either way the mechanism is the same and it is not optional. The tempting shortcut when the
+test goes red — deleting the body comparison — would silently discard the guarantee for the
+other ~55 functions, which is the only reason this test exists.
 
 **If the test fails on function bodies.** First check whether the function is one this
 repository deliberately owns (the allowlist above) — if a hardening plan has landed a
@@ -658,6 +713,14 @@ record.
 
 ### Milestone 2
 
+First fix your migration number from the live manifest, and use it for every command below —
+`0003` here assumes nothing landed since this plan was authored:
+
+```bash
+cat pgmq-migration/migrations/manifest      # what is actually there?
+MIG=0003-upgrade-v1.12.0.sql                # or 0004-... if plan 14's migration is present
+```
+
 Generate the migration by concatenation. **Do not type SQL by hand.** The `printf '\n'`
 between the two files guarantees the second script starts on its own line even if the first
 does not end with a newline:
@@ -667,23 +730,25 @@ does not end with a newline:
   cat vendor/pgmq/pgmq-extension/sql/pgmq--1.11.0--1.11.1.sql
   printf '\n'
   cat vendor/pgmq/pgmq-extension/sql/pgmq--1.11.1--1.12.0.sql
-} > pgmq-migration/migrations/0003-upgrade-v1.12.0.sql
+} > "pgmq-migration/migrations/$MIG"
 ```
 
 Add the manifest line:
 
 ```bash
-printf '0003-upgrade-v1.12.0.sql\n' >> pgmq-migration/migrations/manifest
+printf '%s\n' "$MIG" >> pgmq-migration/migrations/manifest
 cat pgmq-migration/migrations/manifest
 ```
 
-Expected output:
+Expected output, if this plan landed first:
 
 ```text
 0001-install-v1.11.0.sql
 0002-schema-management-comment.sql
 0003-upgrade-v1.12.0.sql
 ```
+
+If plan 14's migration is already present, your entry is the fourth line and follows it.
 
 Edit `pgmq-migration/pgmq-migration.cabal` to add the two vendored upgrade scripts to
 `extra-source-files`, as described in the Plan of Work.
@@ -729,9 +794,9 @@ cabal test pgmq-migration:pgmq-migration-test
 Then prove the test is not vacuous:
 
 ```bash
-# Temporarily break the migration.
-grep -v 'read_grouped_head' pgmq-migration/migrations/0003-upgrade-v1.12.0.sql > /tmp/broken.sql
-cp /tmp/broken.sql pgmq-migration/migrations/0003-upgrade-v1.12.0.sql
+# Temporarily break the migration ($MIG is the filename you claimed in Milestone 2).
+grep -v 'read_grouped_head' "pgmq-migration/migrations/$MIG" > /tmp/broken.sql
+cp /tmp/broken.sql "pgmq-migration/migrations/$MIG"
 cabal test pgmq-migration:pgmq-migration-test   # expect FAILURE naming the missing function
 ```
 
@@ -742,7 +807,7 @@ Restore by regenerating from the vendored source (never by hand-editing):
   cat vendor/pgmq/pgmq-extension/sql/pgmq--1.11.0--1.11.1.sql
   printf '\n'
   cat vendor/pgmq/pgmq-extension/sql/pgmq--1.11.1--1.12.0.sql
-} > pgmq-migration/migrations/0003-upgrade-v1.12.0.sql
+} > "pgmq-migration/migrations/$MIG"
 cabal test pgmq-migration:pgmq-migration-test   # expect PASS
 ```
 

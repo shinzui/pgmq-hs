@@ -169,6 +169,18 @@ EP-11 still form one feature threaded through three layers. The three hardening 
 independent behavior and test surfaces. EP-12 is the join point and must wait for all five
 prerequisites.
 
+**As of 2026-08-05, MasterPlan 3 is being implemented first, by decision.** Nothing in this
+graph forbids it — no plan here is a prerequisite of any hardening plan, and the single
+cross-MasterPlan arrow runs the other way (EP-12 waits on EP-13/14/15), so running MasterPlan 3
+first satisfies that constraint earlier rather than violating it. The consequences are confined
+to EP-9 and are recorded in Integration Point 7: EP-9 claims `0004` rather than `0003`, its
+migration-count test updates grow from three entries to four rather than two to three, and its
+convergence allowlist starts populated with EP-14's three functions instead of empty. One
+scheduling consequence to hold in view: EP-12 is the sole release owner, so completing all of
+MasterPlan 3 ships nothing until this MasterPlan finishes. If the hardening needs to reach
+consumers sooner than the grouped-head work is ready, that is an argument for moving release
+ownership, not for reordering again.
+
 **The one place a reader might expect a dependency and find none:** EP-9 does *not* depend on
 anything, and in particular it does not need to know what the Haskell API will look like. It
 delivers SQL functions; what calls them is not its concern. That is why it can start
@@ -307,8 +319,21 @@ whole point. So:
 - Silencing the failure by dropping body comparison wholesale is forbidden: that would discard
   the guarantee for the ~55 functions that must still match upstream byte-for-byte.
 
-EP-9 owns building the mechanism; EP-14 owns adding its three entries to it. EP-12 must not
-release with a red or weakened convergence test.
+EP-9 owns building the mechanism; EP-14 owns adding its three entries to it — **unless EP-14
+lands first**, in which case EP-9 seeds the list with those three functions when it writes the
+test, because they are already in the ledger by then. As of 2026-08-05 that is the expected
+order: MasterPlan 3 is being implemented first, so EP-9 should plan on a pre-populated list and
+on claiming `0004` rather than `0003`.
+
+Ordering is safe in both directions. The two vendored upgrade scripts contain four top-level
+statements between them — `CREATE OR REPLACE` of `pgmq.read_grouped_head`,
+`pgmq._ensure_pg_partman_installed`, and `pgmq.read_grouped_head_with_poll`, plus
+`DROP FUNCTION IF EXISTS pgmq.enable_notify_insert(queue_name text)` — and none touches the
+three functions EP-14 hardens, while that `DROP` targets a one-argument overload this
+repository never had. So EP-9's migration applied after EP-14's cannot undo the hardening.
+Verified 2026-08-05.
+
+EP-12 must not release with a red or weakened convergence test.
 
 
 ## Progress
@@ -481,6 +506,18 @@ quietly omit them.
   Recorded in EP-9's Decision Log as well, since EP-9 builds the mechanism.
   Date: 2026-08-05
 
+- Decision: Implement `docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md`
+  before this MasterPlan.
+  Rationale: The user's call, and the dependency graph permits it — no plan here is a
+  prerequisite of any hardening plan, and EP-12's dependency on EP-13/14/15 is satisfied
+  earlier, not violated. Verified safe at the SQL level: the vendored 1.11.0→1.12.0 upgrade
+  scripts redefine only `read_grouped_head`, `_ensure_pg_partman_installed`, and
+  `read_grouped_head_with_poll`, so EP-9's migration landing after EP-14's cannot clobber the
+  hardened function bodies. EP-9 was made order-independent rather than left to assume it lands
+  first: migration number read from the live manifest, counts derived from it, allowlist seeded
+  conditionally.
+  Date: 2026-08-05
+
 - Decision: Record cross-repository consumers as `mori://` URIs in this MasterPlan and its
   children rather than as bare absolute filesystem paths.
   Rationale: The global agent instructions require canonical `mori://` URIs for durable
@@ -502,6 +539,12 @@ quietly omit them.
 single 0.5.0.0 release and consumer-rollout owner, corrected the PVP rationale to account for
 the breaking `Maybe Message` results, and expanded release acceptance to complete changelogs,
 all keiro/shibuya components, and a Mori-backed consumer matrix.
+
+2026-08-05 (second): Recorded the decision to implement MasterPlan 3 first and made EP-9
+order-independent so it no longer assumes it lands before EP-14 — migration number read from
+the live manifest instead of hard-coded as `0003`, test counts derived from the manifest rather
+than fixed at "two to three", and the convergence allowlist seeded conditionally. Verified at
+the SQL level that neither migration can clobber the other in either order.
 
 2026-08-05: Validation pass against upstream pgmq, the vendored tree, and the working tree.
 Every load-bearing claim was re-verified and held: the pin `08ace40` is still `origin/main` and

@@ -156,6 +156,17 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
   Rationale: The repository already had one release plan. Giving EP-15 a second "last lander" created competing version, changelog, migration, and consumer-bound ownership. EP-12 now depends on all three hardening plans and consolidates their release work once.
   Date: 2026-07-23
 
+- Decision: Implement this MasterPlan before `docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md`.
+  Rationale: The user's call, and nothing blocks it — EP-13/14/15 have no dependency on
+  MasterPlan 2, and MasterPlan 2 EP-12's dependency on all three is satisfied earlier rather
+  than violated. EP-14 therefore lands its migration first and will find no schema-convergence
+  test to allowlist (that test arrives with MasterPlan 2 EP-9, which now seeds the allowlist
+  with EP-14's three functions). Note the scheduling consequence: EP-12 remains the sole
+  release owner, so finishing this MasterPlan ships nothing to consumers until MasterPlan 2
+  completes. Revisit release ownership if the hardening needs to reach the incoming service
+  fleet before the grouped-head work is ready.
+  Date: 2026-08-05
+
 - Decision: Keep the three defect-family plans independently implementable and model their shared files as integration dependencies rather than inventing hard dependencies.
   Rationale: Their behavior and tests remain independently verifiable, while explicit ownership of `Pgmq.Types`, test registries, the migration ledger, and release artifacts prevents silent clobbering.
   Date: 2026-07-23
@@ -167,6 +178,10 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 
 
 ## Revision Note
+
+2026-08-05 (second): Recorded the decision to implement this MasterPlan first. EP-14 therefore
+expects to claim `0003` and to find no convergence test to allowlist; MasterPlan 2 EP-9 was
+made order-independent to match.
 
 2026-08-05: Recorded the schema-convergence coupling with MasterPlan 2 EP-9 in Integration
 Points, and required EP-14 to allowlist its three deliberately-diverging function bodies in
