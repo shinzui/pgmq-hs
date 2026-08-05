@@ -60,7 +60,10 @@ detachArchive = preparable sql queueNameEncoder D.noResult
 enableNotifyInsert :: Statement EnableNotifyInsert ()
 enableNotifyInsert = preparable sql enableNotifyInsertEncoder D.noResult
   where
-    sql = "select from pgmq.enable_notify_insert($1, $2)"
+    -- The coalesce makes "Nothing = 250ms" true. throttle_interval_ms is NOT NULL
+    -- with a column DEFAULT, but a column DEFAULT does not apply to an explicitly
+    -- supplied NULL, so a bound SQL NULL raised SQLSTATE 23502 on every call.
+    sql = "select from pgmq.enable_notify_insert($1, coalesce($2, 250))"
 
 -- | Disable insert notifications for a queue
 disableNotifyInsert :: Statement QueueName ()

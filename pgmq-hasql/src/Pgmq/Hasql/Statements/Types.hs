@@ -154,8 +154,13 @@ data BatchSendMessageWithHeadersForLater = BatchSendMessageWithHeadersForLater
 data ReadMessage = ReadMessage
   { queueName :: !QueueName,
     delay :: !Delay,
+    -- | Number of messages to read. Nothing = 1, applied via COALESCE in the
+    -- statement (a bound SQL NULL never triggers the plpgsql DEFAULT, and NULL
+    -- in a LIMIT clause means LIMIT ALL).
     batchSize :: !(Maybe Int32),
-    -- | Optional JSONB filter (pgmq 1.5.0+)
+    -- | Optional JSONB containment filter (pgmq 1.5.0+). A message is returned
+    -- only when its body contains this object (SQL @message \@> conditional@).
+    -- Nothing means no filtering.
     conditional :: !(Maybe Value)
   }
   deriving stock (Generic)
@@ -163,9 +168,13 @@ data ReadMessage = ReadMessage
 data ReadWithPollMessage = ReadWithPollMessage
   { queueName :: !QueueName,
     delay :: !Delay,
+    -- | Number of messages to read. Nothing = 1, applied via COALESCE in the
+    -- statement, for the same reason as 'ReadMessage'.
     batchSize :: !(Maybe Int32),
     maxPollSeconds :: !Int32,
     pollIntervalMs :: !Int32,
+    -- | Optional JSONB containment filter (pgmq 1.5.0+). Nothing means no
+    -- filtering.
     conditional :: !(Maybe Value)
   }
   deriving stock (Generic)
@@ -173,7 +182,10 @@ data ReadWithPollMessage = ReadWithPollMessage
 -- | Parameters for popping messages from a queue (pgmq 1.7.0+)
 data PopMessage = PopMessage
   { queueName :: !QueueName,
-    -- | Number of messages to pop (Nothing = default 1)
+    -- | Number of messages to pop. Nothing = 1, applied via COALESCE in the
+    -- statement (a bound SQL NULL never triggers the plpgsql DEFAULT, and NULL
+    -- in a LIMIT clause means LIMIT ALL — which for pop would delete the whole
+    -- queue).
     qty :: !(Maybe Int32)
   }
   deriving stock (Generic)
@@ -181,7 +193,9 @@ data PopMessage = PopMessage
 -- | Enable queue notifications (pgmq 1.7.0+, throttling in 1.8.0+)
 data EnableNotifyInsert = EnableNotifyInsert
   { queueName :: !QueueName,
-    -- | Minimum ms between notifications (Nothing = default 250ms)
+    -- | Minimum ms between notifications. Nothing = 250ms, applied via COALESCE
+    -- in the statement so a bound SQL NULL never reaches the NOT NULL column
+    -- (a column DEFAULT does not apply to an explicitly supplied NULL).
     throttleIntervalMs :: !(Maybe Int32)
   }
   deriving stock (Generic)

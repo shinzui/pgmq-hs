@@ -1,7 +1,12 @@
 # Design Document 010: Fix readMessage NULL conditional handling
 
 ## Status
-**Resolved** - Fixed by using 3-param pgmq.read() version
+**Superseded (2026-08-05)** by design note 014, which restores the conditional
+parameter using `coalesce($4, '{}'::jsonb)`. See "Correction" at the bottom of this
+document: the root cause recorded here does not hold against the vendored pgmq SQL,
+and the solution it describes left `ReadMessage.conditional` silently dead.
+
+Historical status: **Resolved** - Fixed by using 3-param pgmq.read() version
 
 ## Problem Statement
 
@@ -102,3 +107,39 @@ Hasql uses static SQL statements, so we cannot conditionally change the SQL at r
 ## Related Issues
 
 - Design Document 009: Similar NULL handling issue with `sendMessage` delay parameter
+- Design Document 014: the NULL-parameter contract that supersedes this document
+
+
+## Correction (2026-08-05)
+
+Two claims above are wrong against the SQL this repository actually vendors
+(`pgmq-migration/migrations/0001-install-v1.11.0.sql`), and were verified wrong by live
+reproduction.
+
+First, the root cause. There is exactly one `pgmq.read` — a four-argument function whose
+`conditional` parameter carries `DEFAULT '{}'` — not two overloads. Its predicate is not
+`message @> $2`; it is a `CASE` that only applies containment when the filter is a
+non-empty object:
+
+```sql
+WHERE vt <= clock_timestamp() AND CASE
+    WHEN %L != '{}'::jsonb THEN (message @> %2$L)::integer
+    ELSE 1
+END = 1
+```
+
+A NULL conditional makes `NULL != '{}'::jsonb` evaluate to NULL, which is not true, so
+control falls to `ELSE 1` and every visible row matches. A NULL conditional therefore
+means "no filter", not "match nothing". Calling `pgmq.read` with an explicit NULL
+conditional was confirmed live to return all rows.
+
+Second, "Option B: COALESCE in SQL (not viable)" is exactly backwards. The `CASE` above
+gives `'{}'::jsonb` the meaning "no filter" by construction, so `coalesce($4,
+'{}'::jsonb)` is the correct and minimal fix. That is what `readMessage` now uses, and
+`readWithPoll` had been binding `conditional` as `$6` against the identical `CASE` all
+along, working correctly.
+
+The cost of the superseded solution was that `ReadMessage.conditional` became a field
+that could be set but was never transmitted: a `Just` filter was silently ignored and the
+caller received every message in the batch. The comment in `Message.hs` also directed
+readers to a `readMessageConditional` function that was never written.

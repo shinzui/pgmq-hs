@@ -140,12 +140,13 @@ batchSendMessageWithHeadersForLaterEncoder =
     <> (view #messageHeaders >$< E.param (E.nonNullable (E.array (E.dimension foldl' (E.element (E.nonNullable messageHeadersValue))))))
     <> (view #scheduledAt >$< E.param (E.nonNullable E.timestamptz))
 
--- | Encoder for the 3-param pgmq.read (without conditional filter)
+-- | Encoder for the 4-param pgmq.read (including the conditional filter)
 readMessageEncoder :: E.Params ReadMessage
 readMessageEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
     <> (view #delay >$< E.param (E.nonNullable E.int4))
     <> (view #batchSize >$< E.param (E.nullable E.int4))
+    <> (view #conditional >$< E.param (E.nullable E.jsonb))
 
 -- | Encoder for PopMessage (pgmq 1.7.0+)
 popMessageEncoder :: E.Params PopMessage

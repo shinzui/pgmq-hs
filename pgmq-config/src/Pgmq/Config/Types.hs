@@ -56,7 +56,9 @@ data PartitionConfig = PartitionConfig
 
 -- | Configuration for insert notifications (LISTEN/NOTIFY).
 data NotifyConfig = NotifyConfig
-  { -- | Minimum milliseconds between notifications. Nothing uses pgmq default (250ms).
+  { -- | Minimum milliseconds between notifications. Nothing uses the documented
+    -- pgmq default (250 ms), applied via COALESCE in the pgmq-hasql statement so
+    -- SQL NULL never reaches the function.
     throttleMs :: !(Maybe Int32)
   }
   deriving stock (Generic, Show)

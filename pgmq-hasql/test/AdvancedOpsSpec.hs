@@ -33,7 +33,7 @@ import Pgmq.Types (MessageBody (..), MessageHeaders (..), MessageId (..))
 import Pgmq.Types qualified as PgmqTypes
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
-import TestUtils (assertSession, cleanupQueue)
+import TestUtils (assertJust, assertSession, cleanupQueue)
 
 -- | All advanced operation tests
 tests :: Pool.Pool -> TestTree
@@ -180,7 +180,8 @@ testSetVisibilityTimeoutAt p = testCase "setVisibilityTimeoutAt sets VT to absol
               messageId = msgId,
               visibilityTime = futureTime
             }
-    updated <- assertSession pool (Sessions.setVisibilityTimeoutAt vtQuery)
+    -- The message exists, so set_vt must return Just it.
+    updated <- assertJust =<< assertSession pool (Sessions.setVisibilityTimeoutAt vtQuery)
     assertEqual "Should return the updated message" msgId (PgmqTypes.messageId updated)
     cleanupQueue pool queueName
 

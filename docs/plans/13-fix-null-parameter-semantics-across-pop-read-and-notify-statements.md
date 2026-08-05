@@ -56,12 +56,14 @@ directly.
       PGH-2 (conditional silently ignored), PGH-4 (23502 on enable), and PGH-5 (throw on
       raced-away set_vt row, asserted in its M1 `assertSessionFails` form). Failure
       transcripts captured in Surprises & Discoveries.
-- [ ] M2: Statement-text COALESCE fixes for `pop`, `read`, `read_with_poll`,
+- [x] M2 (2026-08-05): Statement-text COALESCE fixes for `pop`, `read`, `read_with_poll`,
       `enable_notify_insert`; `ReadMessage.conditional` wired as a real fourth parameter;
       `changeVisibilityTimeout`/`setVisibilityTimeoutAt` return `Maybe Message` through the
       hasql, session, and effectful layers; the three existing pgmq-hasql tests that consume
-      those results updated to assert and unwrap `Just`; all false doc comments corrected.
-      M1 and pre-existing tests green.
+      those results updated to assert and unwrap `Just`; all false doc comments corrected;
+      superseded design note 010 corrected in the same change. M1 and pre-existing tests
+      green (`pgmq-hasql-test` 61/61, `pgmq-config-test` 11/11, `pgmq-effectful-test`
+      17/17).
 - [ ] M3: Full family suite green (`cabal test all`); CHANGELOG entry written; release-train
       coordination recorded (this plan claims no migration file; family version impact
       recorded as 0.5.0.0-breaking); consumer-impact notes for keiro-pgmq (compiles
@@ -152,6 +154,28 @@ Notes from M1:
   review used. Both `LIMIT NULL` and the plpgsql-DEFAULT semantics are long-standing
   PostgreSQL behaviour, so the findings are not version-specific.
 
+M2 (2026-08-05):
+
+- The plan did not anticipate `docs/design/010-read-conditional-null-handling.md`, an
+  existing design note that records the decision this plan reverses — and records it with
+  a root cause that does not hold against the vendored SQL. Its "Option B: COALESCE in SQL
+  (not viable)" section argues that `coalesce($4, '{}')` cannot work because `'{}'` would
+  match every message. That is exactly backwards: the `CASE` in `pgmq.read` special-cases
+  `'{}'` to mean "no filter" (`WHEN %L != '{}'::jsonb THEN (message @> %2$L)::integer ELSE
+  1`), which is why the coalesce is correct. The note also claims two overloaded
+  `pgmq.read` functions exist; the vendored install SQL defines exactly one, with
+  `conditional JSONB DEFAULT '{}'`. Note 010 is now marked Superseded with a Correction
+  section, since leaving it would have led the next contributor straight back into the
+  dead-field design.
+- All three consuming layers compiled with no changes beyond the type signatures: both the
+  plain and the traced effectful interpreters pass the session result through
+  polymorphically (`withTracedOp ... $ Sessions.changeVisibilityTimeout query`), so no
+  span name, kind, or attribute changed — the ADR 0001 telemetry contract is untouched by
+  construction rather than by inspection.
+- `docs/OPENTELEMETRY_INSTRUMENTATION.md` contains an illustrative interpreter sketch that
+  calls `Sessions.changeVisibilityTimeout`; it is result-type-polymorphic prose and needed
+  no edit.
+
 (Add new discoveries below as work proceeds.)
 
 
@@ -224,6 +248,22 @@ Notes from M1:
   `pgmq-hasql/test/AdvancedOpsSpec.hs`, and `pgmq-hasql/test/MessageSpec.hs` otherwise fail
   to compile before the new behavior can be tested.
   Date: 2026-07-23
+
+- Decision: Mark `docs/design/010-read-conditional-null-handling.md` Superseded and append
+  a Correction section to it, rather than deleting it or silently leaving it in place.
+  Rationale: The note records a decision this plan reverses, and its stated root cause and
+  its "COALESCE is not viable" alternative are both refuted by the vendored SQL and by the
+  M1 live reproduction. Deleting it would erase the history of why the field was dead for
+  a release; leaving it unmarked would send the next contributor back into the same dead
+  end. The Correction states the actual `CASE` predicate so the reasoning can be checked
+  against the file it describes.
+  Date: 2026-08-05
+
+- Decision: Assert the raced-away `set_vt` result with `assertEqual ... Nothing (fmap
+  messageId result)` rather than pattern-matching on the `Maybe Message`.
+  Rationale: `Message` has no `Eq`-friendly failure output worth printing, and comparing
+  the mapped `MessageId` gives a readable diff if the assertion ever regresses to `Just`.
+  Date: 2026-08-05
 
 (Record further decisions as they are made, with dates.)
 

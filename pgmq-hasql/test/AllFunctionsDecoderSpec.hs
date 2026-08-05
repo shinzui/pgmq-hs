@@ -22,7 +22,7 @@ import Pgmq.Types (Message (..), MessageBody (..), QueueName, unMessageId)
 import Pgmq.Types qualified
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
-import TestUtils (assertSession, cleanupQueue)
+import TestUtils (assertJust, assertSession, cleanupQueue)
 
 -- | All per-function decoder tests
 tests :: Pool.Pool -> TestTree
@@ -112,7 +112,9 @@ testSetVtDecoder p = testCase "set_vt() returns correctly decoded message" $ do
               messageId = msgId,
               visibilityTimeoutOffset = 60
             }
-    msg <- assertSession pool (Sessions.changeVisibilityTimeout vtQuery)
+    -- The message exists, so set_vt must return Just it (Nothing means the row
+    -- was raced away, which cannot happen here).
+    msg <- assertJust =<< assertSession pool (Sessions.changeVisibilityTimeout vtQuery)
 
     -- Verify message fields
     assertBool "messageId should be positive" (unMessageId (Pgmq.Types.messageId msg) > 0)

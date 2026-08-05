@@ -162,14 +162,19 @@ batchSendMessageWithHeadersForLater = preparable sql batchSendMessageWithHeaders
     decoder = D.rowList messageIdDecoder
 
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#read
--- Note: conditional parameter added in pgmq 1.5.0
--- We use the 3-param version since the 4-param version fails with NULL conditional
--- (message @> NULL = NULL, not TRUE, so no rows match).
--- To use conditional filtering, use readMessageConditional instead.
+-- Note: conditional parameter added in pgmq 1.5.0. It is a JSONB containment
+-- filter: a message is returned only when @message \@> conditional@ holds.
+-- Nothing (equivalently '{}'::jsonb) means no filtering, so the coalesce
+-- neutralizes an unbound filter without changing which rows match.
+--
+-- The coalesce on the batch size is load-bearing: a bound SQL NULL never
+-- triggers a plpgsql parameter DEFAULT (defaults apply only to omitted
+-- arguments), and NULL reaching the LIMIT clause inside pgmq.read means
+-- LIMIT ALL — which would lease the entire queue in one call.
 readMessage :: Statement ReadMessage (Vector Message)
 readMessage = preparable sql readMessageEncoder decoder
   where
-    sql = "select * from pgmq.read($1,$2,$3)"
+    sql = "select * from pgmq.read($1,$2,coalesce($3,1),coalesce($4,'{}'::jsonb))"
     decoder = D.rowVector messageDecoder
 
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#delete-single
@@ -208,13 +213,18 @@ deleteAllMessagesFromQueue = preparable sql queueNameEncoder decoder
     sql = "select * from pgmq.purge_queue($1)"
     decoder = D.singleRow $ D.column $ D.nonNullable D.int8
 
--- | Sets the visibility timeout of a message to a specified time duration in the future. Returns the record of the message that was updated.
+-- | Sets the visibility timeout of a message to a specified time duration in the future.
+-- Returns the record of the message that was updated, or Nothing when the message no
+-- longer exists (already deleted, archived, or popped).
+--
+-- pgmq.set_vt is RETURNS SETOF and yields zero rows for an absent msg_id, which is an
+-- ordinary outcome when another consumer raced ahead — not an infrastructure failure.
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#set_vt
-changeVisibilityTimeout :: Statement VisibilityTimeoutQuery Message
+changeVisibilityTimeout :: Statement VisibilityTimeoutQuery (Maybe Message)
 changeVisibilityTimeout = preparable sql visibilityTimeoutQueryEncoder decoder
   where
     sql = "select * from pgmq.set_vt($1,$2,$3)"
-    decoder = D.singleRow messageDecoder
+    decoder = D.rowMaybe messageDecoder
 
 -- | Batch update visibility timeout for multiple messages (pgmq 1.8.0+)
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#set_vt
@@ -225,12 +235,14 @@ batchChangeVisibilityTimeout = preparable sql batchVisibilityTimeoutQueryEncoder
     decoder = D.rowVector messageDecoder
 
 -- | Set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
+-- Returns Nothing when the message no longer exists (already deleted, archived, or
+-- popped) — see 'changeVisibilityTimeout' for why that is not an error.
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#set_vt
-setVisibilityTimeoutAt :: Statement VisibilityTimeoutAtQuery Message
+setVisibilityTimeoutAt :: Statement VisibilityTimeoutAtQuery (Maybe Message)
 setVisibilityTimeoutAt = preparable sql visibilityTimeoutAtQueryEncoder decoder
   where
     sql = "select * from pgmq.set_vt($1,$2,$3)"
-    decoder = D.singleRow messageDecoder
+    decoder = D.rowMaybe messageDecoder
 
 -- | Batch set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#set_vt
@@ -241,19 +253,28 @@ batchSetVisibilityTimeoutAt = preparable sql batchVisibilityTimeoutAtQueryEncode
     decoder = D.rowVector messageDecoder
 
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#read_with_poll
+-- Shares readMessage's coalesce rationale: a NULL batch size would become
+-- LIMIT ALL inside the polling loop and lease the whole queue, and a NULL
+-- conditional is normalized to the no-filter '{}' value.
 readWithPoll :: Statement ReadWithPollMessage (Vector Message)
 readWithPoll = preparable sql readWithPollEncoder decoder
   where
-    sql = "select * from pgmq.read_with_poll($1,$2,$3,$4,$5,$6)"
+    sql = "select * from pgmq.read_with_poll($1,$2,coalesce($3,1),$4,$5,coalesce($6,'{}'::jsonb))"
     decoder = D.rowVector messageDecoder
 
 -- | Pop messages from queue (atomic read + delete)
 -- https://pgmq.github.io/pgmq/api/sql/functions/#pop
 -- Note: qty parameter added in pgmq 1.7.0
+--
+-- The coalesce is what makes "Nothing = 1" true. A bound SQL NULL never
+-- triggers the plpgsql DEFAULT of 1 (defaults apply only to omitted
+-- arguments), and NULL in a LIMIT clause means LIMIT ALL — so without it,
+-- popping with no explicit quantity would delete and return the entire
+-- queue in a single statement, with no visibility timeout to fall back on.
 pop :: Statement PopMessage (Vector Message)
 pop = preparable sql popMessageEncoder decoder
   where
-    sql = "select * from pgmq.pop($1,$2)"
+    sql = "select * from pgmq.pop($1,coalesce($2,1))"
     decoder = D.rowVector messageDecoder
 
 -- | FIFO read - fills batch from same message group (pgmq 1.8.0+)

@@ -158,10 +158,10 @@ data Pgmq :: Effect where
   ArchiveMessage :: MessageQuery -> Pgmq m Bool
   BatchArchiveMessages :: BatchMessageQuery -> Pgmq m [MessageId]
   DeleteAllMessagesFromQueue :: QueueName -> Pgmq m Int64
-  ChangeVisibilityTimeout :: VisibilityTimeoutQuery -> Pgmq m Message
+  ChangeVisibilityTimeout :: VisibilityTimeoutQuery -> Pgmq m (Maybe Message)
   BatchChangeVisibilityTimeout :: BatchVisibilityTimeoutQuery -> Pgmq m (Vector Message)
   -- Timestamp-based VT (pgmq 1.10.0+)
-  SetVisibilityTimeoutAt :: VisibilityTimeoutAtQuery -> Pgmq m Message
+  SetVisibilityTimeoutAt :: VisibilityTimeoutAtQuery -> Pgmq m (Maybe Message)
   BatchSetVisibilityTimeoutAt :: BatchVisibilityTimeoutAtQuery -> Pgmq m (Vector Message)
   ReadWithPoll :: ReadWithPollMessage -> Pgmq m (Vector Message)
   Pop :: PopMessage -> Pgmq m (Vector Message)
@@ -272,14 +272,17 @@ batchArchiveMessages = send . BatchArchiveMessages
 deleteAllMessagesFromQueue :: (Pgmq :> es) => QueueName -> Eff es Int64
 deleteAllMessagesFromQueue = send . DeleteAllMessagesFromQueue
 
-changeVisibilityTimeout :: (Pgmq :> es) => VisibilityTimeoutQuery -> Eff es Message
+-- | Returns Nothing when the message no longer exists (already deleted, archived,
+-- or popped) rather than throwing.
+changeVisibilityTimeout :: (Pgmq :> es) => VisibilityTimeoutQuery -> Eff es (Maybe Message)
 changeVisibilityTimeout = send . ChangeVisibilityTimeout
 
 batchChangeVisibilityTimeout :: (Pgmq :> es) => BatchVisibilityTimeoutQuery -> Eff es (Vector Message)
 batchChangeVisibilityTimeout = send . BatchChangeVisibilityTimeout
 
--- | Set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
-setVisibilityTimeoutAt :: (Pgmq :> es) => VisibilityTimeoutAtQuery -> Eff es Message
+-- | Set visibility timeout to an absolute timestamp (pgmq 1.10.0+).
+-- Returns Nothing when the message no longer exists.
+setVisibilityTimeoutAt :: (Pgmq :> es) => VisibilityTimeoutAtQuery -> Eff es (Maybe Message)
 setVisibilityTimeoutAt = send . SetVisibilityTimeoutAt
 
 -- | Batch set visibility timeout to an absolute timestamp (pgmq 1.10.0+)

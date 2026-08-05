@@ -34,7 +34,7 @@ import Pgmq.Types (MessageBody (..), MessageId (..), queueNameToText)
 import Pgmq.Types qualified as PgmqTypes
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
-import TestUtils (assertSession, assertSessionFails, cleanupQueue)
+import TestUtils (assertJust, assertSession, cleanupQueue)
 
 -- | All NULL-parameter semantics tests
 tests :: Pool.Pool -> TestTree
@@ -238,29 +238,32 @@ testEnableNotifyInsertNothingUsesDefault p = testCase "enableNotifyInsert with N
 -- a lease could not distinguish "someone else already deleted this message"
 -- from "the database is broken".
 --
--- MILESTONE 1 FORM: this asserts the /current/ throwing behaviour, so it
--- passes today and documents the defect. Milestone 2 changes the result type
--- to @Maybe Message@ and rewrites these assertions to expect @Nothing@.
+-- Both functions therefore return @Maybe Message@: @Nothing@ for an absent
+-- row, @Just@ for a live one, and a session error only for a genuine failure.
 testSetVtOnMissingRow :: Pool.Pool -> TestTree
-testSetVtOnMissingRow p = testCase "set_vt on a raced-away row does not throw" $ do
+testSetVtOnMissingRow p = testCase "set_vt on a raced-away row returns Nothing" $ do
   withTestFixture p $ \TestFixture {pool, queueName} -> do
     assertSession pool (Sessions.createQueue queueName)
     let missingId = MessageId 999999
     futureTime <- addUTCTime 60 <$> getCurrentTime
-    assertSessionFails pool $
-      Sessions.changeVisibilityTimeout
-        VisibilityTimeoutQuery
-          { queueName = queueName,
-            messageId = missingId,
-            visibilityTimeoutOffset = 60
-          }
-    assertSessionFails pool $
-      Sessions.setVisibilityTimeoutAt
-        VisibilityTimeoutAtQuery
-          { queueName = queueName,
-            messageId = missingId,
-            visibilityTime = futureTime
-          }
+    missingChanged <-
+      assertSession pool $
+        Sessions.changeVisibilityTimeout
+          VisibilityTimeoutQuery
+            { queueName = queueName,
+              messageId = missingId,
+              visibilityTimeoutOffset = 60
+            }
+    assertEqual "changeVisibilityTimeout on a missing message should be Nothing" Nothing (fmap PgmqTypes.messageId missingChanged)
+    missingSetAt <-
+      assertSession pool $
+        Sessions.setVisibilityTimeoutAt
+          VisibilityTimeoutAtQuery
+            { queueName = queueName,
+              messageId = missingId,
+              visibilityTime = futureTime
+            }
+    assertEqual "setVisibilityTimeoutAt on a missing message should be Nothing" Nothing (fmap PgmqTypes.messageId missingSetAt)
     -- An existing message must still be updated and returned.
     msgId <-
       assertSession pool $
@@ -271,21 +274,27 @@ testSetVtOnMissingRow p = testCase "set_vt on a raced-away row does not throw" $
               delay = Nothing
             }
     changed <-
-      assertSession pool $
-        Sessions.changeVisibilityTimeout
-          VisibilityTimeoutQuery
-            { queueName = queueName,
-              messageId = msgId,
-              visibilityTimeoutOffset = 60
-            }
+      assertJust
+        =<< assertSession
+          pool
+          ( Sessions.changeVisibilityTimeout
+              VisibilityTimeoutQuery
+                { queueName = queueName,
+                  messageId = msgId,
+                  visibilityTimeoutOffset = 60
+                }
+          )
     assertEqual "changeVisibilityTimeout should return the message" msgId (PgmqTypes.messageId changed)
     setAt <-
-      assertSession pool $
-        Sessions.setVisibilityTimeoutAt
-          VisibilityTimeoutAtQuery
-            { queueName = queueName,
-              messageId = msgId,
-              visibilityTime = futureTime
-            }
+      assertJust
+        =<< assertSession
+          pool
+          ( Sessions.setVisibilityTimeoutAt
+              VisibilityTimeoutAtQuery
+                { queueName = queueName,
+                  messageId = msgId,
+                  visibilityTime = futureTime
+                }
+          )
     assertEqual "setVisibilityTimeoutAt should return the message" msgId (PgmqTypes.messageId setAt)
     cleanupQueue pool queueName

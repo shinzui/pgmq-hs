@@ -160,15 +160,18 @@ batchArchiveMessages msgs = statement msgs Msg.batchArchiveMessages
 deleteAllMessagesFromQueue :: QueueName -> Session Int64
 deleteAllMessagesFromQueue qname = statement qname Msg.deleteAllMessagesFromQueue
 
-changeVisibilityTimeout :: VisibilityTimeoutQuery -> Session Message
+-- | Returns Nothing when the message no longer exists (already deleted, archived,
+-- or popped) rather than failing the session.
+changeVisibilityTimeout :: VisibilityTimeoutQuery -> Session (Maybe Message)
 changeVisibilityTimeout query = statement query Msg.changeVisibilityTimeout
 
 -- | Batch update visibility timeout (pgmq 1.8.0+)
 batchChangeVisibilityTimeout :: BatchVisibilityTimeoutQuery -> Session (Vector Message)
 batchChangeVisibilityTimeout query = statement query Msg.batchChangeVisibilityTimeout
 
--- | Set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
-setVisibilityTimeoutAt :: VisibilityTimeoutAtQuery -> Session Message
+-- | Set visibility timeout to an absolute timestamp (pgmq 1.10.0+).
+-- Returns Nothing when the message no longer exists.
+setVisibilityTimeoutAt :: VisibilityTimeoutAtQuery -> Session (Maybe Message)
 setVisibilityTimeoutAt query = statement query Msg.setVisibilityTimeoutAt
 
 -- | Batch set visibility timeout to an absolute timestamp (pgmq 1.10.0+)
