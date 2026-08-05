@@ -56,7 +56,15 @@ detachArchive = preparable sql queueNameEncoder D.noResult
     sql = "select from pgmq.detach_archive($1)"
 
 -- | Enable insert notifications for a queue (pgmq 1.7.0+)
--- Notifications are sent via PostgreSQL LISTEN/NOTIFY to channel pgmq_<queue_name>
+--
+-- Notifications are sent via PostgreSQL LISTEN\/NOTIFY on the channel computed by
+-- 'Pgmq.Types.notifyChannelName' — @pgmq.q_\<lowercased queue name\>.INSERT@. The
+-- name contains dots, so LISTEN requires it double-quoted. Use the helper rather
+-- than assembling the name by hand.
+--
+-- NOTIFY is fire-and-forget: notifications are not queued for disconnected
+-- listeners, and a configured throttle interval suppresses them by design. Every
+-- consumer needs a poll fallback in addition to LISTEN.
 enableNotifyInsert :: Statement EnableNotifyInsert ()
 enableNotifyInsert = preparable sql enableNotifyInsertEncoder D.noResult
   where

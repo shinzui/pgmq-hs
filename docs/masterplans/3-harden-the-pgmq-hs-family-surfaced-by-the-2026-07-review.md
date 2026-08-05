@@ -64,9 +64,12 @@ same functions EP-14 touches.
 
 Durable library decisions belong under this repository's `docs/design/` directory. Keiro's
 `docs/adr/0001-keiro-pgmq-job-processing-telemetry-contract.md` remains an external consumer
-constraint: none of these plans may change the traced interpreter's span semantics. Candidate
-design notes are the NULL-parameter rule ("no optional parameter may widen scope") and the
-notification-channel and crash-fallback contract.
+constraint: none of these plans may change the traced interpreter's span semantics. Both
+anticipated design notes now exist: `docs/design/014-null-parameter-contract.md` (the rule
+"no optional parameter may widen scope", from EP-13) and
+`docs/design/015-notification-delivery-contract.md` (the channel name, the poll-fallback
+requirement, and the crash fail-open rule, from EP-14). EP-15 should expect to write or
+correct one of its own.
 
 
 ## Exec-Plan Registry
@@ -74,7 +77,7 @@ notification-channel and crash-fallback contract.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 13 | Fix NULL parameter semantics across pop read and notify statements | docs/plans/13-fix-null-parameter-semantics-across-pop-read-and-notify-statements.md | None | None | Complete |
-| 14 | Make insert notifications survive crashes and document the channel contract | docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md | None | None | Not Started |
+| 14 | Make insert notifications survive crashes and document the channel contract | docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md | None | None | Complete |
 | 15 | Validate queue names and classify transient errors across the pgmq layers | docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md | None | None | Not Started |
 
 
@@ -92,25 +95,38 @@ advance; each takes the next free manifest number when it lands.
 
 ## Integration Points
 
-`pgmq-migration/migrations/` is owned by EP-14 within this MasterPlan. EP-13 has no migration:
-its `enable_notify_insert` client statement coalesces its bound value, while EP-14's migration
-adds the complete server-side guard for non-Haskell callers. EP-14 must take the next free
-manifest number after every migration already present; it must never edit the immutable
-`0001-install-v1.11.0.sql`.
+`pgmq-migration/migrations/` is owned by EP-14 within this MasterPlan. EP-13 had no
+migration: its `enable_notify_insert` client statement coalesces its bound value, while
+EP-14's migration adds the complete server-side guard for non-Haskell callers. EP-14 landed
+`0003-notify-crash-safety-and-locking.sql`, so the ledger is now `0001`, `0002`, `0003` and
+the next free number is `0004`. The immutable `0001-install-v1.11.0.sql` is unchanged and
+must stay that way.
 
 The migration directory is also shared with MasterPlan 2 EP-9, and that coupling goes beyond
 numbering. EP-9 adds a schema-convergence test asserting that every `pgmq` function body after
-the full ledger matches a fresh install of the vendored upstream `pgmq.sql`. EP-14's three
-`CREATE OR REPLACE FUNCTION` statements deliberately diverge from upstream, so if EP-9 has
-already landed, EP-14 must add those three signatures to that test's deliberate-deviation
-allowlist in the same commit, each with a comment naming the decision that authorises it.
-Repairing the failure by removing the body comparison is forbidden — it would discard the
+the full ledger matches a fresh install of the vendored upstream `pgmq.sql`. EP-14 landed
+first, so EP-9 must seed that test's deliberate-deviation allowlist with the three signatures
+migration `0003` re-creates — `pgmq.notify_queue_listeners()`,
+`pgmq.enable_notify_insert(TEXT, INTEGER)`, and
+`pgmq.create_partitioned(TEXT, TEXT, TEXT)` — each with a comment naming EP-14's Decision Log
+entry that authorises it. All three are upstream-vendored code (verified by diff against
+`vendor/pgmq/pgmq-extension/sql/pgmq.sql`), so all three will otherwise fail the comparison.
+Repairing that failure by removing the body comparison is forbidden — it would discard the
 guarantee for every function this repository does not own. See Integration Point 7 of
 `docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md`.
 
-`pgmq-core/src/Pgmq/Types.hs` is shared by EP-14 and EP-15. EP-14 defines and exports
-`notifyChannelName`; EP-15 replaces derived `FromJSON QueueName` with validation. The final
-lander must preserve both changes and run `pgmq-core-test`.
+EP-9 and keiro MasterPlan 17 plans 116/118 also inherit a simplification from EP-14: the
+ledger expectations in `pgmq-migration/test/Main.hs` now derive from the plan rather than
+being enumerated positionally, so appending a migration means adding one line to the list in
+`testNativeComponent` and nothing else.
+
+`pgmq-core/src/Pgmq/Types.hs` is shared by EP-14 and EP-15. EP-14 has landed
+`notifyChannelName` (defined next to `NotifyInsertThrottle`, exported under a
+"Notifications" heading, and re-exported from `pgmq-hasql`'s `Pgmq` umbrella in both of its
+`Pgmq.Types` export blocks). EP-15 is therefore the second lander: it replaces the derived
+`FromJSON QueueName` with validation and must preserve the helper and its umbrella
+re-exports. The reconciliation check is `cabal test all` — this repository has no
+`pgmq-core-test` suite.
 
 `pgmq-hasql/pgmq-hasql.cabal`, `pgmq-hasql/test/Main.hs`, and the package test tree are shared
 by all three plans. Each plan owns registration of its own test module. The final lander runs
@@ -125,8 +141,8 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 
 - [x] EP-13 (2026-08-05): `pop`/`read`/`readWithPoll`/`set_vt`/`enable_notify_insert` NULL semantics fixed; false comments corrected; existing visibility-timeout tests updated for `Maybe`; `Nothing`-case tests pass.
 - [x] EP-13 (2026-08-05): `changeVisibilityTimeout` and `setVisibilityTimeoutAt` return `Maybe Message` instead of throwing on a raced row.
-- [ ] EP-14: notification delivery survives crash recovery through the deliberate fail-open path; the crash-cycle listener reconnects after restart and proves delivery.
-- [ ] EP-14: `notifyChannelName` exported; Haddock corrected; SQL mutations advisory-locked; concurrent-startup test passes.
+- [x] EP-14 (2026-08-05): notification delivery survives crash recovery through the deliberate fail-open path; the crash-cycle listener reconnects after restart and proves delivery.
+- [x] EP-14 (2026-08-05): `notifyChannelName` exported from `Pgmq.Types` and the `Pgmq` umbrella; Haddock and design note 006 corrected; `enable_notify_insert` and `create_partitioned` advisory-locked and re-entrant; the concurrent-startup test goes from ~28% failures to zero.
 - [ ] EP-15: Queue names rejected consistently; `FromJSON` validates; mixed-case remediation preserves topic bindings and notification configuration.
 - [ ] EP-15: `isTransient` whitelists 40001/40P01/55P03/57P01/57P02/57P03/53xxx; nullable-body decode decision implemented and documented.
 - [ ] EP-12 in MasterPlan 2: all hardening changes consolidated into 0.5.0.0; every in-scope consumer bound and component updated and validated.
@@ -148,6 +164,12 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 - EP-13 implementation (2026-08-05): a pre-existing design note, `docs/design/010-read-conditional-null-handling.md`, had recorded as settled the very decision EP-13 reverses, and recorded it with a root cause that does not hold against the vendored SQL — it claims two overloaded `pgmq.read` functions (there is one, with `conditional JSONB DEFAULT '{}'`) and argues that `coalesce($4,'{}')` is "not viable" (the function's `CASE` gives `'{}'` the meaning "no filter", so it is exactly the right fix). That note is why `ReadMessage.conditional` stayed dead through a release. It is now marked Superseded with a Correction section, and the durable rule lives in `docs/design/014-null-parameter-contract.md`. **Bearing on EP-14 and EP-15**: check `docs/design/` for a note covering the behavior you are about to change before assuming the current code reflects a considered decision, and correct the note in the same change.
 - EP-13 implementation (2026-08-05): this repository has no `pgmq-core-test` suite. The Integration Points section below tells the second lander of the shared `pgmq-core/src/Pgmq/Types.hs` edits (EP-14's `notifyChannelName`, EP-15's validating `FromJSON`) to "run `pgmq-core-test`"; the reconciliation check is `cabal test all`, which runs four suites (pgmq-hasql 61, pgmq-effectful 17, pgmq-config 11, pgmq-migration 9).
 - EP-13 implementation (2026-08-05): migration ledger unchanged. `pgmq-migration/migrations/manifest` still holds only `0001-install-v1.11.0.sql` and `0002-schema-management-comment.sql`, so EP-14 takes `0003` unless MasterPlan 2 EP-9 or keiro MasterPlan 17 plans 116/118 land first. EP-13's `enable_notify_insert` fix is client-side statement text only, as designed; the server-side `COALESCE(throttle_interval_ms, 250)` guard for non-Haskell callers is still owed by EP-14's migration.
+- EP-14 implementation (2026-08-05): **the notify SQL is upstream, not pgmq-hs-local.** EP-14's plan claimed the whole notify family is repository-local SQL with no upstream-parity cost. It is not: `pgmq.notify_queue_listeners`, `pgmq.enable_notify_insert`, and `pgmq.notify_insert_throttle` are all in `vendor/pgmq/pgmq-extension/sql/pgmq.sql`, byte-identical to the install migration. **Bearing on MasterPlan 2 EP-9**: its schema-convergence allowlist must seed **three** deliberately-diverging signatures — `notify_queue_listeners()`, `enable_notify_insert(TEXT, INTEGER)`, and `create_partitioned(TEXT, TEXT, TEXT)` — not just the partitioned one, each pointing at EP-14's Decision Log.
+- EP-14 implementation (2026-08-05): migration `0003-notify-crash-safety-and-locking.sql` claimed and landed; the manifest is now `0001`, `0002`, `0003`. The next plan to append takes `0004`. EP-9 had not landed, so there was no convergence test to allowlist and no newer upstream body to reconcile against (`vendor/pgmq/pgmq-extension/pgmq.control` still declares `default_version = '1.11.0'`).
+- EP-14 implementation (2026-08-05): PGH-8 is confirmed, not merely plausible — 400 concurrent `enable_notify_insert` calls collided on SQLSTATE 42710 at roughly a 28% rate, reliably across runs. Two replicas starting together would have hit it within days.
+- EP-14 implementation (2026-08-05): **`pgmq-migration/test/Main.hs` enumerated the migration ledger positionally**, so appending `0003` turned five of its nine tests red on a correct change. Those expectations now derive from the plan via `nativeMigrationNames`, and the ledger is spelled out in exactly one place, `testNativeComponent`. **Bearing on MasterPlan 2 EP-9 and keiro MasterPlan 17 plans 116/118**: adding a migration now means adding one line to that list, not editing five expectations.
+- EP-14 implementation (2026-08-05): a crash test against `ephemeral-pg` must issue `CHECKPOINT` before the immediate shutdown. Its `defaultPostgresSettings` turn off `fsync`, `synchronous_commit`, and `full_page_writes`, so SIGQUIT otherwise discards the schema install itself. `CHECKPOINT` does not make unlogged tables crash-safe, so it preserves the behavior under test.
+- EP-14 implementation (2026-08-05): the wrong channel name lived in `docs/design/006-queue-notifications.md` as well as the Haddock — confirming EP-13's lesson from the other direction. **Bearing on EP-15**: grep `docs/design/` for the behavior you are changing before assuming the code is the only place the claim is recorded.
 - EP-13 implementation (2026-08-05): both effectful interpreters passed the changed result type through without edits — `withTracedOp config pool (...) $ Sessions.changeVisibilityTimeout query` is polymorphic in the session's result — so keiro's ADR 0001 telemetry contract is preserved by construction. EP-14 and EP-15 can expect the same of any result-type change that does not touch `withTracedOp`'s `OpInfo`.
 
 
@@ -183,6 +205,14 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 
 
 ## Revision Note
+
+2026-08-05 (fourth): EP-14 implemented and marked Complete. Recorded six cross-plan
+discoveries, two of which change what MasterPlan 2 EP-9 must do: the notify functions are
+upstream-vendored, so EP-9's convergence allowlist needs three signatures rather than one;
+and `pgmq-migration`'s ledger expectations no longer need editing per migration. Also
+recorded the claimed migration number (`0003`, next free is `0004`), the live confirmation
+of PGH-8, the `CHECKPOINT` requirement for crash tests, and a second instance of a false
+claim living in `docs/design/` as well as in code.
 
 2026-08-05 (third): EP-13 implemented and marked Complete. Recorded four cross-plan
 discoveries: the superseded design note that had entrenched one of the defects, the

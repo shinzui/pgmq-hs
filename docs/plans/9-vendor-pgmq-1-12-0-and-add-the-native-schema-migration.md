@@ -406,6 +406,20 @@ existing tests share one server and isolate themselves by dropping the `pgmq` sc
 legacy `public.schema_migrations` table, and the `pgmigrate` ledger schema between tests
 (see the `resetDb` and `withCleanDb` helpers).
 
+> **Correction (2026-08-05, after plan 14 landed).** Items 2, 3 and 4 below describe
+> per-migration edits that no longer exist. Plan 14 appended
+> `0003-notify-crash-safety-and-locking.sql` and, rather than bump every hard-coded pair to
+> a triple, rewrote the expectations to derive from the plan: `pgmq-migration/test/Main.hs`
+> now has `nativeMigrationNames`, `migrationNames`, and `pendingAfterBaseline`, and
+> `testNativeRunner`, `testDirectHistoryImport`, `testEquivalentHistoryImport`, and
+> `assertNativeCanaryLifecycle` all use them. **Your migration therefore needs exactly one
+> expectation edit**: add its name to the list in `testNativeComponent` (item 2), in
+> manifest order — the counts and pending lists in items 3 and 4 update themselves. The
+> *other* content of item 3 still applies: add the two `functionExists` post-conditions for
+> the new 1.12.0 functions, since nothing else proves 1.12.0 landed. Item 1 is unaffected.
+> Note also that the ledger is now `0001`, `0002`, `0003`, so your file is
+> `0004-upgrade-v1.12.0.sql` unless something else landed in between — read the manifest.
+
 **The five things to change.**
 
 1. **The byte-provenance test, `testNativePayload`.** It currently reads:
@@ -973,3 +987,18 @@ and MD5 of `0001-install-v1.11.0.sql`; the canary comment text in
 `0002-schema-management-comment.sql`; the position of `0001` as the first manifest entry.
 Each of these is load-bearing for existing users' history import, and each is explained in
 the Decision Log.
+
+
+## Revision Note
+
+2026-08-05: Cascaded from
+`docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md`,
+which landed first. Added a correction above Milestone 3's "five things to change":
+`pgmq-migration/test/Main.hs` no longer enumerates the ledger positionally, so this plan's
+migration needs one expectation edit (the name list in `testNativeComponent`) rather than
+four. The ledger is now `0001`, `0002`, `0003`, and the convergence allowlist this plan
+builds must be seeded with the three functions plan 14's migration deliberately diverges
+from upstream — `pgmq.notify_queue_listeners()`,
+`pgmq.enable_notify_insert(TEXT, INTEGER)`, and
+`pgmq.create_partitioned(TEXT, TEXT, TEXT)` — all three of which are upstream-vendored
+code, verified by diff against `vendor/pgmq/pgmq-extension/sql/pgmq.sql`.

@@ -21,7 +21,10 @@ module Pgmq.Types
     TopicBinding (..),
     RoutingMatch (..),
     TopicSendResult (..),
+
+    -- * Notifications (pgmq 1.11.0+)
     NotifyInsertThrottle (..),
+    notifyChannelName,
   )
 where
 
@@ -169,3 +172,19 @@ data NotifyInsertThrottle = NotifyInsertThrottle
     throttleLastNotifiedAt :: !UTCTime
   }
   deriving stock (Eq, Generic, Show)
+
+-- | The LISTEN\/NOTIFY channel on which pgmq raises insert notifications for a
+-- queue, once @pgmq.enable_notify_insert@ has installed the trigger. The format
+-- is @pgmq.q_\<lowercased queue name\>.INSERT@: the physical table name (the
+-- @q_@ prefix, lowercased by pgmq's @format_table_name@) bracketed by the
+-- @pgmq.@ schema tag and the trigger operation.
+--
+-- Because the name contains dots, LISTEN requires it double-quoted:
+--
+-- > LISTEN "pgmq.q_myqueue.INSERT"
+--
+-- NOTIFY is fire-and-forget. Notifications are not queued for disconnected
+-- listeners, and a configured throttle interval suppresses them by design.
+-- Consumers must keep a poll fallback regardless of LISTEN.
+notifyChannelName :: QueueName -> Text
+notifyChannelName q = "pgmq.q_" <> T.toLower (queueNameToText q) <> ".INSERT"

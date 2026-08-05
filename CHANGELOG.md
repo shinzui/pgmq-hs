@@ -18,8 +18,38 @@ section are owned by
   race from a broken database. Callers that used the result must now handle `Nothing`;
   callers that discarded it compile unchanged. The batch variants are unaffected.
 
+### New Features
+
+* **pgmq-core, pgmq-hasql**: `Pgmq.Types.notifyChannelName :: QueueName -> Text` returns
+  the LISTEN/NOTIFY channel a queue's insert notifications arrive on, re-exported from the
+  `Pgmq` umbrella module. It is now the contract; do not assemble the name by hand. See
+  the corresponding documentation fix below.
+
 ### Bug Fixes
 
+* **pgmq-migration**: insert notifications no longer stop permanently after a PostgreSQL
+  crash. `pgmq.notify_insert_throttle` is `UNLOGGED`, so crash recovery truncates it, and
+  the trigger notified only when its throttle `UPDATE` matched a row — after a crash it
+  fired, matched nothing, and silently never notified again until an application restart
+  re-enabled notify. Sends succeeded and messages accumulated while listeners starved.
+  Migration `0003-notify-crash-safety-and-locking.sql` makes the trigger fail open: when
+  the throttle row is absent it notifies unthrottled until the next reconcile restores the
+  configured interval. Losing the throttle in a crash is acceptable; losing deliveries
+  silently is not.
+* **pgmq-migration**: concurrent `enable_notify_insert` calls for the same queue no longer
+  race. Two replicas reconciling the same config at startup could both pass the function's
+  internal `DROP TRIGGER IF EXISTS`, and the loser then failed with SQLSTATE 42710
+  (duplicate_object), taking down that replica's entire startup reconcile — measured at
+  roughly a 28% collision rate. The function now takes the per-queue advisory lock, as
+  `pgmq.create` and `pgmq.create_partitioned` already do, which makes concurrent callers
+  convergent.
+* **pgmq-migration**: `pgmq.create_partitioned` is now re-entrant. The advisory lock
+  serialized concurrent creators, but the second one still called `partman.create_parent`
+  on a parent the first had just registered, and pg_partman rejects an already-managed
+  parent. Both `create_parent` calls are now guarded by a `part_config` probe.
+* **pgmq-migration**: `pgmq.enable_notify_insert` coalesces a NULL `throttle_interval_ms`
+  to the documented 250 ms, so non-Haskell callers get the same guarantee the pgmq-hasql
+  statement already provides.
 * **pgmq-hasql**: `pop` with `qty = Nothing` now pops one message, as documented. It
   previously deleted and returned every visible message in the queue. The `Maybe`
   parameter was encoded as a nullable bind, so `Nothing` reached PostgreSQL as SQL NULL; a
@@ -38,6 +68,16 @@ section are owned by
 * **pgmq-hasql**: `ReadMessage.conditional` now filters. The field existed and was
   documented, but was never encoded, so a `Just` filter was silently ignored and every
   visible message was returned. `readWithPoll`'s conditional already worked.
+
+### Documentation
+
+* **pgmq-hasql**: the documented LISTEN/NOTIFY channel name was wrong. `enableNotifyInsert`
+  claimed notifications arrive on `pgmq_<queue_name>`; the real channel is
+  `pgmq.q_<lowercased queue name>.INSERT`, so anyone following the documentation listened
+  on a channel that never receives anything. Corrected on the Haddock and in
+  `docs/design/006-queue-notifications.md`, and replaced by the `notifyChannelName` helper
+  above. The full contract — including the poll-fallback requirement and the crash
+  fail-open semantics — is in `docs/design/015-notification-delivery-contract.md`.
 
 ## 0.4.0.1 -- 2026-07-14
 

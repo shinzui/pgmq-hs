@@ -48,7 +48,7 @@ import Pgmq.Config (ensureQueues, standardQueue, withNotifyInsert)
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types qualified as StmtTypes
 import Pgmq.Migration qualified as Migration
-import Pgmq.Types (MessageBody (..), QueueName, parseQueueName, queueNameToText)
+import Pgmq.Types (MessageBody (..), QueueName, notifyChannelName, parseQueueName, queueNameToText)
 import System.Random (randomRIO)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -146,7 +146,7 @@ crashCycle qn ref = do
     triggers <- runSession pool (Session.statement (queueTableName qn) insertTriggerCount)
     metrics <- runSession pool (Sessions.queueMetrics qn)
 
-    let channel = "pgmq." <> queueTableName qn <> ".INSERT"
+    let channel = notifyChannelName qn
     notified <- withListener db1 channel $ \conn -> do
       _ <- runSession pool (sendProbe qn "after-crash")
       awaitNotify conn 20

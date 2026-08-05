@@ -5,8 +5,9 @@ module Main (main) where
 import AdvancedOpsSpec qualified
 import AllFunctionsDecoderSpec qualified
 import DecoderValidationSpec qualified
-import EphemeralDb (withPgmqPool)
+import EphemeralDb (withPgmqDb)
 import MessageSpec qualified
+import NotifyChannelSpec qualified
 import NotifyRaceSpec qualified
 import NullSemanticsSpec qualified
 import QueueSpec qualified
@@ -18,7 +19,7 @@ import TopicSpec qualified
 main :: IO ()
 main = do
   -- Run tests with a shared temporary database
-  result <- withPgmqPool $ \pool -> do
+  result <- withPgmqDb $ \pool db -> do
     let tree =
           testGroup
             "pgmq-hasql"
@@ -27,6 +28,9 @@ main = do
               AdvancedOpsSpec.tests pool,
               NullSemanticsSpec.tests pool,
               NotifyRaceSpec.tests pool,
+              -- Needs the Database handle: LISTEN/NOTIFY has no hasql API, so
+              -- the round-trip test opens a raw libpq connection.
+              NotifyChannelSpec.tests pool db,
               SchemaSpec.tests pool,
               RoundTripSpec.tests pool,
               DecoderValidationSpec.tests pool,

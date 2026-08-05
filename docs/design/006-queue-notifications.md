@@ -73,7 +73,33 @@ Add session functions:
 ## Note on LISTEN/NOTIFY
 
 This implementation only enables/disables notifications at the database level.
-Actual listening for notifications requires using hasql's notification support
-or raw PostgreSQL connection handling, which is outside the scope of this library.
+Actual listening for notifications requires raw PostgreSQL connection handling
+(hasql 1.10 exposes no notification API), which is outside the scope of this library.
 
-The channel name for a queue is `pgmq_<queue_name>`.
+**Correction (2026-08-05, plan 14).** This note originally claimed the channel name for a
+queue is `pgmq_<queue_name>`. That is wrong, and it was wrong in the same words on the
+`enableNotifyInsert` Haddock, so a consumer following either would have listened on a
+channel that never receives anything. The trigger raises
+`PG_NOTIFY('pgmq.' || TG_TABLE_NAME || '.' || TG_OP, NULL)`, and `TG_TABLE_NAME` is the
+physical table name — the `q_` prefix plus the queue name lowercased by
+`pgmq.format_table_name`. The channel is therefore:
+
+```text
+pgmq.q_<lowercased queue name>.INSERT
+```
+
+It is now computed by `Pgmq.Types.notifyChannelName`, which is the contract; do not
+assemble the name by hand. Because it contains dots, LISTEN requires it double-quoted:
+
+```sql
+LISTEN "pgmq.q_myqueue.INSERT";
+```
+
+`pgmq-hasql/test/NotifyChannelSpec.hs` pins this both ways: a real notification arrives
+byte-equal to the helper's output, and a listener on the old documented name receives
+nothing.
+
+NOTIFY is fire-and-forget. Notifications are not queued for disconnected listeners, and a
+configured throttle interval suppresses them by design, so every consumer needs a poll
+fallback in addition to LISTEN. See `docs/design/015-notification-delivery-contract.md`
+for the crash-recovery half of the contract.

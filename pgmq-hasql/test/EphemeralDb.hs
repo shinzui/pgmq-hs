@@ -11,6 +11,7 @@ module EphemeralDb
     withTestFixture,
 
     -- * Re-exports
+    Database,
     StartError,
   )
 where
@@ -24,7 +25,8 @@ import Database.PostgreSQL.Migrate
     runMigrationPlan,
   )
 import EphemeralPg
-  ( StartError,
+  ( Database,
+    StartError,
     connectionSettings,
     withCached,
   )
@@ -34,8 +36,10 @@ import Pgmq.Migration qualified as Migration
 import Pgmq.Types (QueueName, parseQueueName)
 import System.Random (randomRIO)
 
--- | Run an action with a temporary PostgreSQL database that has pgmq schema installed
-withPgmqDb :: (Pool.Pool -> IO a) -> IO (Either StartError a)
+-- | Run an action with a temporary PostgreSQL database that has pgmq schema installed.
+-- The 'Database' handle is passed alongside the pool because tests that need a raw
+-- libpq connection (LISTEN\/NOTIFY has no hasql API) need its connection string.
+withPgmqDb :: (Pool.Pool -> Database -> IO a) -> IO (Either StartError a)
 withPgmqDb action = withCached $ \db -> do
   let connSettings = connectionSettings db
       poolConfig =
@@ -49,12 +53,12 @@ withPgmqDb action = withCached $ \db -> do
   installResult <- runMigrationPlan defaultRunOptions connSettings plan
   case installResult of
     Left migrationErr -> error $ "Migration failed: " <> show migrationErr
-    Right _ -> action pool
+    Right _ -> action pool db
 
 -- | Run an action with a connection pool to a temporary PostgreSQL database
 -- The database will have the pgmq schema installed
 withPgmqPool :: (Pool.Pool -> IO a) -> IO (Either StartError a)
-withPgmqPool = withPgmqDb
+withPgmqPool action = withPgmqDb (\pool _ -> action pool)
 
 -- | Test fixture with isolated queue for a test
 data TestFixture = TestFixture

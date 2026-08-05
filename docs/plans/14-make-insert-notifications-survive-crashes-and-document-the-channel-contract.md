@@ -61,13 +61,17 @@ immediate-shutdown restart.
       config 14, effectful 17, hasql 63 — including the M1 crash test and the race loop
       at zero 42710. Partman-gated re-entry test added to `pgmq-hasql/test/QueueSpec.hs`;
       it reports its skip rather than passing silently.
-- [ ] M3 (channel contract): `notifyChannelName` exported from `Pgmq.Types`; the false
-      haddock in `QueueManagement.hs` corrected; LISTEN round-trip test green
-      (notification received on exactly the channel the helper computes); poll-fallback
-      requirement documented on the enable API.
-- [ ] CHANGELOG material recorded for release plan 12; living sections updated; design
-      distillation pass completed under `docs/design/` for the notification channel and
-      crash-fallback contract.
+- [x] M3 (channel contract) (2026-08-05): `notifyChannelName` exported from `Pgmq.Types`
+      and re-exported from the `Pgmq` umbrella; the false Haddock in `QueueManagement.hs`
+      corrected along with the same false claim in `docs/design/006-queue-notifications.md`
+      (the only other place it appeared); `pgmq-hasql/test/NotifyChannelSpec.hs` green both
+      ways — a notification arrives byte-equal to the helper's output, and a listener on
+      the old documented name receives nothing; poll-fallback requirement documented on the
+      enable API and in the helper's Haddock; `NotifyCrashSpec` now uses the helper rather
+      than a hard-coded format.
+- [x] Closeout (2026-08-05): CHANGELOG material recorded under Unreleased (0.5.0.0) for
+      release plan 12; `docs/design/015-notification-delivery-contract.md` written and
+      design note 006 corrected in place; living sections updated.
 
 
 ## Surprises & Discoveries
@@ -270,8 +274,43 @@ M2 implementation (2026-08-05):
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation. Before completion, record the channel
-contract and crash/fail-open semantics under `docs/design/`.)
+Completed 2026-08-05. All three defects are fixed and pinned by tests that failed first.
+
+What exists now that did not before. A crash can no longer silence notifications:
+`pgmq-config/test/NotifyCrashSpec.hs` starts its own PostgreSQL, enables notify, kills the
+server with SIGQUIT, restarts it on the same data directory, proves the throttle row was
+truncated while the trigger and messages survived, sends a message, and receives the
+notification — a sequence that demonstrably failed at the "receives" step before migration
+0003. Concurrent reconciles serialize on the existing per-queue advisory lock: 400
+concurrent `enable_notify_insert` calls raise zero 42710, where before roughly 28% failed.
+`pgmq.create_partitioned` is re-entrant. And the channel name is code —
+`Pgmq.Types.notifyChannelName` — pinned from both sides by
+`pgmq-hasql/test/NotifyChannelSpec.hs`.
+
+`cabal test all` is green: pgmq-migration 9, pgmq-config 14, pgmq-effectful 17,
+pgmq-hasql 65.
+
+What went differently from the plan. Three things.
+
+The plan asserted that the notify functions are pgmq-hs-local SQL with no upstream-parity
+cost. They are not: all three re-created functions are vendored upstream code, byte-identical
+between `vendor/pgmq/pgmq-extension/sql/pgmq.sql` and the install migration. Plan 9's
+convergence-test allowlist therefore needs all three signatures, not one.
+
+PGH-8 was carried as plausible-needs-verification. It is confirmed, and the collision rate
+is high enough that it would have shown up in production within days of two replicas
+starting together.
+
+Appending a migration turned five of nine `pgmq-migration` tests red on a correct change,
+because they enumerated the ledger positionally. Fixing the expectations to derive from the
+plan was not in scope but was the right call: the alternative was to teach every future
+migration author that "update the expected pair to a triple" is normal.
+
+What the next plan should carry forward. `docs/design/` is load-bearing here. Plan 13 found
+a design note that had entrenched one of its defects; this plan found the channel-name lie
+living in design note 006 as well as the Haddock, and would have fixed only half of it
+without grepping the docs. Check `docs/design/` for a note covering the behaviour you are
+about to change, and correct it in the same commit.
 
 
 ## Context and Orientation
@@ -723,6 +762,13 @@ bump, consolidated changelogs, and consumer rollout.
 
 
 ## Revision Note
+
+2026-08-05: Implemented. M1, M2, M3 and closeout marked complete with dates; the
+partitioned re-entry item split out of M1 and delivered with M2's guard. Recorded the
+`CHECKPOINT` requirement for crash tests, the live confirmation of PGH-8, the correction
+that all three re-created functions are upstream-vendored (so plan 9's allowlist needs
+three entries), and the ledger-expectation rewrite in `pgmq-migration/test/Main.hs`.
+Decision Log gained the chosen migration filename and the two implementation calls.
 
 2026-07-23: Relocated from keiro plan 130 into the authoritative pgmq-hs repository.
 Corrected the crash test to release dead resources, reconnect and re-LISTEN after restart,
