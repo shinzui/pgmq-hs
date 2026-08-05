@@ -65,11 +65,22 @@ consumer-impact handoff for the single release owner, plan 12.
       idempotence, `bound_at` preservation, and the trigger matching the throttle row
       after remediation. Design notes 016 and 017 written; 014 extended with the
       NULL-cell rule. `cabal test all` green across all five suites.
-- [ ] M3 (release handoff): full pgmq-hs suite green; exact package and root CHANGELOG
-      material written; plan 12's consumer rollout checklist verified to include all
-      shibuya components and every Mori-discovered direct consumer; no version bumped here.
-- [ ] Living sections updated; design distillation pass completed under `docs/design/`
-      for the queue-name validation and transient-classification contracts.
+- [x] M3 (2026-08-05, release handoff): `cabal build all` and `cabal test all` green
+      (all five suites); release material written into the root `CHANGELOG.md`
+      Unreleased (0.5.0.0) section following the plan-13/14 pattern (plan 12
+      consolidates into per-package changelogs at release time, and its per-package
+      substance list already names all three EP-15 changes); plan 12's Milestone 6
+      verified to carry all four required rollout items — keiro library+test bounds,
+      every shibuya component including example and benchmark packages, the shibuya
+      `setVisibilityTimeoutAt` source adjustment, and the Mori consumer inventory with
+      rei's retained `^>=0.4` pins; no version bumped here. Cascaded one stale claim
+      into plan 12: its design-note number for the 1.12.0 upgrade note said "014 is
+      next" — 014-017 now exist, so it takes the next free number (018 at time of
+      correction).
+- [x] Living sections updated (2026-08-05); design distillation pass completed under
+      `docs/design/`: note 016 (queue-name validation contract and the mixed-case
+      remediation), note 017 (transient classification whitelist), and note 014
+      extended with the NULL-cell rule for message bodies.
 
 
 ## Surprises & Discoveries
@@ -243,7 +254,25 @@ producer):
   row — however short-lived — makes concurrent `listQueues` decoding fail
   (`queueDecoder` re-validates via `parseQueueName`); `QueueSpec` calls `listQueues` on
   the shared pool in four tests and tasty runs specs in parallel. Isolation by instance
-  removes the race instead of narrowing it.
+  removes the race instead of narrowing it. `MixedCaseRemediationSpec` additionally gets
+  an instance separate from `AliasingSpec`'s, because the remediation sweeps every
+  mixed-case row in its database and would consume the evidence tests' rows mid-flight.
+  Date: 2026-08-05
+
+- Decision: the remediation renames by inserting the canonical parent first, `UPDATE`-ing
+  the children onto it, and deleting the mixed-case parent last — replacing this plan's
+  original snapshot/delete-children/rename-parent/reinsert procedure.
+  Rationale: same transactional guarantees, strictly less machinery. Both foreign keys
+  lack `ON UPDATE`, so the parent row cannot be renamed in place while referenced; but
+  nothing prevents inserting the lowercase parent and repointing children with plain
+  `UPDATE`s, which preserves `bound_at` and `last_notified_at` automatically instead of
+  reconstructing them from a snapshot. Discovered while writing the DO block: the
+  `notify_insert_throttle` FK has the same `ON DELETE CASCADE` shape as `topic_bindings`,
+  so the snapshot procedure would have had to cover both child kinds anyway. The DO block
+  is one statement, hence one transaction; rerunning after success is a no-op because the
+  driving query returns nothing. Canonical copy in
+  `docs/design/016-queue-name-validation.md`; `MixedCaseRemediationSpec` embeds it
+  verbatim and proves both scenarios plus rerun idempotence.
   Date: 2026-08-05
 
 (Record further decisions as they are made, with dates.)
@@ -251,8 +280,39 @@ producer):
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation. Before completion, record the queue-name
-validation contract and transient-classification whitelist under `docs/design/`.)
+Completed 2026-08-05, in three commits: the red tests and live evidence
+(`test(pgmq-hasql,pgmq-effectful): reproduce the aliasing, poison-body, and
+classification defects`), the fixes with the new `pgmq-core-test` suite and design notes
+(`fix(pgmq-core,pgmq-hasql,pgmq-effectful)!: validate queue names, whitelist transient
+SQLSTATEs, decode NULL bodies`), and the release-handoff documentation.
+
+What exists now that did not before: uppercase and empty queue names are rejected at both
+runtime entry paths, with the previously-unvalidated `FromJSON` path pinned by the new
+`pgmq-core-test` suite (12 tests); the nine transient SQLSTATEs classify as transient
+through the public `isTransient`, pinned in both directions (30 classification tests);
+a SQL NULL message body reads as JSON `null` and is archivable — the poison-batch failure
+mode is gone, with the pre-fix damage (whole-batch `read_ct` bump on a failed call)
+preserved as a green evidence test; and the mixed-case remediation is documented in
+design note 016 and proven by `MixedCaseRemediationSpec` for both the twin and no-twin
+cases, including rerun idempotence and the trigger matching the throttle row afterward.
+Release material is staged in the root CHANGELOG for plan 12, whose rollout checklist was
+verified complete against this plan's four requirements.
+
+What remains, deliberately: nothing ships to consumers until MasterPlan 2's plan 12 cuts
+0.5.0.0 — that plan owns versions, per-package changelogs, and the keiro/shibuya rollout.
+The derived-`FromJSON` bypass still exists on `RoutingKey` and `TopicPattern`, recorded
+here as an adjacent hazard for a follow-up, not silently fixed in passing.
+
+Lessons. First, the value of live evidence tests over code-reading claims showed up
+immediately: EP-14's fail-open trigger had changed the observable shape of the notify
+consequence between this plan's authoring and its implementation (silent-dead became
+silently-unthrottled), which the evidence test caught and the plan text alone would have
+gotten wrong. Second, tests that must construct invalid states need isolation from tests
+that assume states are valid — the dedicated-instance pattern (borrowed from
+NotifyCrashSpec) is now used by two specs and is the template for any future
+poisonous-state test. Third, the FK-shape discovery (both children cascade, neither
+updates) turned the planned snapshot-based remediation into a simpler insert-repoint-drop
+shape; reading the actual constraints before writing the procedure paid for itself.
 
 
 ## Context and Orientation
@@ -689,6 +749,12 @@ fix, every consumer bound, and the release.
 
 
 ## Revision Note
+
+2026-08-05: Implemented. Recorded the M1 red transcripts and live aliasing evidence, the
+EP-14 fail-open interaction that reshaped consequence (a), the dedicated-instance test
+isolation decision, the simplified insert-repoint-drop remediation (superseding this
+plan's snapshot-based procedure — see the Decision Log), the M2/M3 completion state, and
+the Outcomes & Retrospective. Cascaded a stale design-note-numbering claim into plan 12.
 
 2026-07-23: Relocated from keiro plan 131 into the authoritative pgmq-hs repository.
 Expanded transient classification to 57P02/57P03, replaced the unsafe mixed-case procedure

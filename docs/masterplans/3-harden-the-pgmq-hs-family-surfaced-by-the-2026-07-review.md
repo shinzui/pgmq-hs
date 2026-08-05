@@ -78,7 +78,7 @@ correct one of its own.
 |---|-------|------|-----------|-----------|--------|
 | 13 | Fix NULL parameter semantics across pop read and notify statements | docs/plans/13-fix-null-parameter-semantics-across-pop-read-and-notify-statements.md | None | None | Complete |
 | 14 | Make insert notifications survive crashes and document the channel contract | docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md | None | None | Complete |
-| 15 | Validate queue names and classify transient errors across the pgmq layers | docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md | None | None | In Progress |
+| 15 | Validate queue names and classify transient errors across the pgmq layers | docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md | None | None | Complete |
 
 
 ## Dependency Graph
@@ -143,8 +143,8 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 - [x] EP-13 (2026-08-05): `changeVisibilityTimeout` and `setVisibilityTimeoutAt` return `Maybe Message` instead of throwing on a raced row.
 - [x] EP-14 (2026-08-05): notification delivery survives crash recovery through the deliberate fail-open path; the crash-cycle listener reconnects after restart and proves delivery.
 - [x] EP-14 (2026-08-05): `notifyChannelName` exported from `Pgmq.Types` and the `Pgmq` umbrella; Haddock and design note 006 corrected; `enable_notify_insert` and `create_partitioned` advisory-locked and re-entrant; the concurrent-startup test goes from ~28% failures to zero.
-- [ ] EP-15: Queue names rejected consistently; `FromJSON` validates; mixed-case remediation preserves topic bindings and notification configuration.
-- [ ] EP-15: `isTransient` whitelists 40001/40P01/55P03/57P01/57P02/57P03/53xxx; nullable-body decode decision implemented and documented.
+- [x] EP-15 (2026-08-05): Queue names rejected consistently at both entry paths; `FromJSON` validates via `parseQueueName`; mixed-case remediation (design note 016) preserves topic bindings and notification configuration, proven for the twin and no-twin cases with rerun idempotence by `MixedCaseRemediationSpec`.
+- [x] EP-15 (2026-08-05): `isTransient` whitelists 40001/40P01/55P03/57P01/57P02/57P03/53xxx, pinned in both directions (design note 017); SQL NULL bodies decode as JSON `null`, un-poisoning read batches (design note 014's NULL-cell section).
 - [ ] EP-12 in MasterPlan 2: all hardening changes consolidated into 0.5.0.0; every in-scope consumer bound and component updated and validated.
 
 
@@ -171,6 +171,11 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 - EP-14 implementation (2026-08-05): a crash test against `ephemeral-pg` must issue `CHECKPOINT` before the immediate shutdown. Its `defaultPostgresSettings` turn off `fsync`, `synchronous_commit`, and `full_page_writes`, so SIGQUIT otherwise discards the schema install itself. `CHECKPOINT` does not make unlogged tables crash-safe, so it preserves the behavior under test.
 - EP-14 implementation (2026-08-05): the wrong channel name lived in `docs/design/006-queue-notifications.md` as well as the Haddock — confirming EP-13's lesson from the other direction. **Bearing on EP-15**: grep `docs/design/` for the behavior you are changing before assuming the code is the only place the claim is recorded.
 - EP-13 implementation (2026-08-05): both effectful interpreters passed the changed result type through without edits — `withTracedOp config pool (...) $ Sessions.changeVisibilityTimeout query` is polymorphic in the session's result — so keiro's ADR 0001 telemetry contract is preserved by construction. EP-14 and EP-15 can expect the same of any result-type change that does not touch `withTracedOp`'s `OpInfo`.
+- EP-15 implementation (2026-08-05): **EP-14's fail-open trigger reshaped PGH-7's notify consequence between authoring and implementation.** With migration `0003`, a mixed-case throttle row no longer silences notifications — the trigger fails open on the missing (lowercased) key and notifies unthrottled while `last_notified_at` stays frozen at the epoch. The defect is the same (the configured throttle is dead on arrival) but the observable evidence changed; the frozen epoch timestamp is what `AliasingSpec` pins. Lesson for any plan whose evidence predates a sibling's landing: re-derive the observable before writing the assertion.
+- EP-15 implementation (2026-08-05): **tests that construct invalid states need instance-level isolation once validation tightens.** A mixed-case `pgmq.meta` row — however short-lived — makes every concurrent `listQueues` decode fail under the stricter parser, because `queueDecoder` re-validates via `D.refine` and tasty runs specs in parallel. `AliasingSpec` and `MixedCaseRemediationSpec` therefore each provision a dedicated PostgreSQL instance (NotifyCrashSpec's pattern), separately from each other because the remediation sweeps every mixed-case row in its database. This is the template for future poisonous-state tests.
+- EP-15 implementation (2026-08-05): `pgmq.notify_insert_throttle` carries the same `ON DELETE CASCADE` / no-`ON UPDATE` foreign key onto `pgmq.meta` as `pgmq.topic_bindings`, so any future metadata surgery must treat BOTH child kinds; a naive parent update fails and a naive delete silently destroys notification configuration as well as routing. The remediation itself simplified to insert-canonical-parent, repoint children by `UPDATE`, delete mixed parent (EP-15's Decision Log).
+- EP-15 implementation (2026-08-05): migration ledger unchanged — EP-15 landed no migration, so the next free manifest number remains `0004` for MasterPlan 2 EP-9 or keiro MasterPlan 17 plans 116/118.
+- EP-15 implementation (2026-08-05): plan 12's Milestone 5 still claimed the design directory "runs to 013, so 014 is next"; 014–017 now exist (two from EP-13/14, two from EP-15). Corrected in plan 12 to "take the next free number" (018 at time of correction) — the third instance in this MasterPlan of a stale numbering claim in a sibling plan, after the migration-ledger and ledger-expectation cases.
 
 
 ## Decision Log
@@ -201,10 +206,60 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All three child plans completed 2026-08-05, in authoring order EP-13 → EP-14 → EP-15,
+with no reordering, splitting, or cancellation. Every one of PGH-1 through PGH-11 is
+fixed and pinned by tests:
+
+- No `Maybe` parameter silently means "unbounded" or "always fails": `pop`, `read`,
+  `readWithPoll`, and `enable_notify_insert` coalesce to their documented defaults
+  client-side (EP-13), with the server-side `enable_notify_insert` guard in migration
+  `0003` for non-Haskell callers (EP-14). `ReadMessage.conditional` is a real, encoded
+  parameter. The visibility-timeout operations return `Maybe Message` for raced-away
+  rows.
+- Notifications survive crash recovery (fail-open trigger), concurrent enables converge
+  under the per-queue advisory lock, partitioned creation is re-entrant, and the channel
+  name is exported code (`notifyChannelName`) rather than incorrect documentation
+  (EP-14).
+- Queue names are rejected consistently at both entry paths, transient SQLSTATEs
+  classify as transient, and NULL message bodies decode instead of poisoning batches
+  (EP-15).
+
+The durable rules live in design notes 014 (NULL-parameter contract, absence-is-not-
+failure, NULL-cell-is-data), 015 (notification delivery contract), 016 (queue-name
+validation and the mixed-case remediation), and 017 (transient classification). Release
+material for all three plans is staged in the root `CHANGELOG.md` under Unreleased
+(0.5.0.0).
+
+What this MasterPlan deliberately did not do: ship. Per the Decision Log, MasterPlan 2
+EP-12 owns the coordinated 0.5.0.0 release, per-package changelogs, and the
+keiro/shibuya consumer rollout; its Milestone 6 was verified (by EP-15 M3) to carry the
+complete rollout matrix, including the shibuya `setVisibilityTimeoutAt` adaptation and
+the Mori inventory with rei's retained 0.4 pins. Until MasterPlan 2 completes, the
+hardening is on `master` but unreleased — revisit release ownership if the incoming
+service fleet needs it sooner.
+
+Retrospective, at the initiative level. The decomposition by defect family held: no plan
+blocked another, and the three integration points that needed active management
+(`Pgmq.Types`, the migration ledger, the test registries) were all handled by the
+"second lander reconciles" rule without a single conflict. The recurring failure mode
+across all three plans was stale recorded knowledge, not code: a design note that
+entrenched a defect (EP-13), documentation wrong on every component plus positional test
+expectations (EP-14), and a sibling plan's stale numbering plus a consequence reshaped
+by an earlier lander (EP-15). The working countermeasures, now standing guidance: grep
+`docs/design/` before assuming code reflects a considered decision, re-derive
+observables before writing assertions, and never let a plan hard-code a number another
+plan can move.
 
 
 ## Revision Note
+
+2026-08-05 (fifth): EP-15 implemented and marked Complete, closing the MasterPlan's own
+scope (the release remains with MasterPlan 2 EP-12). Recorded five cross-plan
+discoveries — the EP-14 fail-open interaction that reshaped PGH-7's notify evidence, the
+dedicated-instance isolation template for poisonous-state tests, the second cascading
+foreign key on `pgmq.meta`, the unchanged ledger (next free number still `0004`), and a
+third stale-numbering correction cascaded into plan 12. Filled in Outcomes &
+Retrospective.
 
 2026-08-05 (fourth): EP-14 implemented and marked Complete. Recorded six cross-plan
 discoveries, two of which change what MasterPlan 2 EP-9 must do: the notify functions are

@@ -438,9 +438,12 @@ for the new migration; verify that landed and that nothing further is stale.
 
 `CLAUDE.md` — confirm plan 9's note about the commit-pinned subtree is present.
 
-Add `docs/design/014-pgmq-1.12.0-upgrade.md`, following the pattern of the existing
-`docs/design/011-pgmq-1.11.0-upgrade.md` (the design directory currently runs to `013`, so `014`
-is next). It should record what upstream actually changed at the SQL level (two new functions;
+Add a `docs/design/` upgrade note, following the pattern of the existing
+`docs/design/011-pgmq-1.11.0-upgrade.md`. Take the next free number at the time you land —
+do not assume one: plans 13, 14, and 15 have since added `014-null-parameter-contract.md`,
+`015-notification-delivery-contract.md`, `016-queue-name-validation.md`, and
+`017-transient-error-classification.md`, so at the time of this correction the next free
+number is `018`. It should record what upstream actually changed at the SQL level (two new functions;
 a dropped `enable_notify_insert(text)` overload that was a no-op here; `pg_dump` and `pg_monitor`
 grant housekeeping with no upgrade-path counterpart), the decision to pin the subtree to a commit
 because upstream had not tagged v1.12.0, and the decision to leave the pgmq 1.11 schema contract

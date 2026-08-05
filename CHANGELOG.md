@@ -9,6 +9,22 @@ section are owned by
 
 ### Breaking Changes
 
+* **pgmq-core**: queue names are now validated consistently at every entry path.
+  `parseQueueName` rejects the empty string and any character outside lowercase ASCII
+  letters, digits, and underscore (previously uppercase was accepted and empty passed
+  every check), and `FromJSON QueueName` is a hand-written instance that validates via
+  `parseQueueName` (previously newtype-derived, accepting any string of any length, so
+  configuration-loaded names bypassed validation entirely). Lowercase-only is a
+  correctness requirement: pgmq's SQL lowercases physical table names while `pgmq.meta`
+  stores the caller's original casing and the notification trigger looks up the
+  lowercased name, so `MyQueue` and `myqueue` were two logical queues silently
+  interleaving in one physical table — dropping either destroyed the other's messages,
+  and a mixed-case notification throttle was never matched by the trigger. Upgrade note:
+  `listQueues` re-validates names read back from the database, so a deployment whose
+  `pgmq.meta` still contains mixed-case rows must run the transactional remediation in
+  `docs/design/016-queue-name-validation.md` — which preserves topic bindings and
+  notification configuration — before upgrading. Do not update or delete `pgmq.meta`
+  rows by hand: both child foreign keys cascade on delete.
 * **pgmq-hasql, pgmq-effectful**: `changeVisibilityTimeout` and `setVisibilityTimeoutAt`
   now return `Maybe Message` instead of `Message`, at the statement, session, and effect
   layers. `pgmq.set_vt` is `RETURNS SETOF` and yields zero rows when the target message no
@@ -68,6 +84,22 @@ section are owned by
 * **pgmq-hasql**: `ReadMessage.conditional` now filters. The field existed and was
   documented, but was never encoded, so a `Just` filter was silently ignored and every
   visible message was returned. `readWithPoll`'s conditional already worked.
+* **pgmq-effectful**: `isTransient` now classifies retry-worthy server errors as
+  transient. Serialization failures (40001), deadlocks (40P01), lock timeouts (55P03),
+  server shutdown and recovery (57P01/57P02/57P03), and resource exhaustion (class 53)
+  all arrive as server errors inside `StatementSessionError`, which previously mapped to
+  permanent unconditionally — so retry loops gated on `isTransient` failed fast on
+  exactly the errors retries exist for. Every other statement error, including decode
+  and row-count mismatches, remains permanent. The whitelist is pinned in both
+  directions by tests and recorded in `docs/design/017-transient-error-classification.md`.
+* **pgmq-hasql**: a message whose body is SQL NULL no longer poisons every read batch.
+  The `message` column is nullable and `pgmq.send('q', NULL::jsonb)` is legal SQL for
+  any non-Haskell producer; one such row made every batch containing it fail at decode —
+  after the read statement had already bumped `vt` and `read_ct` for the whole batch —
+  and the row could not be seen or archived through this client. A SQL NULL body now
+  decodes as JSON `null` (`MessageBody Aeson.Null`, deliberately indistinguishable from
+  an explicitly-sent JSON `null` body), so the row is readable, identifiable, and
+  archivable through the normal API.
 
 ### Documentation
 
