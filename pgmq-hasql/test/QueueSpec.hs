@@ -4,8 +4,13 @@
 module QueueSpec (tests) where
 
 import EphemeralDb (TestFixture (..), withTestFixture)
+import Hasql.Decoders qualified as D
+import Hasql.Encoders qualified as E
 import Hasql.Pool qualified as Pool
+import Hasql.Session qualified as Session
+import Hasql.Statement (Statement, preparable)
 import Pgmq.Hasql.Sessions qualified as Sessions
+import Pgmq.Hasql.Statements.Types qualified as StmtTypes
 import Pgmq.Types (Queue (..), parseQueueName)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -24,8 +29,11 @@ tests p =
       testDropQueue p,
       testDropNonExistentQueue p,
       testListQueues p,
-      testCreateUnloggedQueue p
-      -- Note: testCreatePartitionedQueue is skipped because it requires pg_partman extension
+      testCreateUnloggedQueue p,
+      -- Note: the partitioned-queue tests need the pg_partman extension, which
+      -- is not present in the ephemeral test environment; this one reports the
+      -- skip rather than pretending to have run.
+      testCreatePartitionedQueueIsReentrant p
     ]
 
 testCreateQueue :: Pool.Pool -> TestTree
@@ -74,6 +82,34 @@ testListQueues p = testCase "listQueues returns all created queues" $ do
   -- Cleanup
   cleanupQueue p queueName1
   cleanupQueue p queueName2
+
+-- | Two replicas can call @create_partitioned@ for the same queue: the advisory
+-- lock serializes them, but the second one used to fail anyway because
+-- @partman.create_parent@ rejects an already-registered parent. Migration
+-- 0003 guards both @create_parent@ calls with a @part_config@ probe.
+testCreatePartitionedQueueIsReentrant :: Pool.Pool -> TestTree
+testCreatePartitionedQueueIsReentrant p =
+  testCase "createPartitionedQueue is re-entrant (needs pg_partman)" $ do
+    available <- assertSession p (Session.statement () pgPartmanAvailable)
+    if not available
+      then putStrLn "    SKIPPED: pg_partman is not available in this PostgreSQL installation"
+      else do
+        qName <- assertRight $ parseQueueName "test_partitioned_reentry"
+        let request =
+              StmtTypes.CreatePartitionedQueue
+                { StmtTypes.queueName = qName,
+                  StmtTypes.partitionInterval = "10000",
+                  StmtTypes.retentionInterval = "100000"
+                }
+        assertSession p (Sessions.createPartitionedQueue request)
+        assertSession p (Sessions.createPartitionedQueue request)
+        cleanupQueue p qName
+
+pgPartmanAvailable :: Statement () Bool
+pgPartmanAvailable = preparable sql E.noParams decoder
+  where
+    sql = "select exists (select 1 from pg_available_extensions where name = 'pg_partman')"
+    decoder = D.singleRow (D.column (D.nonNullable D.bool))
 
 testCreateUnloggedQueue :: Pool.Pool -> TestTree
 testCreateUnloggedQueue p = testCase "createUnloggedQueue creates an unlogged queue" $ do

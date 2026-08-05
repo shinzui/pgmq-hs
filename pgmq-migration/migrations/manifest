@@ -1,2 +1,3 @@
 0001-install-v1.11.0.sql
 0002-schema-management-comment.sql
+0003-notify-crash-safety-and-locking.sql

@@ -52,13 +52,15 @@ immediate-shutdown restart.
 - [ ] M1 remaining: partitioned re-entry documented as code-verified (no pg_partman in
       the test environment — `pgmq-hasql/test/QueueSpec.hs` line 28); the partman-gated
       test ships with M2's guard.
-- [ ] M2 (fix): new migration file using the next free number in the live manifest,
-      re-creating
-      `pgmq.notify_queue_listeners` (fail-open fallback), `pgmq.enable_notify_insert`
-      (advisory lock + COALESCE-250 guard, absorbing plan 13's server-side half), and
-      `pgmq.create_partitioned` (pg_partman idempotence guard); manifest updated; all three
-      functions allowlisted in MasterPlan 2 plan 9's schema-convergence test if that test
-      exists yet; migration + hasql + config suites green; M1 crash test green.
+- [x] M2 (fix) (2026-08-05): `pgmq-migration/migrations/0003-notify-crash-safety-and-locking.sql`
+      re-creates `pgmq.notify_queue_listeners` (fail-open fallback),
+      `pgmq.enable_notify_insert` (advisory lock + COALESCE-250 guard, absorbing plan 13's
+      server-side half), and `pgmq.create_partitioned` (pg_partman idempotence guard);
+      manifest updated. MasterPlan 2 plan 9 has not landed, so there is no
+      schema-convergence test to allowlist. `cabal test all` green — migration 9,
+      config 14, effectful 17, hasql 63 — including the M1 crash test and the race loop
+      at zero 42710. Partman-gated re-entry test added to `pgmq-hasql/test/QueueSpec.hs`;
+      it reports its skip rather than passing silently.
 - [ ] M3 (channel contract): `notifyChannelName` exported from `Pgmq.Types`; the false
       haddock in `QueueManagement.hs` corrected; LISTEN round-trip test green
       (notification received on exactly the channel the helper computes); poll-fallback
@@ -131,6 +133,28 @@ M1 implementation (2026-08-05):
 - The `shutdownMode` field name is shared by `EphemeralPg.Config` and
   `EphemeralPg.Database`, so `db {Pg.shutdownMode = ...}` is an ambiguous record update.
   The crash test imports `EphemeralPg.Database` qualified for that one selector.
+
+M2 implementation (2026-08-05):
+
+- **This plan's Context section is wrong about upstream parity, and it matters to plan 9.**
+  It claims "the whole notify family is pgmq-hs-local SQL (not upstream pgmq), so changing
+  it has no upstream-parity cost". It is not local: `pgmq.notify_queue_listeners`,
+  `pgmq.enable_notify_insert`, and `pgmq.notify_insert_throttle` all appear in
+  `vendor/pgmq/pgmq-extension/sql/pgmq.sql` at the same line numbers as in the install
+  migration, and `diff` over both function regions is empty. All **three** functions this
+  migration re-creates therefore diverge from upstream and all three need entries in
+  MasterPlan 2 plan 9's schema-convergence allowlist — not just `create_partitioned`.
+- The effective definition of all three functions at migration head was the untouched
+  1.11.0 baseline: the ledger held only `0001-install-v1.11.0.sql` and
+  `0002-schema-management-comment.sql` (a `COMMENT ON SCHEMA`), and
+  `vendor/pgmq/pgmq-extension/pgmq.control` still declares `default_version = '1.11.0'`,
+  so plan 9 has not landed. There was no newer upstream body to reconcile against.
+- **`pgmq-migration/test/Main.hs` enumerated the ledger positionally**, so appending any
+  migration turned five of its nine tests red on a correct change
+  (`[AppliedNow, AppliedNow]`, `[PendingMigration canaryId]`, `length migrations @?= 2`).
+  Those expectations now derive from `nativeMigrationNames`, which reads the plan, and the
+  ledger is spelled out in exactly one place — `testNativeComponent`. Plan 9 and keiro
+  MasterPlan 17 plans 116/118 will each need to add one line there and nothing else.
 
 (Add new discoveries below as work proceeds.)
 
@@ -223,6 +247,22 @@ M1 implementation (2026-08-05):
   catches over a hundred, every run, in under two seconds. The test's post-fix job is to
   detect a regression that reintroduces the window, and a guard that fires reliably is
   worth the extra 1.5 seconds.
+  Date: 2026-08-05
+
+- Decision: The migration is `pgmq-migration/migrations/0003-notify-crash-safety-and-locking.sql`.
+  Rationale: The live manifest held `0001-install-v1.11.0.sql` and
+  `0002-schema-management-comment.sql` and nothing else, so `0003` is the next free
+  sequential number with no gap. Recorded here as this plan's Decision Log requires.
+  Date: 2026-08-05
+
+- Decision: Rewrite `pgmq-migration/test/Main.hs`'s ledger expectations to derive from the
+  plan rather than updating the hard-coded pairs to triples.
+  Rationale: Five of nine tests encoded "the ledger has exactly two migrations"
+  positionally, so every future migration would turn them red on a correct change and the
+  fix would be mechanical churn — the kind that trains people to edit expectations without
+  reading them. Deriving from `nativeMigrationNames` leaves one deliberate assertion, the
+  ledger listing in `testNativeComponent`, which is exactly where a reviewer should be
+  forced to look.
   Date: 2026-08-05
 
 (Record further decisions as they are made, with dates.)

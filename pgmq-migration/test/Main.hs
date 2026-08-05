@@ -47,8 +47,13 @@ import Database.PostgreSQL.Migrate.Internal
   ( ComponentDescription (..),
     PlanDescription (..),
     componentNameText,
+    migrationIdName,
+    migrationNameText,
     planDescription,
   )
+-- MigrationDescription's 'migrationId' field would shadow the smart constructor
+-- of the same name imported above, so it is reached through this alias only.
+import Database.PostgreSQL.Migrate.Internal qualified as MigrateInternal
 import EphemeralPg
   ( connectionSettings,
     withCached,
@@ -93,7 +98,7 @@ tests settings conn =
     [ testGroup
         "native definition"
         [ testCase "baseline bytes equal vendored pgmq.sql" testNativePayload,
-          testCase "component pgmq has two migrations and no dependencies" testNativeComponent
+          testCase "component pgmq lists the ledger in order and has no dependencies" testNativeComponent
         ],
       testGroup
         "native runner"
@@ -118,6 +123,9 @@ testNativePayload = do
   vendored <- ByteString.readFile vendorPath
   native @?= vendored
 
+-- | The one place the ledger is spelled out. Every other expectation in this
+-- suite derives from 'nativeMigrationNames', so appending a migration means
+-- reviewing this list and nothing else.
 testNativeComponent :: IO ()
 testNativeComponent = do
   component <- either (assertFailure . show) pure Migration.pgmqMigrations
@@ -127,8 +135,38 @@ testNativeComponent = do
     [ComponentDescription {name, dependencies, migrations}] -> do
       componentNameText name @?= "pgmq"
       dependencies @?= mempty
-      length migrations @?= 2
+      migrationNames migrations
+        @?= [ "0001-install-v1.11.0",
+              "0002-schema-management-comment",
+              "0003-notify-crash-safety-and-locking"
+            ]
     actual -> assertFailure ("unexpected native PGMQ plan: " <> show actual)
+
+migrationNames :: (Foldable f) => f MigrateInternal.MigrationDescription -> [Text]
+migrationNames descriptions =
+  [ migrationNameText (migrationIdName (MigrateInternal.migrationId description))
+  | description <- toList descriptions
+  ]
+
+-- | Migration names in the native PGMQ ledger, in manifest order.
+nativeMigrationNames :: IO [Text]
+nativeMigrationNames = do
+  component <- either (assertFailure . show) pure Migration.pgmqMigrations
+  plan <- either (assertFailure . show) pure (migrationPlan (component :| []))
+  let PlanDescription components = planDescription plan
+  case toList components of
+    [ComponentDescription {migrations}] -> pure (migrationNames migrations)
+    actual -> assertFailure ("unexpected native PGMQ plan: " <> show actual)
+
+-- | Every migration a history import leaves unapplied. An import records the
+-- immutable baseline only, so everything after it is still pending.
+pendingAfterBaseline :: IO [VerificationIssue]
+pendingAfterBaseline = do
+  names <- nativeMigrationNames
+  traverse pendingIssue (drop 1 names)
+  where
+    pendingIssue name =
+      PendingMigration <$> either (assertFailure . show) pure (migrationId "pgmq" name)
 
 findFile :: [FilePath] -> IO FilePath
 findFile candidates = do
@@ -181,14 +219,15 @@ withCleanDb conn action = do
 testNativeRunner :: Settings.Settings -> Connection.Connection -> IO ()
 testNativeRunner settings conn = withCleanDb conn $ \c -> do
   plan <- nativePlan
+  ledgerLength <- length <$> nativeMigrationNames
   first <- runMigrationPlan defaultRunOptions settings plan
   case first of
     Left err -> assertFailure ("fresh native migration failed: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AppliedNow, AppliedNow]
+    Right report -> (outcome <$> toList (results report)) @?= replicate ledgerLength AppliedNow
   second <- runMigrationPlan defaultRunOptions settings plan
   case second of
     Left err -> assertFailure ("repeated native migration failed: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AlreadyApplied]
+    Right report -> (outcome <$> toList (results report)) @?= replicate ledgerLength AlreadyApplied
   functionExists c "pgmq.metrics_all()" >>= (@?= True)
   hasCanaryComment c >>= (@?= True)
 
@@ -236,15 +275,17 @@ testDirectHistoryImport settings conn = withCleanDb conn $ \c -> do
   historyOutcomes second @?= [AlreadyImported]
 
   plan <- nativePlan
-  canaryId <- either (assertFailure . show) pure (migrationId "pgmq" "0002-schema-management-comment")
+  pending <- pendingAfterBaseline
+  ledgerLength <- length <$> nativeMigrationNames
   beforeCanary <- verifyMigrationPlan defaultRunOptions settings plan
   case beforeCanary of
     Left err -> assertFailure ("native verify failed after direct import: " <> show err)
-    Right (VerificationReport issues _ _ _) -> issues @?= [PendingMigration canaryId]
+    Right (VerificationReport issues _ _ _) -> issues @?= pending
   nativeRun <- runMigrationPlan defaultRunOptions settings plan
   case nativeRun of
     Left err -> assertFailure ("native runner failed after direct import: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AppliedNow]
+    Right report ->
+      (outcome <$> toList (results report)) @?= AlreadyApplied : replicate (ledgerLength - 1) AppliedNow
   afterCanary <- verifyMigrationPlan defaultRunOptions settings plan
   case afterCanary of
     Left err -> assertFailure ("native verify failed after direct canary: " <> show err)
@@ -252,7 +293,7 @@ testDirectHistoryImport settings conn = withCleanDb conn $ \c -> do
   repeated <- runMigrationPlan defaultRunOptions settings plan
   case repeated of
     Left err -> assertFailure ("native rerun failed after direct canary: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AlreadyApplied]
+    Right report -> (outcome <$> toList (results report)) @?= replicate ledgerLength AlreadyApplied
   functionExists c "pgmq.metrics_all()" >>= (@?= False)
   hasCanaryComment c >>= (@?= True)
 
@@ -319,15 +360,17 @@ testEquivalentHistoryImport settings conn = withCleanDb conn $ \c -> do
   historyOutcomes second @?= [AlreadyImported]
 
   plan <- nativePlan
-  canaryId <- either (assertFailure . show) pure (migrationId "pgmq" "0002-schema-management-comment")
+  pending <- pendingAfterBaseline
+  ledgerLength <- length <$> nativeMigrationNames
   beforeCanary <- verifyMigrationPlan defaultRunOptions settings plan
   case beforeCanary of
     Left err -> assertFailure ("native verify failed after equivalent import: " <> show err)
-    Right (VerificationReport issues _ _ _) -> issues @?= [PendingMigration canaryId]
+    Right (VerificationReport issues _ _ _) -> issues @?= pending
   nativeRun <- runMigrationPlan defaultRunOptions settings plan
   case nativeRun of
     Left err -> assertFailure ("native runner failed after equivalent import: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AppliedNow]
+    Right report ->
+      (outcome <$> toList (results report)) @?= AlreadyApplied : replicate (ledgerLength - 1) AppliedNow
   afterCanary <- verifyMigrationPlan defaultRunOptions settings plan
   case afterCanary of
     Left err -> assertFailure ("native verify failed after equivalent canary: " <> show err)
@@ -335,7 +378,7 @@ testEquivalentHistoryImport settings conn = withCleanDb conn $ \c -> do
   repeated <- runMigrationPlan defaultRunOptions settings plan
   case repeated of
     Left err -> assertFailure ("native rerun failed after equivalent canary: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AlreadyApplied]
+    Right report -> (outcome <$> toList (results report)) @?= replicate ledgerLength AlreadyApplied
   hasCanaryComment c >>= (@?= True)
 
 testEquivalentContractRejections :: Settings.Settings -> Connection.Connection -> IO ()
@@ -549,19 +592,21 @@ hasCanaryComment connection = do
 assertNativeCanaryLifecycle :: Settings.Settings -> Connection.Connection -> IO ()
 assertNativeCanaryLifecycle settings connection = do
   plan <- nativePlan
-  canaryId <- either (assertFailure . show) pure (migrationId "pgmq" "0002-schema-management-comment")
+  pending <- pendingAfterBaseline
+  ledgerLength <- length <$> nativeMigrationNames
   beforeCanary <- verifyMigrationPlan defaultRunOptions settings plan
   case beforeCanary of
     Left err -> assertFailure ("native verify failed after shared-ledger import: " <> show err)
-    Right (VerificationReport issues _ _ _) -> issues @?= [PendingMigration canaryId]
+    Right (VerificationReport issues _ _ _) -> issues @?= pending
   nativeRun <- runMigrationPlan defaultRunOptions settings plan
   case nativeRun of
     Left err -> assertFailure ("native runner failed after shared-ledger import: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AppliedNow]
+    Right report ->
+      (outcome <$> toList (results report)) @?= AlreadyApplied : replicate (ledgerLength - 1) AppliedNow
   repeated <- runMigrationPlan defaultRunOptions settings plan
   case repeated of
     Left err -> assertFailure ("native rerun failed after shared-ledger import: " <> show err)
-    Right report -> (outcome <$> toList (results report)) @?= [AlreadyApplied, AlreadyApplied]
+    Right report -> (outcome <$> toList (results report)) @?= replicate ledgerLength AlreadyApplied
   hasCanaryComment connection >>= (@?= True)
 
 canaryCommentStatement :: Statement.Statement () Bool
