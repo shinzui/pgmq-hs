@@ -4,6 +4,7 @@ slug: validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers
 title: "Validate queue names and classify transient errors across the pgmq layers"
 kind: exec-plan
 created_at: 2026-07-23T23:12:20Z
+intention: intention_01kz9yszpmejztjbet6k4bvcf7
 master_plan: "docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md"
 ---
 
@@ -47,12 +48,14 @@ consumer-impact handoff for the single release owner, plan 12.
 
 ## Progress
 
-- [ ] M1 (repro/evidence): raw-SQL aliasing tests demonstrate consequences (a) and (b)
-      live (silent notify miss for `MyQueue`; one physical table, two meta rows,
-      cross-destruction on drop); `FromJSON`/`parseQueueName` rejection tests written and
-      red; NULL-body poison test written and red (whole-batch decode failure with
-      `read_ct` already bumped); classification tests for the transient SQLSTATEs written
-      and red. Transcripts recorded in Surprises & Discoveries.
+- [x] M1 (2026-08-05, repro/evidence): raw-SQL aliasing tests demonstrate consequences
+      (a) and (b) live on a dedicated instance (throttle row never matched for `MyQueue`;
+      one physical table, two meta rows, interleaving, cross-destruction on drop);
+      `parseQueueName`/`FromJSON` red state recorded via `cabal repl pgmq-core`
+      (rejection tests land with the M2 suite); NullBodySpec written — two target tests
+      red (whole-batch decode failure) and the `read_ct`-bump evidence green;
+      ClassificationSpec extended — all nine transient-SQLSTATE assertions red.
+      Transcripts recorded in Surprises & Discoveries.
 - [ ] M2 (fix): `parseQueueName` rejects uppercase and empty; `FromJSON QueueName`
       validates via `parseQueueName`; new `pgmq-core-test` suite green; `isTransient`
       whitelists 40001/40P01/55P03/57P01/57P02/57P03/53xxx inside
@@ -88,6 +91,59 @@ producer):
   `StatementSessionError`.
 
 (Add new discoveries below as work proceeds.)
+
+- M1 (2026-08-05): plan 14's migration `0003-notify-crash-safety-and-locking.sql` changed
+  the observable shape of aliasing consequence (a). The trigger now fails open when its
+  throttle row is absent, and a mixed-case throttle row IS absent from the trigger's
+  point of view (it looks up the lowercased name). So `enable_notify_insert('MyQueue')`
+  no longer silently kills notification — it silently /ignores the configured throttle/:
+  notifications fire unthrottled on every insert while `last_notified_at` stays frozen at
+  the epoch. The frozen epoch timestamp is the durable evidence either way, and is what
+  `AliasingSpec` asserts, against a lowercase control queue whose row does get stamped.
+- M1 (2026-08-05): `pgmq.notify_insert_throttle` carries the same
+  `REFERENCES pgmq.meta (queue_name) ON DELETE CASCADE` foreign key as
+  `pgmq.topic_bindings` (install SQL lines 25-31), and neither has `ON UPDATE`, so a
+  naive `UPDATE pgmq.meta SET queue_name = lower(queue_name)` fails outright against
+  either child. The M2 remediation must snapshot and re-create BOTH child kinds, not just
+  topic bindings.
+- M1 (2026-08-05): the mixed-case rows these tests construct are themselves poison for
+  every concurrent test that calls `listQueues` once `parseQueueName` tightens, because
+  `queueDecoder` re-validates names via `D.refine` and tasty runs specs in parallel
+  (`QueueSpec` alone calls `listQueues` in four places against the shared pool). See the
+  Decision Log entry on the dedicated instance.
+- M1 red transcripts (2026-08-05). pgmq-effectful: 9 of 30 failed — exactly the nine
+  transient-SQLSTATE assertions (`40001`, `40P01`, `55P03`, `57P01`, `57P02`, `57P03`,
+  `53100`, `53200`, `53300` each "expected transient"); the permanent and row-count
+  assertions passed. pgmq-hasql: 2 of 71 failed, both NullBodySpec targets, with the
+  decode failure landing on the poison row and column exactly as predicted:
+
+  ```text
+  NULL Message Body (PGH-11)
+    a batch containing a NULL body reads fully:                 FAIL
+      Session failed: SessionUsageError (StatementSessionError 1 0
+        "select * from pgmq.read($1,$2,coalesce($3,1),coalesce($4,'{}'::jsonb))"
+        ["\"test_queue_18270\"","30","10","null"] True
+        (RowStatementError 2 (CellRowError 5 3802 UnexpectedNullCellError)))
+    the NULL-bodied row can be archived through the normal API: FAIL (same shape)
+    read_ct is bumped for the whole batch even when decode fails: OK   (evidence)
+  Mixed-Case Queue Aliasing (PGH-7 evidence): all 3 OK          (evidence)
+  ```
+
+  pgmq-core red state via `cabal repl pgmq-core` — the parser accepts what it must
+  reject, and the derived `FromJSON` bypasses even the checks the parser does have:
+
+  ```text
+  ghci> parseQueueName "MyQueue"
+  Right (QueueName "MyQueue")
+  ghci> parseQueueName ""
+  Right (QueueName "")
+  ghci> fromJSON (String "MyQueue") :: Result QueueName
+  Success (QueueName "MyQueue")
+  ghci> fromJSON (String "bad-name!") :: Result QueueName
+  Success (QueueName "bad-name!")
+  ghci> fromJSON (String (T.replicate 60 "x")) :: Result QueueName
+  Success (QueueName "xxxx…60 chars…")
+  ```
 
 
 ## Decision Log
@@ -161,6 +217,16 @@ producer):
   it silently deletes those bindings. The remediation must snapshot, repoint or restore the
   child rows before changing metadata.
   Date: 2026-07-23
+
+- Decision: `AliasingSpec` (and the M2 mixed-case remediation test) run on a dedicated
+  PostgreSQL instance provisioned per-module via `EphemeralPg.startCached`, mirroring
+  `pgmq-config/test/NotifyCrashSpec.hs`, instead of the suite-shared pool.
+  Rationale: these tests must create mixed-case `pgmq.meta` rows, and after M2 any such
+  row — however short-lived — makes concurrent `listQueues` decoding fail
+  (`queueDecoder` re-validates via `parseQueueName`); `QueueSpec` calls `listQueues` on
+  the shared pool in four tests and tasty runs specs in parallel. Isolation by instance
+  removes the race instead of narrowing it.
+  Date: 2026-08-05
 
 (Record further decisions as they are made, with dates.)
 

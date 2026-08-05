@@ -78,7 +78,7 @@ correct one of its own.
 |---|-------|------|-----------|-----------|--------|
 | 13 | Fix NULL parameter semantics across pop read and notify statements | docs/plans/13-fix-null-parameter-semantics-across-pop-read-and-notify-statements.md | None | None | Complete |
 | 14 | Make insert notifications survive crashes and document the channel contract | docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md | None | None | Complete |
-| 15 | Validate queue names and classify transient errors across the pgmq layers | docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md | None | None | Not Started |
+| 15 | Validate queue names and classify transient errors across the pgmq layers | docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md | None | None | In Progress |
 
 
 ## Dependency Graph

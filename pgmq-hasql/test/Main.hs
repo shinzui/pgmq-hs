@@ -3,12 +3,14 @@
 module Main (main) where
 
 import AdvancedOpsSpec qualified
+import AliasingSpec qualified
 import AllFunctionsDecoderSpec qualified
 import DecoderValidationSpec qualified
 import EphemeralDb (withPgmqDb)
 import MessageSpec qualified
 import NotifyChannelSpec qualified
 import NotifyRaceSpec qualified
+import NullBodySpec qualified
 import NullSemanticsSpec qualified
 import QueueSpec qualified
 import RoundTripSpec qualified
@@ -27,7 +29,12 @@ main = do
               MessageSpec.tests pool,
               AdvancedOpsSpec.tests pool,
               NullSemanticsSpec.tests pool,
+              NullBodySpec.tests pool,
               NotifyRaceSpec.tests pool,
+              -- Constructs mixed-case pgmq.meta rows, which poison listQueues
+              -- decoding for every concurrent test — so it runs on its own
+              -- dedicated PostgreSQL instance, never the shared pool.
+              AliasingSpec.tests,
               -- Needs the Database handle: LISTEN/NOTIFY has no hasql API, so
               -- the round-trip test opens a raw libpq connection.
               NotifyChannelSpec.tests pool db,
