@@ -73,7 +73,7 @@ notification-channel and crash-fallback contract.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 13 | Fix NULL parameter semantics across pop read and notify statements | docs/plans/13-fix-null-parameter-semantics-across-pop-read-and-notify-statements.md | None | None | In Progress |
+| 13 | Fix NULL parameter semantics across pop read and notify statements | docs/plans/13-fix-null-parameter-semantics-across-pop-read-and-notify-statements.md | None | None | Complete |
 | 14 | Make insert notifications survive crashes and document the channel contract | docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md | None | None | Not Started |
 | 15 | Validate queue names and classify transient errors across the pgmq layers | docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md | None | None | Not Started |
 
@@ -123,8 +123,8 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 
 ## Progress
 
-- [ ] EP-13: `pop`/`read`/`readWithPoll`/`set_vt`/`enable_notify_insert` NULL semantics fixed; false comments corrected; existing visibility-timeout tests updated for `Maybe`; `Nothing`-case tests pass.
-- [ ] EP-13: `changeVisibilityTimeout` and `setVisibilityTimeoutAt` return `Maybe Message` instead of throwing on a raced row.
+- [x] EP-13 (2026-08-05): `pop`/`read`/`readWithPoll`/`set_vt`/`enable_notify_insert` NULL semantics fixed; false comments corrected; existing visibility-timeout tests updated for `Maybe`; `Nothing`-case tests pass.
+- [x] EP-13 (2026-08-05): `changeVisibilityTimeout` and `setVisibilityTimeoutAt` return `Maybe Message` instead of throwing on a raced row.
 - [ ] EP-14: notification delivery survives crash recovery through the deliberate fail-open path; the crash-cycle listener reconnects after restart and proves delivery.
 - [ ] EP-14: `notifyChannelName` exported; Haddock corrected; SQL mutations advisory-locked; concurrent-startup test passes.
 - [ ] EP-15: Queue names rejected consistently; `FromJSON` validates; mixed-case remediation preserves topic bindings and notification configuration.
@@ -145,6 +145,10 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 - Validation (2026-07-23): the raw libpq listener in the crash test must be opened after restart, because immediate shutdown kills the pre-crash connection; EP-14 now specifies reconnect, re-LISTEN, and UTF-8 encoding.
 - Validation (2026-07-23): Mori found pgmq family pins in more components than the old release step listed, including shibuya tests, examples, benchmarks, and rei. MasterPlan 2 EP-12 owns a complete rollout matrix rather than a library-only bound edit.
 - Coordination (2026-07-23): official MasterPlan 2 already audits upstream 1.11.1 as part of its commit-pinned 1.12.0 upgrade. EP-14 must compose its migration after whatever ledger entries have landed rather than copying a stale reserved number.
+- EP-13 implementation (2026-08-05): a pre-existing design note, `docs/design/010-read-conditional-null-handling.md`, had recorded as settled the very decision EP-13 reverses, and recorded it with a root cause that does not hold against the vendored SQL — it claims two overloaded `pgmq.read` functions (there is one, with `conditional JSONB DEFAULT '{}'`) and argues that `coalesce($4,'{}')` is "not viable" (the function's `CASE` gives `'{}'` the meaning "no filter", so it is exactly the right fix). That note is why `ReadMessage.conditional` stayed dead through a release. It is now marked Superseded with a Correction section, and the durable rule lives in `docs/design/014-null-parameter-contract.md`. **Bearing on EP-14 and EP-15**: check `docs/design/` for a note covering the behavior you are about to change before assuming the current code reflects a considered decision, and correct the note in the same change.
+- EP-13 implementation (2026-08-05): this repository has no `pgmq-core-test` suite. The Integration Points section below tells the second lander of the shared `pgmq-core/src/Pgmq/Types.hs` edits (EP-14's `notifyChannelName`, EP-15's validating `FromJSON`) to "run `pgmq-core-test`"; the reconciliation check is `cabal test all`, which runs four suites (pgmq-hasql 61, pgmq-effectful 17, pgmq-config 11, pgmq-migration 9).
+- EP-13 implementation (2026-08-05): migration ledger unchanged. `pgmq-migration/migrations/manifest` still holds only `0001-install-v1.11.0.sql` and `0002-schema-management-comment.sql`, so EP-14 takes `0003` unless MasterPlan 2 EP-9 or keiro MasterPlan 17 plans 116/118 land first. EP-13's `enable_notify_insert` fix is client-side statement text only, as designed; the server-side `COALESCE(throttle_interval_ms, 250)` guard for non-Haskell callers is still owed by EP-14's migration.
+- EP-13 implementation (2026-08-05): both effectful interpreters passed the changed result type through without edits — `withTracedOp config pool (...) $ Sessions.changeVisibilityTimeout query` is polymorphic in the session's result — so keiro's ADR 0001 telemetry contract is preserved by construction. EP-14 and EP-15 can expect the same of any result-type change that does not touch `withTracedOp`'s `OpInfo`.
 
 
 ## Decision Log
@@ -179,6 +183,12 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 
 
 ## Revision Note
+
+2026-08-05 (third): EP-13 implemented and marked Complete. Recorded four cross-plan
+discoveries: the superseded design note that had entrenched one of the defects, the
+absence of a `pgmq-core-test` suite named in Integration Points, the unchanged migration
+ledger (EP-14 still takes `0003`), and the confirmation that result-type changes flow
+through both effectful interpreters without touching span semantics.
 
 2026-08-05 (second): Recorded the decision to implement this MasterPlan first. EP-14 therefore
 expects to claim `0003` and to find no convergence test to allowlist; MasterPlan 2 EP-9 was

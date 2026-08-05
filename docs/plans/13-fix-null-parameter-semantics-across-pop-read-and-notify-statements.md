@@ -64,13 +64,19 @@ directly.
       superseded design note 010 corrected in the same change. M1 and pre-existing tests
       green (`pgmq-hasql-test` 61/61, `pgmq-config-test` 11/11, `pgmq-effectful-test`
       17/17).
-- [ ] M3: Full family suite green (`cabal test all`); CHANGELOG entry written; release-train
-      coordination recorded (this plan claims no migration file; family version impact
-      recorded as 0.5.0.0-breaking); consumer-impact notes for keiro-pgmq (compiles
-      unchanged) and shibuya-pgmq-adapter (one-line `leaseExtend` fix needed at bound-bump
-      time) recorded for the release-owning plan 12.
-- [ ] Design distillation pass: NULL-parameter contract ("no optional parameter may widen
-      scope") recorded under `docs/design/`.
+- [x] M3 (2026-08-05): Full family suite green (`cabal test all`: 98 tests across
+      pgmq-hasql-test 61, pgmq-effectful-test 17, pgmq-config-test 11, pgmq-migration-test
+      9) and `just nix-test` green (hermetic pgmq-hasql-tests and pgmq-migration-tests);
+      CHANGELOG "Unreleased (0.5.0.0)" entry written; release-train coordination recorded
+      (this plan claims no migration file; family version impact recorded as
+      0.5.0.0-breaking); consumer-impact notes for keiro-pgmq (compiles unchanged) and
+      shibuya-pgmq-adapter (one-line `leaseExtend` fix needed at bound-bump time) recorded
+      for the release-owning plan 12.
+- [x] Design distillation pass (2026-08-05): NULL-parameter contract ("no optional
+      parameter may widen scope") recorded as
+      `docs/design/014-null-parameter-contract.md`, together with the companion
+      "absence is not failure" decoder rule; `docs/design/010-read-conditional-null-handling.md`
+      marked Superseded with a Correction section.
 
 
 ## Surprises & Discoveries
@@ -176,6 +182,19 @@ M2 (2026-08-05):
   calls `Sessions.changeVisibilityTimeout`; it is result-type-polymorphic prose and needed
   no edit.
 
+M3 (2026-08-05):
+
+- Migration ledger state at landing time: `pgmq-migration/migrations/manifest` contains
+  exactly `0001-install-v1.11.0.sql` and `0002-schema-management-comment.sql` — the
+  baseline. No sibling plan had claimed a number, so plan 14 takes `0003` unless MasterPlan
+  2 plan 9 or keiro MasterPlan 17 plans 116/118 land first. This plan added no migration,
+  as designed.
+- `cabal test all` runs four suites, not five: there is no `pgmq-core-test` in this
+  repository. `pgmq-core`'s types are exercised through the other packages' suites. The
+  MasterPlan's Integration Points section names `pgmq-core-test` as the reconciliation
+  check for the `Pgmq.Types` file shared by plans 14 and 15; whoever lands second there
+  should use `cabal test all` instead.
+
 (Add new discoveries below as work proceeds.)
 
 
@@ -270,8 +289,48 @@ M2 (2026-08-05):
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation. Before marking the plan complete, record the
-NULL-parameter contract under `docs/design/` — see the final Progress item.)
+Completed 2026-08-05. All five findings (PGH-1 through PGH-5) are fixed and pinned by
+tests that were confirmed red before the fix and green after.
+
+What exists now that did not before. `Nothing` means the documented default for every
+optional parameter in this family: `pop` pops one message instead of deleting the queue,
+`readMessage` and `readWithPoll` read one message instead of leasing the queue, and
+`enableNotifyInsert` installs a 250 ms throttle instead of failing with SQLSTATE 23502 on
+every startup forever. `ReadMessage.conditional` filters instead of being silently
+discarded. `changeVisibilityTimeout` and `setVisibilityTimeoutAt` return `Maybe Message`,
+so a message another worker already handled is reported as absence rather than as an error
+shaped like infrastructure failure. `pgmq-hasql/test/NullSemanticsSpec.hs` and
+`testEnsureQueuesWithNotifyDefault` in `pgmq-config/test/ConfigSpec.hs` hold all of that in
+place, and `docs/design/014-null-parameter-contract.md` states the rule for the next
+statement someone adds.
+
+What remains, all of it owned elsewhere. No version was bumped and nothing shipped: the
+five `.cabal` files still read 0.4.0.1 and the CHANGELOG entry sits under "Unreleased
+(0.5.0.0)". `docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md`
+owns the single coordinated bump, the changelog consolidation, the consumer-bound rollout,
+and the one-line shibuya-pgmq-adapter change the `Maybe Message` result requires
+(`Internal.hs` lines 198-206 assign `updated.visibilityTime` to an `IORef` and must now
+traverse the `Maybe`). keiro-pgmq needs no source change: its three
+`changeVisibilityTimeout` calls are all under `void $`. The server-side
+`COALESCE(throttle_interval_ms, 250)` guard for non-Haskell callers belongs to plan 14's
+migration, which re-creates `pgmq.enable_notify_insert` anyway.
+
+Lessons. First, the most valuable artifact of milestone 1 was not the red tests but the
+error text they printed: `Failing row contains (cfg_test_43472, null, ...)` settled the
+mechanism argument instantly, and the bound-parameter list hasql includes in its error
+(`["\"cfg_test_43472\"","null"]`) showed the NULL leaving the client. Writing the tests
+before reading more SQL would have been faster than the reverse.
+
+Second, a wrong design note is worse than no design note. `docs/design/010` had recorded,
+as settled, both a root cause that does not match the vendored SQL and an explicit
+argument that the correct fix was "not viable". That note is the reason the field stayed
+dead through a release. Correcting it was not bookkeeping; it was the part of this work
+most likely to prevent a recurrence.
+
+Third, the plan's instinct to fix this client-side was right for a reason worth repeating:
+the client-side coalesce fixes every Haskell caller the moment the code ships, with no
+dependency on migration ordering, and leaves the vendored upstream SQL byte-identical for
+the audited upgrade. Server-side guards are for callers this repository does not compile.
 
 
 ## Context and Orientation

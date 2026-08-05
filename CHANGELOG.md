@@ -1,5 +1,44 @@
 # Revision history for pgmq-hs
 
+## Unreleased (0.5.0.0)
+
+Entries accumulate here until the coordinated 0.5.0.0 release. The version bump across the
+five `.cabal` files, the consumer-bound rollout, and the final consolidation of this
+section are owned by
+`docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md`.
+
+### Breaking Changes
+
+* **pgmq-hasql, pgmq-effectful**: `changeVisibilityTimeout` and `setVisibilityTimeoutAt`
+  now return `Maybe Message` instead of `Message`, at the statement, session, and effect
+  layers. `pgmq.set_vt` is `RETURNS SETOF` and yields zero rows when the target message no
+  longer exists (already deleted, archived, or popped). Decoding that with a single-row
+  decoder raised an `UnexpectedRowCountStatementError` — the same error shape a genuine
+  infrastructure failure has — so a caller extending a lease could not distinguish a lost
+  race from a broken database. Callers that used the result must now handle `Nothing`;
+  callers that discarded it compile unchanged. The batch variants are unaffected.
+
+### Bug Fixes
+
+* **pgmq-hasql**: `pop` with `qty = Nothing` now pops one message, as documented. It
+  previously deleted and returned every visible message in the queue. The `Maybe`
+  parameter was encoded as a nullable bind, so `Nothing` reached PostgreSQL as SQL NULL; a
+  plpgsql parameter `DEFAULT` applies only to omitted arguments, and NULL in a `LIMIT`
+  clause means `LIMIT ALL`. Because `pop` deletes, there was no visibility timeout to
+  recover the messages.
+* **pgmq-hasql**: `readMessage` and `readWithPoll` with `batchSize = Nothing` now read one
+  message, as documented. They previously leased the entire queue through the same
+  `LIMIT NULL` path, hiding every message from other consumers for the visibility timeout.
+* **pgmq-hasql, pgmq-config**: `enableNotifyInsert` with `throttleIntervalMs = Nothing`
+  (and the `pgmq-config` `withNotifyInsert Nothing` that wraps it) now installs the
+  documented 250 ms throttle. It previously failed with SQLSTATE 23502 on every call,
+  because a column `DEFAULT` does not apply to an explicitly supplied NULL. Since queue
+  reconciliation is not one transaction, this failed application startup repeatedly and
+  permanently for any config using the default throttle.
+* **pgmq-hasql**: `ReadMessage.conditional` now filters. The field existed and was
+  documented, but was never encoded, so a `Just` filter was silently ignored and every
+  visible message was returned. `readWithPoll`'s conditional already worked.
+
 ## 0.4.0.1 -- 2026-07-14
 
 All packages share the 0.4.0.1 version. Only pgmq-migration changed; pgmq-core,
