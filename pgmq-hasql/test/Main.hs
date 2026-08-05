@@ -7,6 +7,7 @@ import AllFunctionsDecoderSpec qualified
 import DecoderValidationSpec qualified
 import EphemeralDb (withPgmqPool)
 import MessageSpec qualified
+import NullSemanticsSpec qualified
 import QueueSpec qualified
 import RoundTripSpec qualified
 import SchemaSpec qualified
@@ -23,6 +24,7 @@ main = do
             [ QueueSpec.tests pool,
               MessageSpec.tests pool,
               AdvancedOpsSpec.tests pool,
+              NullSemanticsSpec.tests pool,
               SchemaSpec.tests pool,
               RoundTripSpec.tests pool,
               DecoderValidationSpec.tests pool,

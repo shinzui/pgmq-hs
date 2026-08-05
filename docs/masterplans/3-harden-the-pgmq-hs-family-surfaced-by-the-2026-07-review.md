@@ -4,6 +4,7 @@ slug: harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review
 title: "Harden the pgmq-hs family surfaced by the 2026-07 review"
 kind: master-plan
 created_at: 2026-07-23T23:12:20Z
+intention: intention_01kz9yszpmejztjbet6k4bvcf7
 ---
 
 # Harden the pgmq-hs family surfaced by the 2026-07 review
@@ -72,7 +73,7 @@ notification-channel and crash-fallback contract.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 13 | Fix NULL parameter semantics across pop read and notify statements | docs/plans/13-fix-null-parameter-semantics-across-pop-read-and-notify-statements.md | None | None | Not Started |
+| 13 | Fix NULL parameter semantics across pop read and notify statements | docs/plans/13-fix-null-parameter-semantics-across-pop-read-and-notify-statements.md | None | None | In Progress |
 | 14 | Make insert notifications survive crashes and document the channel contract | docs/plans/14-make-insert-notifications-survive-crashes-and-document-the-channel-contract.md | None | None | Not Started |
 | 15 | Validate queue names and classify transient errors across the pgmq layers | docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md | None | None | Not Started |
 

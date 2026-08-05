@@ -4,6 +4,7 @@ slug: fix-null-parameter-semantics-across-pop-read-and-notify-statements
 title: "Fix NULL parameter semantics across pop read and notify statements"
 kind: exec-plan
 created_at: 2026-07-23T23:12:20Z
+intention: intention_01kz9yszpmejztjbet6k4bvcf7
 master_plan: "docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md"
 ---
 
@@ -49,11 +50,12 @@ directly.
 
 ## Progress
 
-- [ ] M1: `NullSemanticsSpec` (pgmq-hasql) and the `withNotifyInsert Nothing` reconcile
-      test (pgmq-config) written and confirmed **red** against unfixed code, reproducing
-      PGH-1 (pop drains queue), PGH-3 (read/readWithPoll lease whole queue), PGH-4
-      (23502 on enable), and PGH-5 (throw on raced-away set_vt row). Failure transcripts
-      captured in Surprises & Discoveries.
+- [x] M1 (2026-08-05): `NullSemanticsSpec` (pgmq-hasql) and the `withNotifyInsert Nothing`
+      reconcile test (pgmq-config) written and confirmed **red** against unfixed code,
+      reproducing PGH-1 (pop drains queue), PGH-3 (read/readWithPoll lease whole queue),
+      PGH-2 (conditional silently ignored), PGH-4 (23502 on enable), and PGH-5 (throw on
+      raced-away set_vt row, asserted in its M1 `assertSessionFails` form). Failure
+      transcripts captured in Surprises & Discoveries.
 - [ ] M2: Statement-text COALESCE fixes for `pop`, `read`, `read_with_poll`,
       `enable_notify_insert`; `ReadMessage.conditional` wired as a real fourth parameter;
       `changeVisibilityTimeout`/`setVisibilityTimeoutAt` return `Maybe Message` through the
@@ -87,6 +89,68 @@ own migration):
   the original finding is **refuted**: a plpgsql function call is one statement, so the
   error rolls back the function's internal trigger drop atomically; trigger and throttle
   row were verified intact after the failure.
+
+M1 reproduction on this machine (2026-08-05, PostgreSQL 17.10 via `ephemeral-pg`, GHC
+9.12.4). Every predicted failure shape reproduced. `cabal test pgmq-hasql-test
+--test-show-details=direct`:
+
+```text
+  NULL Parameter Semantics
+    pop with qty = Nothing pops exactly one message:                 FAIL (0.02s)
+      test/NullSemanticsSpec.hs:78:
+      Should pop exactly 1 message
+      expected: 1
+       but got: 5
+    read with batchSize = Nothing reads exactly one message:         FAIL (0.01s)
+      Should read exactly 1 message
+      expected: 1
+       but got: 5
+    readWithPoll with batchSize = Nothing reads exactly one message: FAIL (0.01s)
+      Should read exactly 1 message
+      expected: 1
+       but got: 5
+    conditional filters when Just and is neutral when Nothing:       FAIL (0.01s)
+      Filtered read should return only the matching message
+      expected: 1
+       but got: 2
+    enableNotifyInsert with Nothing applies the 250ms default:       FAIL (0.02s)
+      Session failed: SessionUsageError (StatementSessionError 1 0
+      "select from pgmq.enable_notify_insert($1, $2)" ["\"test_queue_52949\"","null"] True
+      (ServerStatementError (ServerError "23502" "null value in column
+      \"throttle_interval_ms\" of relation \"notify_insert_throttle\" violates not-null
+      constraint" ...)))
+    set_vt on a raced-away row does not throw:                       OK (0.02s)
+
+5 out of 61 tests failed (1.27s)
+```
+
+`cabal test pgmq-config-test --test-show-details=direct`:
+
+```text
+    enables notify insert with the default throttle:   FAIL (0.02s)
+      Session failed: SessionUsageError (StatementSessionError 1 0
+      "select from pgmq.enable_notify_insert($1, $2)" ["\"cfg_test_43472\"","null"] True
+      (ServerStatementError (ServerError "23502" "null value in column
+      \"throttle_interval_ms\" of relation \"notify_insert_throttle\" violates not-null
+      constraint" ...)))
+
+1 out of 11 tests failed (0.04s)
+```
+
+Notes from M1:
+
+- The 23502 error message text confirms the mechanism precisely: `Failing row contains
+  (cfg_test_43472, null, 1969-12-31 16:00:00-08)`. The explicit NULL reached the row; the
+  column DEFAULT of 0 was never consulted. The bound-parameter list in the error
+  (`["\"cfg_test_43472\"","null"]`) shows hasql sending SQL NULL for `$2`.
+- The `set_vt` raced-away case passes in its M1 form (`assertSessionFails`), which is the
+  documented before-evidence: the session *fails* today where it should report absence.
+  M2 rewrites those two assertions to expect `Nothing`.
+- The PGH-2 repro is sharper than a bare count: `conditional = Just {"kind":"a"}` returned
+  **both** messages, proving the filter is not merely mis-encoded but never sent at all.
+- Reproduced on PostgreSQL 17.10 (the nix dev shell's server), not the 18.4 the original
+  review used. Both `LIMIT NULL` and the plpgsql-DEFAULT semantics are long-standing
+  PostgreSQL behaviour, so the findings are not version-specific.
 
 (Add new discoveries below as work proceeds.)
 

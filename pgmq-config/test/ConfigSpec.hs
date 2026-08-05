@@ -31,6 +31,7 @@ tests pool =
       testEnsureQueuesIdempotent pool,
       testEnsureQueuesIncremental pool,
       testEnsureQueuesWithNotify pool,
+      testEnsureQueuesWithNotifyDefault pool,
       testEnsureQueuesWithFifo pool,
       testEnsureQueuesWithTopicBinding pool,
       testEnsureQueuesIsTrulyIdempotent pool,
@@ -131,6 +132,36 @@ testEnsureQueuesWithNotify pool = testCase "enables notify insert" $ do
   actions2 <- runSession pool (ensureQueuesReport configs)
   assertBool "second run should skip notify" $
     any isSkippedNotify actions2
+  cleanupQueue pool qn
+
+-- | A queue configured with @withNotifyInsert Nothing@ must reconcile cleanly,
+-- twice.
+--
+-- @Nothing@ is documented as "use the pgmq default (250 ms)". Before the fix
+-- the pgmq-hasql statement bound an SQL NULL for the throttle interval, which
+-- @pgmq.enable_notify_insert@ inserted into a @NOT NULL@ column — a column
+-- DEFAULT does not apply to an explicitly supplied NULL — so the call always
+-- raised SQLSTATE 23502. Reconciliation is not one transaction: each statement
+-- autocommits, so the queue creation stuck while the notify enable failed,
+-- and every subsequent startup failed the same way forever.
+testEnsureQueuesWithNotifyDefault :: Pool.Pool -> TestTree
+testEnsureQueuesWithNotifyDefault pool = testCase "enables notify insert with the default throttle" $ do
+  qn <- genQueueName
+  let configs = [withNotifyInsert Nothing (standardQueue qn)]
+  actions <- runSession pool (ensureQueuesReport configs)
+  assertBool "first run should have EnabledNotify action" $
+    any isEnabledNotify actions
+  -- Second run must be a clean skip, proving the first run actually recorded
+  -- a throttle row rather than failing.
+  actions2 <- runSession pool (ensureQueuesReport configs)
+  assertBool "second run should skip notify" $
+    any isSkippedNotify actions2
+  -- The recorded interval must be the documented 250ms default.
+  throttles <- runSession pool Sessions.listNotifyInsertThrottles
+  let mine = filter (\t -> (t ^. #throttleQueueName) == queueNameToText qn) throttles
+  case mine of
+    [t] -> (t ^. #throttleIntervalMs) @?= 250
+    _ -> assertFailure $ "expected exactly one throttle row, got " <> show (length mine)
   cleanupQueue pool qn
 
 testEnsureQueuesWithFifo :: Pool.Pool -> TestTree
