@@ -1,3 +1,10 @@
+-- | The reconciler of "Pgmq.Config", run over the @Pgmq@ effect from
+-- pgmq-effectful instead of a @Hasql.Session.Session@.
+--
+-- Declaration types and the report type live in "Pgmq.Config.Types"; the
+-- reconciliation contract is documented on 'Pgmq.Config.ensureQueues'. This
+-- module is only built when the package's @effectful@ flag is on (it is by
+-- default).
 module Pgmq.Config.Effectful
   ( -- * Reconciliation
     ensureQueuesEff,
@@ -29,17 +36,28 @@ effectfulOps =
       updateNotifyInsert = Eff.updateNotifyInsert
     }
 
--- | Ensure all declared queues exist using the Pgmq effect.
+-- | Create whatever the declared configs call for that does not exist yet,
+-- through the @Pgmq@ effect.
 --
--- Queries existing queues, topic bindings, and notification throttles first,
--- and only issues mutating calls for items that are missing. Safe to call on
--- every application startup: a second run on an unchanged config is a no-op
--- modulo the three list queries.
+-- This runs the very same reconciler as 'Pgmq.Config.ensureQueues', over the
+-- effect instead of a @Session@, so the contract is identical and is documented
+-- once, there. In short: reconciliation is additive — it creates missing
+-- queues, notification settings, FIFO indexes, and topic bindings, and never
+-- drops or converts anything — with one deliberate exception, a declared
+-- notification throttle interval that differs from the stored one, which is
+-- updated in place. Queue-type drift is reported, not repaired.
 --
--- Operations are additive only: queues not in the config are left untouched.
+-- Read 'Pgmq.Config.ensureQueues' before relying on this at startup: it covers
+-- the throttle update's @last_notified_at@ side effect, what is deliberately
+-- left unchecked, and the concurrent multi-replica caveat (SQLSTATE 42710 on
+-- stock upstream-1.11.0 extension installs).
 ensureQueuesEff :: (Eff.Pgmq :> es) => [QueueConfig] -> Eff es ()
 ensureQueuesEff configs = () <$ ensureQueuesReportEff configs
 
--- | Like 'ensureQueuesEff', but returns a report of actions taken.
+-- | Like 'ensureQueuesEff', but returns a report of what was done.
+--
+-- Same report shape as 'Pgmq.Config.ensureQueuesReport': one action per
+-- decision, one queue-existence action per config, and every @Skipped@ action
+-- meaning no statement was issued.
 ensureQueuesReportEff :: (Eff.Pgmq :> es) => [QueueConfig] -> Eff es [ReconcileAction]
 ensureQueuesReportEff = ensureQueuesReportWith effectfulOps

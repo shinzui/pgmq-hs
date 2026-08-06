@@ -103,7 +103,7 @@ already established the pattern for a three-layer read.
 |---|-------|------|-----------|-----------|--------|
 | 16 | Extract the pgmq-config reconciler into a single backend-agnostic core | docs/plans/16-extract-the-pgmq-config-reconciler-into-a-single-backend-agnostic-core.md | None | None | Complete |
 | 17 | Reconcile against unvalidated queue listings so foreign names cannot break startup | docs/plans/17-reconcile-against-unvalidated-queue-listings-so-foreign-names-cannot-break-startup.md | EP-16 | MP3 EP-15 | Complete |
-| 18 | Report reconciliation truthfully and document the real contract | docs/plans/18-report-reconciliation-truthfully-and-document-the-real-contract.md | EP-16, EP-17 | None | In Progress |
+| 18 | Report reconciliation truthfully and document the real contract | docs/plans/18-report-reconciliation-truthfully-and-document-the-real-contract.md | EP-16, EP-17 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 "MP3 EP-15" is `docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md`
@@ -215,12 +215,16 @@ adds, edits, or renumbers anything under `pgmq-migration/migrations/`.
       through either backend (red/green transcript recorded in the child plan);
       EP-15's remediation framing corrected in
       `docs/design/016-queue-name-validation.md`.
-- [ ] EP-18: FIFO index existence read through all three layers; report shows
+- [x] EP-18 (2026-08-05): FIFO index existence read through all three layers
+      (`listFifoIndexQueueNames`, traced span `pgmq.list_fifo_indexes`); report shows
       `CreatedFifoIndex` exactly once then `SkippedFifoIndex`; declared-vs-observed
       notify-throttle drift updates the interval via `pgmq.update_notify_insert` and
-      reports it; queue-type drift reported without mutation; haddocks and cabal
-      description state the additive contract, the drift exception, and the
-      concurrent-startup caveat; changelog material recorded for the release owner.
+      reports `UpdatedNotifyThrottle` with both values; queue-type drift reported as
+      `DetectedQueueTypeDrift` without mutation; haddocks, module headers, and the
+      cabal description state the additive contract, the drift exception, and the
+      concurrent-startup caveat, with the rationale recorded in
+      `docs/design/018-reconciliation-contract.md`; changelog material recorded for the
+      release owner in the child plan's Interfaces and Dependencies section.
 
 
 ## Surprises & Discoveries
@@ -272,6 +276,17 @@ adds, edits, or renumbers anything under `pgmq-migration/migrations/`.
   therefore already has the observed `unvalidatedIsPartitioned` /
   `unvalidatedIsUnlogged` flags in scope at the `reconcileQueue` call site, with no
   further signature change needed.
+
+- EP-18 implementation (2026-08-05): `docs/design/015-notification-delivery-contract.md`
+  turned out to need no correction, unlike the two stale design-note claims MasterPlan 3
+  found. Its statement that a crash-truncated throttle table self-corrects "until the next
+  reconcile restores the configured value" is still exact: no row means the reconciler
+  takes the enable path, not the new update path.
+
+- EP-18 implementation (2026-08-05): haddock reports a bare single-constructor record name
+  as ambiguous between the type and data namespaces, so `'NotifyConfig'`, `'QueueConfig'`,
+  and `'ReconcileOps'` all needed the `t'...'` prefix. Three of pgmq-config's four exported
+  records have that shape; any future doc work in this package will hit it.
 
 - Plan authoring (2026-08-05): `pgmq.update_notify_insert` resets `last_notified_at`
   to the epoch as a side effect of changing the interval (vendored SQL; same reset as
@@ -335,4 +350,53 @@ adds, edits, or renumbers anything under `pgmq-migration/migrations/`.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-08-05, all three child plans landed in the planned sequence over a single
+session. Every one of the five review findings is closed, and each is closed by something a
+person can observe rather than by a code change alone:
+
+The reconciler exists once. `pgmq-config/src/Pgmq/Config/Reconcile.hs` holds the logic;
+`Pgmq.Config` and `Pgmq.Config.Effectful` shrank to a `ReconcileOps` record each — 153 and
+126 lines of duplicated logic became 63 and 43 lines of wiring and documentation. EP-17 and
+EP-18 then made four behavior changes between them, each written exactly once.
+
+Foreign queues no longer break startup. A database containing `billing-events` used to kill
+`ensureQueues` with a decode error at boot; `pgmq-config/test/ForeignQueueSpec.hs` proves on
+a dedicated PostgreSQL instance that it now reconciles cleanly through both backends and
+leaves the foreign row untouched.
+
+The report tells the truth. `CreatedFifoIndex` appears once and `SkippedFifoIndex`
+thereafter, backed by a `pg_indexes` check; a drifted throttle interval is applied and
+reported with both values instead of silently ignored; queue-type drift is surfaced instead
+of disguised as `SkippedQueue`. Three new `ConfigSpec` cases pin all three.
+
+The documentation states the real contract. `ensureQueues`' haddock, the cabal description,
+and `docs/design/018-reconciliation-contract.md` describe additive reconciliation with one
+documented mutation, name what is deliberately not checked, and carry the concurrent-startup
+caveat distinguishing extension installs from pgmq-migration installs.
+
+Final state: `cabal test all` green at 144 tests across five suites (pgmq-core 12,
+pgmq-effectful 30, pgmq-migration 9, pgmq-config 20, pgmq-hasql 73), up from 138 at the
+start; `cabal haddock pgmq-config` at 100% coverage on all three modules; the `-f-effectful`
+configuration builds and tests clean. No migration was added, edited, or renumbered, as
+scoped.
+
+What the decomposition got right: making EP-16 a pure refactor with "the existing tests pass
+unmodified" as its whole acceptance was the highest-leverage decision here. It turned a
+three-plan initiative into one mechanical move plus two single-file behavior changes, and it
+meant every later red/green proof was unambiguous — when `ForeignQueueSpec` failed with the
+reconciler stashed, there was exactly one thing that could have caused it. Serializing EP-17
+and EP-18 rather than running them in parallel also proved right for a reason beyond
+clobbering risk: EP-18 consumed EP-17's `Map Text UnvalidatedQueue` snapshot and its
+three-layer read pattern directly, and would have had to invent both independently.
+
+What the decomposition missed: pgmq-config's test suite is not covered by the library's
+`effectful` cabal flag, so EP-17's effect-parity test broke the `-f-effectful` build while
+the library stayed green. The MasterPlan modeled the flag only as a constraint on the core
+module's imports. The lesson generalizes — a build configuration is only verified by the
+command that actually exercises it, and `cabal build` is not `cabal test`.
+
+Handoff: no version was bumped, per the standing single-release-owner decision. Each child
+plan records its exact package-changelog material for
+`docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md`. The two
+`Pgmq` GADT constructors and the `ReconcileAction` extension are breaking changes riding the
+0.5.0.0 train alongside MasterPlan 3's.

@@ -1,7 +1,7 @@
 -- | The backend-agnostic reconciliation core shared by "Pgmq.Config" (which
 -- runs it in 'Hasql.Session.Session') and "Pgmq.Config.Effectful" (which runs
 -- it in the @Pgmq@ effect). The logic lives here exactly once; the two public
--- modules only supply a 'ReconcileOps' record wiring the database calls.
+-- modules only supply a t'ReconcileOps' record wiring the database calls.
 --
 -- This module is internal: it is listed under @other-modules@ in
 -- @pgmq-config.cabal@ and is not part of the package's public API.

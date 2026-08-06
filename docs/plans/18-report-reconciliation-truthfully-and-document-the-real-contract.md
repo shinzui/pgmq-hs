@@ -51,19 +51,68 @@ CreatedFifoIndex, ...]` then `[SkippedQueue, UpdatedNotifyThrottle, SkippedFifoI
 
 ## Progress
 
-- [ ] M1: `listFifoIndexQueueNames` read through pgmq-hasql and the `Pgmq` effect
-      (plain + traced).
-- [ ] M2: reconciler truthfulness — FIFO created/skipped from the catalog snapshot,
-      throttle-drift update, queue-type drift report; `ReconcileAction` extended;
-      tests green including updated `ConfigSpec` helpers.
-- [ ] M3: documentation contract rewrite (haddocks, cabal description, concurrency
-      caveat); changelog material for the release owner; living sections finalized;
-      committed.
+- [x] M1 (2026-08-05): `listFifoIndexQueueNames` reads `pg_indexes` in
+      `pgmq-hasql/src/Pgmq/Hasql/Statements/QueueObservability.hs`, wrapped as a
+      session and re-exported from the `Pgmq` umbrella; `ListFifoIndexQueueNames`
+      added to the `Pgmq` effect and dispatched by both interpreters, traced span
+      `pgmq.list_fifo_indexes`. `cabal build pgmq-hasql pgmq-effectful`
+      library-warning-clean; `cabal test pgmq-effectful` green (30 tests).
+- [x] M2 (2026-08-05): `ReconcileAction` gained `UpdatedNotifyThrottle` and
+      `DetectedQueueTypeDrift`, plus the new `ObservedQueueType` sum and the exported
+      `defaultThrottleMs` constant; `ReconcileOps` gained `listFifoIndexQueueNames`
+      and `updateNotifyInsert`, wired in both backends; the reconciler now snapshots
+      throttle intervals (not just names) and FIFO indexes, skips the FIFO call when
+      the index exists, updates drifted throttles in place, and reports queue-type
+      drift in place of `SkippedQueue`. Three new `ConfigSpec` cases plus additive
+      `actionForQueue` arms; `cabal test pgmq-config` green at 20 tests.
+- [x] M3 (2026-08-05): contract rewritten on `ensureQueues` (canonical) with
+      `ensureQueuesReport` and both `Eff` twins pointing at it; module headers added
+      to all three public pgmq-config modules; cabal `description:` replaced;
+      `docs/design/018-reconciliation-contract.md` written; changelog material
+      recorded under Interfaces and Dependencies; `cabal haddock pgmq-config` reports
+      100% coverage on all three modules with no ambiguity warnings; `cabal test all`
+      green (144 tests across five suites); committed.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The plan's test arithmetic was stale before it started (2026-08-05). M2's acceptance
+  says "17 tests: 14 existing + 3 new", but sibling plan
+  `docs/plans/17-reconcile-against-unvalidated-queue-listings-so-foreign-names-cannot-break-startup.md`
+  had already taken pgmq-config from 14 to 17 by adding `ForeignQueueSpec`. The real
+  end state is 20. Nothing about the work changed — worth recording only because a
+  future reader comparing counts would otherwise think three tests went missing.
+
+- The `Nothing`-versus-250 non-flap case needed no new test (2026-08-05). The plan asks
+  for one, but the pre-existing `testEnsureQueuesWithNotifyDefault` already enables with
+  `Nothing`, re-reconciles with `Nothing`, asserts `SkippedNotify`, and asserts the
+  stored row reads 250 — which is exactly the assertion, and it now exercises the new
+  interval comparison rather than the old presence check. It stayed green unmodified,
+  which is the stronger signal.
+
+- Haddock flagged two of this initiative's own doc links as ambiguous (2026-08-05):
+
+  ```text
+  Warning: 'NotifyConfig' is ambiguous. It is defined
+      * at src/Pgmq/Config/Types.hs:62:21
+      * at src/Pgmq/Config/Types.hs:62:1
+  ```
+
+  A single-constructor record makes the bare name mean both a type and a data
+  constructor. The fix is haddock's namespace prefix — `t'NotifyConfig'`,
+  `t'QueueConfig'`, `t'ReconcileOps'`. Worth knowing for any future doc work in this
+  package: three of its four exported records have this shape. The remaining
+  `Rep_QueueConfig` link warnings are inherent to `deriving stock Generic` and predate
+  this initiative.
+
+- `docs/design/015-notification-delivery-contract.md` needed no correction
+  (2026-08-05). The plan flagged it as the likely home of a stale
+  pure-additive-no-updates claim, and MasterPlan 3 had twice found such claims in
+  design notes. This one holds up: its statement that unthrottled notification after a
+  crash is "bounded and self-correcting: unthrottled notifications until the next
+  reconcile restores the configured value" is still exactly right — a truncated
+  throttle table means no row, so the reconciler takes the enable path, not the new
+  update path.
 
 
 ## Decision Log
@@ -106,7 +155,40 @@ CreatedFifoIndex, ...]` then `[SkippedQueue, UpdatedNotifyThrottle, SkippedFifoI
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-08-05. The report and the documentation now both tell the truth, and each
+of the three lies has a test pinning it:
+
+Running `ensureQueuesReport [withFifoIndex (standardQueue qn)]` twice reports
+`CreatedFifoIndex` then `SkippedFifoIndex`; before, it claimed `CreatedFifoIndex` forever
+and `SkippedFifoIndex` was unreachable. Declaring `withNotifyInsert (Just 250)`, then
+`Just 500`, reports `UpdatedNotifyThrottle qn 250 500` and the stored row actually reads
+500; before, the second run said `SkippedNotify` and the database kept 250 — editing the
+config had no effect at all. Declaring `unloggedQueue` over a live standard queue reports
+`DetectedQueueTypeDrift qn UnloggedQueue ObservedStandard` and the queue is untouched;
+before, it said `SkippedQueue` and the contradiction vanished.
+
+Convergence held throughout, which was the thing most at risk. The throttle update fires
+only while declared and observed differ, so a third run skips; `Nothing` compares equal to
+250 so a defaulted config cannot flap; and the pre-existing "ensureQueues is truly
+idempotent for notify" test — which pins that a no-drift re-run leaves `last_notified_at`
+alone — passed unmodified from the first build. That test is the guard rail that keeps the
+new update path from degenerating into the old unconditional re-enable.
+
+What went right: the two prerequisites paid off exactly as designed. Plan 16's single core
+meant the behavior change landed in one file; plan 17's `Map Text UnvalidatedQueue`
+snapshot handed over the partitioned/unlogged flags with no signature change, and its
+three-layer read gave M1 a shape to copy verbatim. M1 through M3 each built and tested
+green on the first attempt.
+
+What is worth carrying forward: the asymmetry at the heart of this plan — reconcile
+automatically only where the repair is non-destructive and the API supports it in place,
+otherwise report and stop — is now written down in
+`docs/design/018-reconciliation-contract.md` rather than living in a commit message. That
+is the decision a future contributor is most likely to want to relitigate (someone will
+eventually propose auto-fixing queue-type drift), and it now has an argument to answer.
+
+Nothing is left open. Versions are unbumped by design; the changelog material below goes
+to the release owner.
 
 
 ## Context and Orientation
@@ -468,3 +550,32 @@ flags in the snapshot; established GADT-extension pattern). Changelog and versio
 handoff to MasterPlan 2's plan 12 per MasterPlan 4's Decision Log; if plan 12 has
 already cut 0.5.0.0, escalate to MasterPlan 4's Decision Log for a successor release
 owner instead of bumping here.
+
+Changelog material for the release owner
+(`docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md`; this
+plan bumps no version):
+
+- **pgmq-hasql** — Added: `listFifoIndexQueueNames` (statement and session, re-exported
+  from `Pgmq`), which reports the queues that already carry the FIFO headers index by
+  reading the `pg_indexes` catalog view. pgmq exposes no index-existence function.
+- **pgmq-effectful** — Added: the `ListFifoIndexQueueNames` operation and its smart
+  function, dispatched by both interpreters under the traced span
+  `pgmq.list_fifo_indexes` (this library's own label — no `pgmq.*` function backs it).
+  Extending the `Pgmq` GADT breaks exhaustive matchers such as custom interpreters.
+- **pgmq-config** — Breaking: `ReconcileAction` gains `UpdatedNotifyThrottle` and
+  `DetectedQueueTypeDrift`; `SkippedFifoIndex`, previously unreachable, is now actually
+  emitted. Consumers that pattern-match the report exhaustively, or that count skips,
+  need updating. Added: `ObservedQueueType` and `defaultThrottleMs`.
+- **pgmq-config** — Changed: a declared notification throttle interval that differs from
+  the stored one is now applied via `pgmq.update_notify_insert` instead of being
+  silently ignored. This is the reconciler's only mutation of existing state; it resets
+  the throttle's `last_notified_at`, so one immediate notification may follow a genuine
+  configuration change. An unchanged interval is still left strictly alone.
+- **pgmq-config** — Changed: a queue whose observed type contradicts the declared one is
+  reported as drift instead of `SkippedQueue`. Nothing is mutated.
+- **pgmq-config** — Fixed: the FIFO index action reports `CreatedFifoIndex` only when it
+  actually created the index.
+- **pgmq-config** — Docs: the package description and the `ensureQueues` haddock now
+  state the real contract, including the concurrent-startup caveat (SQLSTATE 42710 on
+  stock upstream-1.11.0 extension installs; pgmq-migration installs are race-free). See
+  `docs/design/018-reconciliation-contract.md`.

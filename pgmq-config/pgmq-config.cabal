@@ -7,9 +7,17 @@ synopsis:
 description:
   A declarative DSL for configuring pgmq queues. Define your queue
   topology as Haskell values and call a single function at startup
-  to ensure all queues exist with the desired settings. Supports
-  standard, unlogged, and partitioned queues, notification setup,
-  FIFO indexes, and topic bindings. All operations are idempotent.
+  to create whatever is missing: standard, unlogged, and partitioned
+  queues, insert notifications, FIFO indexes, and topic bindings.
+  .
+  Reconciliation is additive and convergent. It never drops, converts,
+  or disables anything, and leaves queues that are absent from the
+  config untouched; a second run against an unchanged config issues no
+  mutations at all. The single exception is a declared notification
+  throttle interval that differs from the stored one, which is updated
+  in place. A queue whose observed type contradicts the declared one is
+  reported as drift rather than repaired, since converting a queue's
+  type would mean destroying its messages.
 
 homepage:        https://github.com/shinzui/pgmq-hs
 license:         MIT

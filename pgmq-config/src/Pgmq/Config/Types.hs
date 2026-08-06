@@ -1,3 +1,8 @@
+-- | The declarative vocabulary: what a queue topology looks like as Haskell
+-- values, and what a reconciliation run reports back.
+--
+-- t'QueueConfig' is the declaration; 'ReconcileAction' is the report. Everything
+-- here is re-exported from "Pgmq.Config", which is the module to import.
 module Pgmq.Config.Types
   ( -- * Queue Configuration
     QueueConfig (..),
@@ -130,10 +135,10 @@ data ReconcileAction
 
 -- | The throttle interval pgmq applies when none is given: 250 milliseconds.
 --
--- 'NotifyConfig'\'s @throttleMs = Nothing@ means \"use this value\". The
--- pgmq-hasql enable statement supplies it with a SQL @coalesce($2, 250)@, and
--- @pgmq.enable_notify_insert@ declares the same figure as its parameter
--- default, so a @Nothing@ config and a 250 row agree and reconciliation does
+-- A t'NotifyConfig' whose @throttleMs@ is 'Nothing' means \"use this value\".
+-- The pgmq-hasql enable statement supplies it with a SQL @coalesce($2, 250)@,
+-- and @pgmq.enable_notify_insert@ declares the same figure as its parameter
+-- default, so a 'Nothing' config and a stored 250 agree and reconciliation does
 -- not flap between them.
 defaultThrottleMs :: Int32
 defaultThrottleMs = 250
