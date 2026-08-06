@@ -101,7 +101,7 @@ already established the pattern for a three-layer read.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 16 | Extract the pgmq-config reconciler into a single backend-agnostic core | docs/plans/16-extract-the-pgmq-config-reconciler-into-a-single-backend-agnostic-core.md | None | None | Not Started |
+| 16 | Extract the pgmq-config reconciler into a single backend-agnostic core | docs/plans/16-extract-the-pgmq-config-reconciler-into-a-single-backend-agnostic-core.md | None | None | Complete |
 | 17 | Reconcile against unvalidated queue listings so foreign names cannot break startup | docs/plans/17-reconcile-against-unvalidated-queue-listings-so-foreign-names-cannot-break-startup.md | EP-16 | MP3 EP-15 | Not Started |
 | 18 | Report reconciliation truthfully and document the real contract | docs/plans/18-report-reconciliation-truthfully-and-document-the-real-contract.md | EP-16, EP-17 | None | Not Started |
 
@@ -202,9 +202,11 @@ adds, edits, or renumbers anything under `pgmq-migration/migrations/`.
 
 ## Progress
 
-- [ ] EP-16: reconciler core extracted to `Pgmq.Config.Reconcile` over a `ReconcileOps`
-      record; Session and Effectful backends are thin adapters; public API and behavior
-      unchanged; the pre-existing 14 pgmq-config tests pass without modification.
+- [x] EP-16 (2026-08-05): reconciler core extracted to `Pgmq.Config.Reconcile` over a
+      `ReconcileOps` record; Session and Effectful backends are thin adapters; public API
+      and behavior unchanged; the pre-existing 14 pgmq-config tests pass without
+      modification (`git diff --stat -- pgmq-config/test/` empty), and `cabal test all`
+      is green across all five suites.
 - [ ] EP-17: `UnvalidatedQueue` listing exists through pgmq-core, pgmq-hasql, and
       pgmq-effectful (plain and traced); the reconciler's existence checks use it; a
       dedicated-instance spec proves a hyphen-named foreign queue no longer fails
@@ -235,6 +237,16 @@ adds, edits, or renumbers anything under `pgmq-migration/migrations/`.
   `pgmq.validate_topic_pattern` — and the throttle decoder carries no `D.refine`, so
   the queue-name path in `queueDecoder` is the only poisonable snapshot read. EP-17
   therefore replaces exactly one read, not three.
+- EP-16 implementation (2026-08-05): the two reconciler copies really were in sync, so
+  the extraction was a line-for-line move with no drift to reconcile, and generic-lens
+  labels resolve without annotation on the higher-kinded `ReconcileOps m` record
+  (`ops ^. #listQueues` works because `(^.)` pins the type-changing parameters through
+  `Const`). The record therefore costs the core nothing beyond a `Monad m` constraint —
+  EP-17 and EP-18 can add fields freely. Confirmed the flag-off build
+  (`cabal build pgmq-config -f-effectful`) is the only check that catches an effectful
+  import leaking into the unconditionally-compiled core; both sibling plans should keep
+  it in their acceptance runs.
+
 - Plan authoring (2026-08-05): `pgmq.update_notify_insert` resets `last_notified_at`
   to the epoch as a side effect of changing the interval (vendored SQL; same reset as
   a re-enable). Drift reconciliation therefore causes at most one immediate

@@ -38,15 +38,51 @@ then change reconciler behavior by editing one file instead of two.
 
 ## Progress
 
-- [ ] M1: `Pgmq.Config.Reconcile` core module exists; `Pgmq.Config` delegates to it;
-      `cabal test pgmq-config` passes with no test edits.
-- [ ] M2: `Pgmq.Config.Effectful` delegates to the same core; `cabal build all` and
-      `cabal test all` pass; living sections updated; work committed.
+- [x] M1 (2026-08-05): `Pgmq.Config.Reconcile` core module exists
+      (`pgmq-config/src/Pgmq/Config/Reconcile.hs`, registered under `other-modules:`);
+      `Pgmq.Config` delegates to it through `sessionOps`; `cabal build pgmq-config`
+      compiles warning-clean and `cabal test pgmq-config --test-show-details=direct`
+      reports "All 14 tests passed (0.74s)" with `git diff --stat -- pgmq-config/test/`
+      empty.
+- [x] M2 (2026-08-05): `Pgmq.Config.Effectful` delegates to the same core through
+      `effectfulOps`; `reconcileQueueEff`/`reconcileBindingEff` deleted
+      (`grep -c reconcile pgmq-config/src/Pgmq/Config/Effectful.hs` → 0);
+      `cabal build pgmq-config -f-effectful`, `cabal build all`, and `cabal test all`
+      all green (core 12, effectful 30, migration 9, config 14, hasql 73 — 138 tests
+      across five suites); `nix fmt` clean; living sections updated; work committed.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Generic-lens labels work on the higher-kinded record (2026-08-05): `ReconcileOps m`
+  carries the carrier monad as a type parameter, and there was some doubt whether
+  `ops ^. #listQueues` would resolve, since generic-lens's `Field` constraint is
+  type-changing and its `t`/`b` parameters are only pinned by functional
+  dependencies. It resolves cleanly: `(^.)` fixes `t ~ s` through the `Const`
+  functor, which discharges the fundep. No type annotations, no `field'` fallback,
+  and no new warnings under the package's `-Wall -Wcompat -Wredundant-constraints`
+  block.
+
+  ```text
+  [2 of 4] Compiling Pgmq.Config.Reconcile
+  [4 of 4] Compiling Pgmq.Config [Source file changed]
+  ```
+
+- The refactor is genuinely behavior-preserving (2026-08-05): the full
+  `cabal test pgmq-config` transcript is identical case-for-case before and after,
+  including the three `NotifyCrashSpec` cases that drive `ensureQueues` end-to-end
+  against a crashed-and-recovered PostgreSQL instance.
+
+  ```text
+  All 14 tests passed (0.74s)
+  Test suite pgmq-config-test: PASS
+  ```
+
+- `-f-effectful` needs a full reconfigure (2026-08-05): building with the flag off
+  and then building again with defaults makes cabal reconfigure and relink
+  pgmq-config both times ("configuration changed"). Harmless, but it means the
+  flag-off check costs a rebuild rather than being a cheap extra compile — run it
+  once per milestone, not per edit.
 
 
 ## Decision Log
@@ -67,10 +103,45 @@ then change reconciler behavior by editing one file instead of two.
   additive decision.
   Date: 2026-08-05
 
+- Decision: Move the "FIFO index — no way to query if index exists, so always apply
+  (idempotent)" comment into the core verbatim rather than correcting it here.
+  Rationale: The comment is wrong (a `pg_indexes` catalog query can answer it, which
+  is exactly what
+  `docs/plans/18-report-reconciliation-truthfully-and-document-the-real-contract.md`
+  will add), but this plan's contract is a pure move with zero behavior or wording
+  change. Correcting prose here would blur the "nothing changed" acceptance signal.
+  The comment travels to the one place EP-18 will edit it.
+  Date: 2026-08-05
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-08-05. The reconciliation logic now exists exactly once, in the new
+internal module `pgmq-config/src/Pgmq/Config/Reconcile.hs`, parameterized over a
+nine-field `ReconcileOps m` record. `Pgmq.Config` shrank from 153 lines to 63 (its
+whole reconciler body replaced by `ensureQueuesReport = ensureQueuesReportWith
+sessionOps`), and `Pgmq.Config.Effectful` from 126 lines to 43. Neither public API
+changed: the export lists, type signatures, and haddocks are byte-identical to
+before, and the fourteen pre-existing pgmq-config tests pass without a single edit —
+`git diff --stat -- pgmq-config/test/` is empty.
+
+What went right: pinning the refactor on an already-green suite made the whole
+milestone a mechanical move, and the two copies really were in sync, so the move was
+line-for-line with no reconciliation of drift needed. The `ReconcileOps` record
+approach cost nothing in constraint noise — the core needs only `Monad m`, and the
+effectful backend's `(Eff.Pgmq :> es)` constraint sits entirely on `effectfulOps`.
+
+What remains for the siblings: `ReconcileOps` is deliberately private, so
+`docs/plans/17-reconcile-against-unvalidated-queue-listings-so-foreign-names-cannot-break-startup.md`
+can replace the `listQueues` field and
+`docs/plans/18-report-reconciliation-truthfully-and-document-the-real-contract.md`
+can add fields without any Package Versioning Policy consequence. Both now edit one
+file where they would previously have edited two.
+
+Lesson worth carrying: the `-f-effectful` build is the only check that would catch
+an accidental effectful import leaking into the shared core, and it is easy to
+forget because the default-flag build stays green. It belongs in the acceptance run
+of every future plan that touches `Pgmq.Config.Reconcile`, not just this one.
 
 
 ## Context and Orientation

@@ -38,6 +38,7 @@ library
     Pgmq.Config
     Pgmq.Config.Types
 
+  other-modules:      Pgmq.Config.Reconcile
   default-extensions:
     DeriveGeneric
     DuplicateRecordFields
