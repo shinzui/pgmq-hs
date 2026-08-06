@@ -24,7 +24,9 @@ effectfulOps =
       createPartitionedQueue = Eff.createPartitionedQueue,
       enableNotifyInsert = Eff.enableNotifyInsert,
       createFifoIndex = Eff.createFifoIndex,
-      bindTopic = Eff.bindTopic
+      bindTopic = Eff.bindTopic,
+      listFifoIndexQueueNames = Eff.listFifoIndexQueueNames,
+      updateNotifyInsert = Eff.updateNotifyInsert
     }
 
 -- | Ensure all declared queues exist using the Pgmq effect.

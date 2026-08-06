@@ -21,7 +21,11 @@ module Pgmq.Config
 
     -- * Reconciliation with Report
     ReconcileAction (..),
+    ObservedQueueType (..),
     ensureQueuesReport,
+
+    -- * Defaults
+    defaultThrottleMs,
   )
 where
 
@@ -43,7 +47,9 @@ sessionOps =
       createPartitionedQueue = Sessions.createPartitionedQueue,
       enableNotifyInsert = Sessions.enableNotifyInsert,
       createFifoIndex = Sessions.createFifoIndex,
-      bindTopic = Sessions.bindTopic
+      bindTopic = Sessions.bindTopic,
+      listFifoIndexQueueNames = Sessions.listFifoIndexQueueNames,
+      updateNotifyInsert = Sessions.updateNotifyInsert
     }
 
 -- | Ensure all declared queues exist with the desired settings.

@@ -17,6 +17,10 @@ module Pgmq.Config.Types
 
     -- * Reconciliation Report
     ReconcileAction (..),
+    ObservedQueueType (..),
+
+    -- * Defaults
+    defaultThrottleMs,
   )
 where
 
@@ -63,17 +67,76 @@ data NotifyConfig = NotifyConfig
   }
   deriving stock (Generic, Show)
 
+-- | The queue shape actually observed in the database.
+--
+-- @pgmq.list_queues()@ reports two booleans per queue, partitioned and
+-- unlogged, which describe exactly these three states. It reports nothing about
+-- a partitioned queue's interval or retention settings, so those are not
+-- drift-checked — see 'DetectedQueueTypeDrift'.
+data ObservedQueueType
+  = ObservedStandard
+  | ObservedUnlogged
+  | ObservedPartitioned
+  deriving stock (Eq, Show)
+
 -- | An action taken (or skipped) during queue reconciliation.
 data ReconcileAction
-  = CreatedQueue !QueueName !QueueType
-  | EnabledNotify !QueueName !(Maybe Int32)
-  | CreatedFifoIndex !QueueName
-  | BoundTopic !QueueName !TopicPattern
-  | SkippedQueue !QueueName
-  | SkippedNotify !QueueName
-  | SkippedFifoIndex !QueueName
-  | SkippedTopicBinding !QueueName !TopicPattern
+  = -- | The queue did not exist and was created with the declared type.
+    CreatedQueue !QueueName !QueueType
+  | -- | No throttle row existed, so insert notifications were enabled with the
+    -- declared interval ('Nothing' meaning 'defaultThrottleMs').
+    EnabledNotify !QueueName !(Maybe Int32)
+  | -- | The FIFO headers index did not exist and was created.
+    CreatedFifoIndex !QueueName
+  | -- | The topic binding did not exist and was created.
+    BoundTopic !QueueName !TopicPattern
+  | -- | A queue with this name already existed and its observed type matches
+    -- what was declared. Nothing was issued.
+    SkippedQueue !QueueName
+  | -- | A throttle row already existed with the declared interval. Nothing was
+    -- issued — in particular the row was /not/ re-enabled, which would reset
+    -- its @last_notified_at@.
+    SkippedNotify !QueueName
+  | -- | The FIFO headers index already existed; nothing was issued.
+    SkippedFifoIndex !QueueName
+  | -- | The topic binding already existed; nothing was issued.
+    SkippedTopicBinding !QueueName !TopicPattern
+  | -- | The declared throttle interval differed from the database row, so the
+    -- row was updated in place via @pgmq.update_notify_insert@. Fields: queue,
+    -- observed interval, declared interval (in milliseconds).
+    --
+    -- This is the reconciler's only mutation of already-existing state. The
+    -- update also resets the throttle's @last_notified_at@ to the epoch, so the
+    -- next insert on that queue notifies immediately; that is a property of
+    -- @pgmq.update_notify_insert@ itself, and it happens at most once per real
+    -- configuration change.
+    UpdatedNotifyThrottle !QueueName !Int32 !Int32
+  | -- | The queue exists but its observed shape contradicts the declared one.
+    -- Fields: queue, declared type, observed type.
+    --
+    -- Nothing was mutated and nothing will be: converting a queue between
+    -- standard, unlogged, and partitioned means dropping and recreating it,
+    -- destroying every message it holds, which a startup reconciler must never
+    -- do. Resolving the drift is an operator decision. This action replaces
+    -- 'SkippedQueue' for the queue it concerns, so the report still carries
+    -- exactly one queue-existence action per declared config.
+    --
+    -- Only the three-way shape is compared. A declared 'PartitionedQueue'
+    -- against an observed partitioned queue matches regardless of its interval
+    -- and retention settings, because @pgmq.list_queues()@ does not report
+    -- them.
+    DetectedQueueTypeDrift !QueueName !QueueType !ObservedQueueType
   deriving stock (Show)
+
+-- | The throttle interval pgmq applies when none is given: 250 milliseconds.
+--
+-- 'NotifyConfig'\'s @throttleMs = Nothing@ means \"use this value\". The
+-- pgmq-hasql enable statement supplies it with a SQL @coalesce($2, 250)@, and
+-- @pgmq.enable_notify_insert@ declares the same figure as its parameter
+-- default, so a @Nothing@ config and a 250 row agree and reconciliation does
+-- not flap between them.
+defaultThrottleMs :: Int32
+defaultThrottleMs = 250
 
 -- | Create a standard queue configuration with no extras.
 standardQueue :: QueueName -> QueueConfig

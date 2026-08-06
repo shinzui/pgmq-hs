@@ -7,6 +7,7 @@ where
 
 import Control.Lens ((^.))
 import Data.Generics.Labels ()
+import Data.Int (Int32)
 import Data.Text qualified as T
 import Data.Time (UTCTime)
 import Data.Word (Word32)
@@ -33,6 +34,9 @@ tests pool =
       testEnsureQueuesWithNotify pool,
       testEnsureQueuesWithNotifyDefault pool,
       testEnsureQueuesWithFifo pool,
+      testEnsureQueuesSkipsExistingFifo pool,
+      testEnsureQueuesUpdatesDriftedThrottle pool,
+      testEnsureQueuesReportsQueueTypeDrift pool,
       testEnsureQueuesWithTopicBinding pool,
       testEnsureQueuesIsTrulyIdempotent pool,
       testEnsureQueuesSilentIdempotent pool,
@@ -173,6 +177,85 @@ testEnsureQueuesWithFifo pool = testCase "creates FIFO index" $ do
     any isFifoIndex actions
   cleanupQueue pool qn
 
+-- | The FIFO action must report what actually happened.
+--
+-- @pgmq.create_fifo_index@ is @CREATE INDEX IF NOT EXISTS@ and tells the caller
+-- nothing, so the reconciler used to report 'CreatedFifoIndex' on every run
+-- forever and 'SkippedFifoIndex' was unreachable dead code. The reconciler now
+-- snapshots @pg_indexes@ first, so the second run skips the call outright.
+testEnsureQueuesSkipsExistingFifo :: Pool.Pool -> TestTree
+testEnsureQueuesSkipsExistingFifo pool = testCase "second run skips the existing FIFO index" $ do
+  qn <- genQueueName
+  let configs = [withFifoIndex (standardQueue qn)]
+  actions1 <- runSession pool (ensureQueuesReport configs)
+  assertBool
+    ("first run should create the FIFO index, got " <> show actions1)
+    (any isFifoIndex actions1)
+  actions2 <- runSession pool (ensureQueuesReport configs)
+  assertBool
+    ("second run should skip the FIFO index, got " <> show actions2)
+    (any isSkippedFifoIndex actions2)
+  assertBool
+    ("second run must not claim to have created it, got " <> show actions2)
+    (not (any isFifoIndex actions2))
+  cleanupQueue pool qn
+
+-- | A declared throttle interval that differs from the stored one is applied.
+--
+-- This is the reconciler's single mutation of already-existing state. Before
+-- the fix the declared value was compared only for presence, so changing it in
+-- the config had no effect on the database and the report said 'SkippedNotify'.
+testEnsureQueuesUpdatesDriftedThrottle :: Pool.Pool -> TestTree
+testEnsureQueuesUpdatesDriftedThrottle pool = testCase "updates a drifted notify throttle" $ do
+  qn <- genQueueName
+  _ <- runSession pool (ensureQueuesReport [withNotifyInsert (Just 250) (standardQueue qn)])
+  -- Redeclare with a different interval: the row must be brought in line.
+  actions <- runSession pool (ensureQueuesReport [withNotifyInsert (Just 500) (standardQueue qn)])
+  assertBool
+    ("expected UpdatedNotifyThrottle " <> show qn <> " 250 500, got " <> show actions)
+    (any (isUpdatedThrottle qn 250 500) actions)
+  throttleFor pool qn >>= (@?= 500)
+  -- A third run at the now-current value is a clean skip, so the update
+  -- converges instead of firing on every startup.
+  actions3 <- runSession pool (ensureQueuesReport [withNotifyInsert (Just 500) (standardQueue qn)])
+  assertBool
+    ("third run should skip notify, got " <> show actions3)
+    (any isSkippedNotify actions3)
+  cleanupQueue pool qn
+
+-- | A declared queue type contradicting the live queue is reported, not fixed.
+--
+-- Converting a queue's type means dropping and recreating it, destroying every
+-- message it holds, so the reconciler surfaces the contradiction and leaves the
+-- decision to an operator. Before the fix it silently reported 'SkippedQueue'.
+testEnsureQueuesReportsQueueTypeDrift :: Pool.Pool -> TestTree
+testEnsureQueuesReportsQueueTypeDrift pool = testCase "reports queue-type drift without mutating" $ do
+  qn <- genQueueName
+  _ <- runSession pool (ensureQueuesReport [standardQueue qn])
+  actions <- runSession pool (ensureQueuesReport [unloggedQueue qn])
+  assertBool
+    ("expected DetectedQueueTypeDrift for " <> show qn <> ", got " <> show actions)
+    (any (isQueueTypeDrift qn ObservedStandard) actions)
+  assertBool
+    ("drift must replace the plain skip, got " <> show actions)
+    (not (any isSkippedQueue actions))
+  -- The queue is untouched: still standard, still there.
+  queues <- runSession pool Sessions.listQueues
+  case filter (\q -> (q ^. #name) == qn) queues of
+    [q] -> do
+      (q ^. #isUnlogged) @?= False
+      (q ^. #isPartitioned) @?= False
+    other -> assertFailure $ "expected exactly one queue row, got " <> show (length other)
+  cleanupQueue pool qn
+
+-- | The stored throttle interval for a queue.
+throttleFor :: Pool.Pool -> QueueName -> IO Int32
+throttleFor pool qn = do
+  throttles <- runSession pool Sessions.listNotifyInsertThrottles
+  case filter (\t -> (t ^. #throttleQueueName) == queueNameToText qn) throttles of
+    [t] -> pure (t ^. #throttleIntervalMs)
+    other -> assertFailure $ "expected exactly one throttle row, got " <> show (length other)
+
 testEnsureQueuesWithTopicBinding :: Pool.Pool -> TestTree
 testEnsureQueuesWithTopicBinding pool = testCase "binds topic pattern" $ do
   qn <- genQueueName
@@ -227,6 +310,23 @@ isFifoIndex :: ReconcileAction -> Bool
 isFifoIndex (CreatedFifoIndex _) = True
 isFifoIndex _ = False
 
+isSkippedFifoIndex :: ReconcileAction -> Bool
+isSkippedFifoIndex (SkippedFifoIndex _) = True
+isSkippedFifoIndex _ = False
+
+isSkippedQueue :: ReconcileAction -> Bool
+isSkippedQueue (SkippedQueue _) = True
+isSkippedQueue _ = False
+
+isUpdatedThrottle :: QueueName -> Int32 -> Int32 -> ReconcileAction -> Bool
+isUpdatedThrottle qn observed declared (UpdatedNotifyThrottle q o d) =
+  q == qn && o == observed && d == declared
+isUpdatedThrottle _ _ _ _ = False
+
+isQueueTypeDrift :: QueueName -> ObservedQueueType -> ReconcileAction -> Bool
+isQueueTypeDrift qn observed (DetectedQueueTypeDrift q _ o) = q == qn && o == observed
+isQueueTypeDrift _ _ _ = False
+
 isBoundTopic :: ReconcileAction -> Bool
 isBoundTopic (BoundTopic _ _) = True
 isBoundTopic _ = False
@@ -240,6 +340,8 @@ actionForQueue qn (CreatedFifoIndex q) = q == qn
 actionForQueue qn (SkippedFifoIndex q) = q == qn
 actionForQueue qn (BoundTopic q _) = q == qn
 actionForQueue qn (SkippedTopicBinding q _) = q == qn
+actionForQueue qn (UpdatedNotifyThrottle q _ _) = q == qn
+actionForQueue qn (DetectedQueueTypeDrift q _ _) = q == qn
 
 -- | Silent-variant version of 'testEnsureQueuesIdempotent': call 'ensureQueues'
 -- twice with the same standard-queue config and confirm the queue exists exactly
