@@ -25,6 +25,7 @@ module Pgmq.Hasql.Sessions
     setVisibilityTimeoutAt,
     batchSetVisibilityTimeoutAt,
     listQueues,
+    listQueuesUnvalidated,
     pop,
     queueMetrics,
     allQueueMetrics,
@@ -109,6 +110,7 @@ import Pgmq.Types
     TopicBinding,
     TopicPattern,
     TopicSendResult,
+    UnvalidatedQueue,
   )
 
 createQueue :: QueueName -> Session ()
@@ -180,6 +182,12 @@ batchSetVisibilityTimeoutAt query = statement query Msg.batchSetVisibilityTimeou
 
 listQueues :: Session [Queue]
 listQueues = statement () Stmt.listQueues
+
+-- | Like 'listQueues' but with queue names left unvalidated, so a queue
+-- created by another client under a name 'Pgmq.Types.parseQueueName' rejects
+-- does not fail the whole listing.
+listQueuesUnvalidated :: Session [UnvalidatedQueue]
+listQueuesUnvalidated = statement () Stmt.listQueuesUnvalidated
 
 createPartitionedQueue :: CreatePartitionedQueue -> Session ()
 createPartitionedQueue q = statement q Stmt.createPartitionedQueue

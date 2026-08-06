@@ -76,6 +76,7 @@ module Pgmq.Effectful.Effect
 
     -- * Queue Observability
     listQueues,
+    listQueuesUnvalidated,
     queueMetrics,
     allQueueMetrics,
   )
@@ -129,6 +130,7 @@ import Pgmq.Types
     TopicBinding,
     TopicPattern,
     TopicSendResult,
+    UnvalidatedQueue,
   )
 
 -- | Effect for pgmq message queue operations.
@@ -191,6 +193,7 @@ data Pgmq :: Effect where
   UpdateNotifyInsert :: UpdateNotifyInsert -> Pgmq m ()
   -- Queue Observability
   ListQueues :: Pgmq m [Queue]
+  ListQueuesUnvalidated :: Pgmq m [UnvalidatedQueue]
   QueueMetrics :: QueueName -> Pgmq m QueueMetrics
   AllQueueMetrics :: Pgmq m [QueueMetrics]
 
@@ -383,6 +386,12 @@ updateNotifyInsert = send . UpdateNotifyInsert
 
 listQueues :: (Pgmq :> es) => Eff es [Queue]
 listQueues = send ListQueues
+
+-- | Like 'listQueues' but with queue names left unvalidated, so a queue
+-- created by another client under a name 'Pgmq.Types.parseQueueName' rejects
+-- does not fail the whole listing.
+listQueuesUnvalidated :: (Pgmq :> es) => Eff es [UnvalidatedQueue]
+listQueuesUnvalidated = send ListQueuesUnvalidated
 
 queueMetrics :: (Pgmq :> es) => QueueName -> Eff es QueueMetrics
 queueMetrics = send . QueueMetrics

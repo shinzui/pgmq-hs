@@ -48,10 +48,20 @@ a decode error; after, it succeeds and the report shows the declared queue creat
 
 ## Progress
 
-- [ ] M1: `UnvalidatedQueue` type in pgmq-core; `listQueuesUnvalidated`
-      statement/session in pgmq-hasql, exported from the `Pgmq` umbrella.
-- [ ] M2: `ListQueuesUnvalidated` effect operation with plain and traced interpreter
-      support.
+- [x] M1 (2026-08-05): `UnvalidatedQueue` type in pgmq-core
+      (`pgmq-core/src/Pgmq/Types.hs`, exported); `unvalidatedQueueDecoder` in
+      `pgmq-hasql/src/Pgmq/Hasql/Decoders.hs`; `listQueuesUnvalidated` statement in
+      `pgmq-hasql/src/Pgmq/Hasql/Statements/QueueObservability.hs` and session in
+      `pgmq-hasql/src/Pgmq/Hasql/Sessions.hs`; both re-exported from the `Pgmq`
+      umbrella (`pgmq-hasql/src/Pgmq.hs`). `cabal build pgmq-core pgmq-hasql`
+      library-warning-clean (the six `-Wunused-imports` warnings in the pgmq-hasql
+      test modules pre-date this plan — confirmed by building the stashed tree).
+- [x] M2 (2026-08-05): `ListQueuesUnvalidated` effect constructor and
+      `listQueuesUnvalidated` smart function in
+      `pgmq-effectful/src/Pgmq/Effectful/Effect.hs`; dispatch added to the plain
+      interpreter and to the traced interpreter under the existing
+      `"pgmq.list_queues"` span name; no existing case touched.
+      `cabal test pgmq-effectful` reports "All 30 tests passed".
 - [ ] M3: reconciler snapshot switched to the unvalidated listing; dedicated-instance
       `ForeignQueueSpec` proves the boot-failure fix; full suite green; plan 15
       framing corrected if still open; changelog material recorded; committed.

@@ -1,5 +1,6 @@
 module Pgmq.Hasql.Statements.QueueObservability
   ( listQueues,
+    listQueuesUnvalidated,
     queueMetrics,
     allQueueMetrics,
   )
@@ -8,10 +9,10 @@ where
 import Hasql.Decoders qualified as D
 import Hasql.Encoders qualified as E
 import Hasql.Statement (Statement, preparable)
-import Pgmq.Hasql.Decoders (queueDecoder, queueMetricsDecoder)
+import Pgmq.Hasql.Decoders (queueDecoder, queueMetricsDecoder, unvalidatedQueueDecoder)
 import Pgmq.Hasql.Encoders (queueNameEncoder)
 import Pgmq.Hasql.Statements.Types (QueueMetrics)
-import Pgmq.Types (Queue, QueueName)
+import Pgmq.Types (Queue, QueueName, UnvalidatedQueue)
 
 -- | List all queues that currently exist
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#list_queues
@@ -20,6 +21,15 @@ listQueues = preparable sql E.noParams decoder
   where
     sql = "select * from pgmq.list_queues()"
     decoder = D.rowList queueDecoder
+
+-- | Like 'listQueues' but with names left unvalidated, so rows created by
+-- other clients with names 'Pgmq.Types.parseQueueName' rejects still decode.
+-- | https://pgmq.github.io/pgmq/api/sql/functions/#list_queues
+listQueuesUnvalidated :: Statement () [UnvalidatedQueue]
+listQueuesUnvalidated = preparable sql E.noParams decoder
+  where
+    sql = "select * from pgmq.list_queues()"
+    decoder = D.rowList unvalidatedQueueDecoder
 
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#metrics
 queueMetrics :: Statement QueueName QueueMetrics

@@ -2,6 +2,7 @@ module Pgmq.Hasql.Decoders
   ( messageDecoder,
     messageIdDecoder,
     queueDecoder,
+    unvalidatedQueueDecoder,
     queueMetricsDecoder,
     -- Topic decoders (pgmq 1.11.0+)
     topicBindingDecoder,
@@ -26,6 +27,7 @@ import Pgmq.Types
     RoutingMatch (..),
     TopicBinding (..),
     TopicSendResult (..),
+    UnvalidatedQueue (..),
     parseQueueName,
     parseTopicPattern,
   )
@@ -70,6 +72,25 @@ queueDecoder :: D.Row Queue
 queueDecoder =
   (\name isPartitioned isUnlogged createdAt -> Queue name createdAt isPartitioned isUnlogged)
     <$> D.column (D.nonNullable $ D.refine (first (pack . show) . parseQueueName) D.varchar)
+    <*> D.column (D.nonNullable D.bool)
+    <*> D.column (D.nonNullable D.bool)
+    <*> D.column (D.nonNullable D.timestamptz)
+
+-- | Like 'queueDecoder' but with the queue name left as plain text.
+--
+-- The server's only queue-name check is length, so any client sharing the
+-- database can create a name 'parseQueueName' rejects. 'queueDecoder' refines
+-- that column and therefore fails the entire listing on one such row; this
+-- decoder does not, so state inspection can observe foreign queues.
+--
+-- Column order matches 'queueDecoder': queue_name (varchar), is_partitioned
+-- (bool), is_unlogged (bool), created_at (timestamptz).
+unvalidatedQueueDecoder :: D.Row UnvalidatedQueue
+unvalidatedQueueDecoder =
+  ( \name isPartitioned isUnlogged createdAt ->
+      UnvalidatedQueue name createdAt isPartitioned isUnlogged
+  )
+    <$> D.column (D.nonNullable D.varchar)
     <*> D.column (D.nonNullable D.bool)
     <*> D.column (D.nonNullable D.bool)
     <*> D.column (D.nonNullable D.timestamptz)

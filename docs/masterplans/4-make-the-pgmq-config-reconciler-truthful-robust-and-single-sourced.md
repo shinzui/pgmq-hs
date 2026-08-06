@@ -102,7 +102,7 @@ already established the pattern for a three-layer read.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 16 | Extract the pgmq-config reconciler into a single backend-agnostic core | docs/plans/16-extract-the-pgmq-config-reconciler-into-a-single-backend-agnostic-core.md | None | None | Complete |
-| 17 | Reconcile against unvalidated queue listings so foreign names cannot break startup | docs/plans/17-reconcile-against-unvalidated-queue-listings-so-foreign-names-cannot-break-startup.md | EP-16 | MP3 EP-15 | Not Started |
+| 17 | Reconcile against unvalidated queue listings so foreign names cannot break startup | docs/plans/17-reconcile-against-unvalidated-queue-listings-so-foreign-names-cannot-break-startup.md | EP-16 | MP3 EP-15 | In Progress |
 | 18 | Report reconciliation truthfully and document the real contract | docs/plans/18-report-reconciliation-truthfully-and-document-the-real-contract.md | EP-16, EP-17 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.

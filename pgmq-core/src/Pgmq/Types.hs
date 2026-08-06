@@ -6,6 +6,7 @@ module Pgmq.Types
     MessageId (..),
     Message (..),
     Queue (..),
+    UnvalidatedQueue (..),
     QueueName,
     parseQueueName,
     queueNameToText,
@@ -57,6 +58,23 @@ data Queue = Queue
     createdAt :: !UTCTime,
     isPartitioned :: !Bool,
     isUnlogged :: !Bool
+  }
+  deriving stock (Eq, Generic, Show)
+
+-- | A row of @pgmq.list_queues()@ with the queue name left unvalidated.
+--
+-- Queues are created by every client that shares the database, and the
+-- server accepts names 'parseQueueName' rejects (its only check is length).
+-- This shape exists so state inspection — notably pgmq-config's reconciler —
+-- can observe such foreign queues without failing to decode them.
+-- 'unvalidatedName' may therefore hold any server-accepted name; do not feed
+-- it into APIs expecting a validated 'QueueName' without going through
+-- 'parseQueueName'.
+data UnvalidatedQueue = UnvalidatedQueue
+  { unvalidatedName :: !Text,
+    unvalidatedCreatedAt :: !UTCTime,
+    unvalidatedIsPartitioned :: !Bool,
+    unvalidatedIsUnlogged :: !Bool
   }
   deriving stock (Eq, Generic, Show)
 

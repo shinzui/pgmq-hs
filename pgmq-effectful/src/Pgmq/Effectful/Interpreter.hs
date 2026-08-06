@@ -172,6 +172,7 @@ runPgmq pool = interpret $ \_ -> \case
   UpdateNotifyInsert params -> runSession pool $ Sessions.updateNotifyInsert params
   -- Queue Observability
   ListQueues -> runSession pool Sessions.listQueues
+  ListQueuesUnvalidated -> runSession pool Sessions.listQueuesUnvalidated
   QueueMetrics q -> runSession pool $ Sessions.queueMetrics q
   AllQueueMetrics -> runSession pool Sessions.allQueueMetrics
 

@@ -333,6 +333,9 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
   ListQueues ->
     withTracedOp config pool (defaultOpInfo "pgmq.list_queues" OTel.Internal) $
       Sessions.listQueues
+  ListQueuesUnvalidated ->
+    withTracedOp config pool (defaultOpInfo "pgmq.list_queues" OTel.Internal) $
+      Sessions.listQueuesUnvalidated
   QueueMetrics q ->
     withTracedOp config pool (queueOp "pgmq.metrics" OTel.Internal q) $
       Sessions.queueMetrics q
