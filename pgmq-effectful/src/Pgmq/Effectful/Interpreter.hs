@@ -173,6 +173,7 @@ runPgmq pool = interpret $ \_ -> \case
   -- Queue Observability
   ListQueues -> runSession pool Sessions.listQueues
   ListQueuesUnvalidated -> runSession pool Sessions.listQueuesUnvalidated
+  ListFifoIndexQueueNames -> runSession pool Sessions.listFifoIndexQueueNames
   QueueMetrics q -> runSession pool $ Sessions.queueMetrics q
   AllQueueMetrics -> runSession pool Sessions.allQueueMetrics
 

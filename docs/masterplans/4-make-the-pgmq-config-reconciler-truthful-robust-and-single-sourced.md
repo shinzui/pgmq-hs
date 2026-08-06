@@ -102,8 +102,8 @@ already established the pattern for a three-layer read.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 16 | Extract the pgmq-config reconciler into a single backend-agnostic core | docs/plans/16-extract-the-pgmq-config-reconciler-into-a-single-backend-agnostic-core.md | None | None | Complete |
-| 17 | Reconcile against unvalidated queue listings so foreign names cannot break startup | docs/plans/17-reconcile-against-unvalidated-queue-listings-so-foreign-names-cannot-break-startup.md | EP-16 | MP3 EP-15 | In Progress |
-| 18 | Report reconciliation truthfully and document the real contract | docs/plans/18-report-reconciliation-truthfully-and-document-the-real-contract.md | EP-16, EP-17 | None | Not Started |
+| 17 | Reconcile against unvalidated queue listings so foreign names cannot break startup | docs/plans/17-reconcile-against-unvalidated-queue-listings-so-foreign-names-cannot-break-startup.md | EP-16 | MP3 EP-15 | Complete |
+| 18 | Report reconciliation truthfully and document the real contract | docs/plans/18-report-reconciliation-truthfully-and-document-the-real-contract.md | EP-16, EP-17 | None | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 "MP3 EP-15" is `docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md`
@@ -207,11 +207,14 @@ adds, edits, or renumbers anything under `pgmq-migration/migrations/`.
       and behavior unchanged; the pre-existing 14 pgmq-config tests pass without
       modification (`git diff --stat -- pgmq-config/test/` empty), and `cabal test all`
       is green across all five suites.
-- [ ] EP-17: `UnvalidatedQueue` listing exists through pgmq-core, pgmq-hasql, and
-      pgmq-effectful (plain and traced); the reconciler's existence checks use it; a
-      dedicated-instance spec proves a hyphen-named foreign queue no longer fails
-      `ensureQueues`/`ensureQueuesReport`; EP-15's remediation framing corrected if
-      still open.
+- [x] EP-17 (2026-08-05): `UnvalidatedQueue` listing exists through pgmq-core,
+      pgmq-hasql, and pgmq-effectful (plain and traced, span `pgmq.list_queues`); the
+      reconciler's existence check uses it via a `Map Text UnvalidatedQueue` snapshot;
+      `pgmq-config/test/ForeignQueueSpec.hs` proves on a dedicated instance that a
+      hyphen-named foreign queue no longer fails `ensureQueues`/`ensureQueuesReport`
+      through either backend (red/green transcript recorded in the child plan);
+      EP-15's remediation framing corrected in
+      `docs/design/016-queue-name-validation.md`.
 - [ ] EP-18: FIFO index existence read through all three layers; report shows
       `CreatedFifoIndex` exactly once then `SkippedFifoIndex`; declared-vs-observed
       notify-throttle drift updates the interval via `pgmq.update_notify_insert` and
@@ -246,6 +249,29 @@ adds, edits, or renumbers anything under `pgmq-migration/migrations/`.
   (`cabal build pgmq-config -f-effectful`) is the only check that catches an effectful
   import leaking into the unconditionally-compiled core; both sibling plans should keep
   it in their acceptance runs.
+
+- EP-17 implementation (2026-08-05): the soft dependency resolved itself — MasterPlan 3's
+  EP-15 was already Complete by the time EP-17 landed, so the remediation-framing
+  correction went into `docs/design/016-queue-name-validation.md` only and EP-15's plan
+  text was left as the historical record it now is. The design note previously said
+  nonconforming `pgmq.meta` rows break "pgmq-config reconciliation"; it now scopes that
+  to typed `listQueues` consumers and points at EP-17.
+
+- EP-17 implementation (2026-08-05): a build configuration this MasterPlan had not
+  modeled bit once and will bite again — pgmq-config's test suite is *not* covered by
+  the library's `effectful` flag, so `pgmq-config/test/ForeignQueueSpec.hs` importing
+  `Pgmq.Config.Effectful` broke `cabal build pgmq-config -f-effectful` while the library
+  stayed clean. Fixed with an `if flag(effectful)` block in the test stanza supplying
+  `-DPGMQ_EFFECTFUL` and the two dependencies, plus CPP guards in the spec (the first
+  CPP in this repository). EP-18 adds effect-backed test coverage of its own and must
+  either reuse that guard or keep its new specs effect-free; its acceptance run must
+  include `cabal test pgmq-config -f-effectful`, not just `cabal build`.
+
+- EP-17 implementation (2026-08-05): the queue snapshot is a
+  `Map Text UnvalidatedQueue`, not a `Set Text`. EP-18's queue-type drift reporting
+  therefore already has the observed `unvalidatedIsPartitioned` /
+  `unvalidatedIsUnlogged` flags in scope at the `reconcileQueue` call site, with no
+  further signature change needed.
 
 - Plan authoring (2026-08-05): `pgmq.update_notify_insert` resets `last_notified_at`
   to the epoch as a side effect of changing the interval (vendored SQL; same reset as

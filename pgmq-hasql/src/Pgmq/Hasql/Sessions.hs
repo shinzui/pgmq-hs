@@ -26,6 +26,7 @@ module Pgmq.Hasql.Sessions
     batchSetVisibilityTimeoutAt,
     listQueues,
     listQueuesUnvalidated,
+    listFifoIndexQueueNames,
     pop,
     queueMetrics,
     allQueueMetrics,
@@ -188,6 +189,11 @@ listQueues = statement () Stmt.listQueues
 -- does not fail the whole listing.
 listQueuesUnvalidated :: Session [UnvalidatedQueue]
 listQueuesUnvalidated = statement () Stmt.listQueuesUnvalidated
+
+-- | Queue names that already have their FIFO headers index, read from the
+-- @pg_indexes@ catalog view (pgmq has no index-existence function).
+listFifoIndexQueueNames :: Session [Text]
+listFifoIndexQueueNames = statement () Stmt.listFifoIndexQueueNames
 
 createPartitionedQueue :: CreatePartitionedQueue -> Session ()
 createPartitionedQueue q = statement q Stmt.createPartitionedQueue

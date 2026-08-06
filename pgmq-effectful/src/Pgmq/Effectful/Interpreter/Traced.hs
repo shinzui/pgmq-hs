@@ -336,6 +336,11 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
   ListQueuesUnvalidated ->
     withTracedOp config pool (defaultOpInfo "pgmq.list_queues" OTel.Internal) $
       Sessions.listQueuesUnvalidated
+  -- No pgmq function backs this one: it reads the pg_indexes catalog view, so
+  -- the span carries this library's own label rather than a pgmq.* name.
+  ListFifoIndexQueueNames ->
+    withTracedOp config pool (defaultOpInfo "pgmq.list_fifo_indexes" OTel.Internal) $
+      Sessions.listFifoIndexQueueNames
   QueueMetrics q ->
     withTracedOp config pool (queueOp "pgmq.metrics" OTel.Internal q) $
       Sessions.queueMetrics q

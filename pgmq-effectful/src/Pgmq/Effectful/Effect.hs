@@ -77,12 +77,14 @@ module Pgmq.Effectful.Effect
     -- * Queue Observability
     listQueues,
     listQueuesUnvalidated,
+    listFifoIndexQueueNames,
     queueMetrics,
     allQueueMetrics,
   )
 where
 
 import Data.Int (Int32, Int64)
+import Data.Text (Text)
 import Data.Vector (Vector)
 import Effectful (Dispatch (..), DispatchOf, Eff, Effect, (:>))
 import Effectful.Dispatch.Dynamic (send)
@@ -194,6 +196,7 @@ data Pgmq :: Effect where
   -- Queue Observability
   ListQueues :: Pgmq m [Queue]
   ListQueuesUnvalidated :: Pgmq m [UnvalidatedQueue]
+  ListFifoIndexQueueNames :: Pgmq m [Text]
   QueueMetrics :: QueueName -> Pgmq m QueueMetrics
   AllQueueMetrics :: Pgmq m [QueueMetrics]
 
@@ -392,6 +395,11 @@ listQueues = send ListQueues
 -- does not fail the whole listing.
 listQueuesUnvalidated :: (Pgmq :> es) => Eff es [UnvalidatedQueue]
 listQueuesUnvalidated = send ListQueuesUnvalidated
+
+-- | Queue names that already have their FIFO headers index. Reads the
+-- @pg_indexes@ catalog view; pgmq exposes no index-existence function.
+listFifoIndexQueueNames :: (Pgmq :> es) => Eff es [Text]
+listFifoIndexQueueNames = send ListFifoIndexQueueNames
 
 queueMetrics :: (Pgmq :> es) => QueueName -> Eff es QueueMetrics
 queueMetrics = send . QueueMetrics
