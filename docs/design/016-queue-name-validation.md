@@ -63,11 +63,22 @@ the boundary, and matches the smart-constructor design the type already had.
 
 `queueDecoder` (`pgmq-hasql/src/Pgmq/Hasql/Decoders.hs`) re-validates names read back
 from the database through `parseQueueName` via `D.refine`. Under the stricter parser, a
-database that still contains mixed-case rows in `pgmq.meta` fails `listQueues` decoding —
-and therefore pgmq-config reconciliation — until those rows are remediated. Run the
-remediation below against every deployed database **before** upgrading the packages. As of
-2026-08-05 no registered consumer creates mixed-case names, but deployed databases must be
-verified independently.
+database that still contains mixed-case rows in `pgmq.meta` fails the typed `listQueues`
+decoding until those rows are remediated. Run the remediation below against every deployed
+database **before** upgrading the packages. As of 2026-08-05 no registered consumer creates
+mixed-case names, but deployed databases must be verified independently.
+
+Scope correction (2026-08-05): this note originally said such rows also break pgmq-config
+reconciliation. That is no longer true. As of
+`docs/plans/17-reconcile-against-unvalidated-queue-listings-so-foreign-names-cannot-break-startup.md`
+the reconciler snapshots existing queues through `listQueuesUnvalidated`, which decodes the
+name column as plain `Text` and never refines it, and compares declared names textually.
+A nonconforming row — mixed-case, hyphenated, or otherwise — is simply a queue the
+reconciler does not manage; `ensureQueues` creates what it declared and leaves the row
+alone. What still fails is the typed `listQueues` (and the `Pgmq` effect's `listQueues`),
+so the remediation below remains required for any consumer that reads validated queue
+listings, and remains good hygiene regardless: the aliasing hazards described above are
+properties of the data, not of the decoder.
 
 
 ## Detection

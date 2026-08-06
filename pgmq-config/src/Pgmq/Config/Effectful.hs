@@ -16,7 +16,7 @@ import Pgmq.Effectful.Effect qualified as Eff
 effectfulOps :: (Eff.Pgmq :> es) => ReconcileOps (Eff es)
 effectfulOps =
   ReconcileOps
-    { listQueues = Eff.listQueues,
+    { listQueuesUnvalidated = Eff.listQueuesUnvalidated,
       listTopicBindings = Eff.listTopicBindings,
       listNotifyInsertThrottles = Eff.listNotifyInsertThrottles,
       createQueue = Eff.createQueue,

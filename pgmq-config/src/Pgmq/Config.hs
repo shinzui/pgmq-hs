@@ -35,7 +35,7 @@ import Pgmq.Hasql.Sessions qualified as Sessions
 sessionOps :: ReconcileOps Session
 sessionOps =
   ReconcileOps
-    { listQueues = Sessions.listQueues,
+    { listQueuesUnvalidated = Sessions.listQueuesUnvalidated,
       listTopicBindings = Sessions.listTopicBindings,
       listNotifyInsertThrottles = Sessions.listNotifyInsertThrottles,
       createQueue = Sessions.createQueue,

@@ -62,14 +62,68 @@ a decode error; after, it succeeds and the report shows the declared queue creat
       interpreter and to the traced interpreter under the existing
       `"pgmq.list_queues"` span name; no existing case touched.
       `cabal test pgmq-effectful` reports "All 30 tests passed".
-- [ ] M3: reconciler snapshot switched to the unvalidated listing; dedicated-instance
-      `ForeignQueueSpec` proves the boot-failure fix; full suite green; plan 15
-      framing corrected if still open; changelog material recorded; committed.
+- [x] M3 (2026-08-05): `ReconcileOps`'s `listQueues` field replaced by
+      `listQueuesUnvalidated`, snapshot rebuilt as `Map Text UnvalidatedQueue`, and
+      the membership test switched to `Map.member qnText`; both backends rewired;
+      new dedicated-instance `pgmq-config/test/ForeignQueueSpec.hs` (three cases)
+      registered in `pgmq-config/test/Main.hs` and the cabal test stanza; red/green
+      proof recorded below; `cabal test all` green (12 + 30 + 9 + 17 + 73 = 141
+      tests across five suites); flag-off build and test verified; plan 15's
+      remediation framing corrected in `docs/design/016-queue-name-validation.md`
+      (plan 15 itself had already completed — see Decision Log); changelog material
+      recorded under Interfaces and Dependencies; committed.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The red/green proof lands exactly where the plan predicted (2026-08-05). With
+  only `pgmq-config/src` stashed — the reconciler back on the typed listing, the new
+  spec and the lower layers untouched — the reconcile throws before any assertion
+  runs, and the failure names the poisoned read verbatim:
+
+  ```text
+    ForeignQueueSpec
+      typed listQueues rejects a foreign name (evidence): FAIL
+        Exception: test/ForeignQueueSpec.hs:226:
+        Session failed: SessionUsageError (StatementSessionError 1 0
+          "select * from pgmq.list_queues()" [] True (RowStatementError 0
+          (CellRowError 0 1043 (DeserializationCellError
+          "InvalidQueueName \"The queue name contains invalid characters
+          (allowed: lowercase ASCII letters, digits, underscore).\""))))
+
+    3 out of 17 tests failed (0.81s)
+  ```
+
+  After `git stash pop`, all three pass. Note that all three cases fail in the red
+  state, not just case 2: the observation pass runs the reconcile before returning,
+  so the throw takes down the shared `withResource` fixture. That is the boot failure
+  the plan describes, reproduced faithfully — an application would see this same
+  exception from `ensureQueues` at startup.
+
+- Adding the effect-parity case broke the `-f-effectful` build, which the plan did
+  not anticipate (2026-08-05). `ForeignQueueSpec` imports `Pgmq.Config.Effectful`,
+  and that module only exists when the library's `effectful` flag is on, so
+  `cabal build pgmq-config -f-effectful` failed on the *test suite* while the library
+  itself stayed clean:
+
+  ```text
+  test/ForeignQueueSpec.hs:54:1: error: [GHC-87110]
+      Could not load module ‘Pgmq.Config.Effectful’.
+      It is a member of the hidden package ‘pgmq-config-0.4.0.1’.
+  ```
+
+  Fixed by mirroring the library's own conditional in the test stanza: an
+  `if flag(effectful)` block adds `-DPGMQ_EFFECTFUL` plus the two dependencies, and
+  the spec guards its effectful import, its `effectfulCases` list, and its
+  `runEffectfulReconcile` helper behind that macro. With the flag off the spec runs
+  its two Session-backed cases (16 tests total); with it on, all three (17).
+  This is the first CPP in the repository — see the Decision Log.
+
+- `pgmq.create` really does accept the hyphen (2026-08-05). `pgmq.validate_queue_name`
+  in `vendor/pgmq/pgmq-extension/sql/pgmq.sql` checks only `length(queue_name) > 47`,
+  and every DDL statement interpolates the name with `%I`, so `billing-events` becomes
+  a legitimately quoted physical table. The foreign queue in the spec is a real,
+  fully functional pgmq queue, not a malformed metadata row.
 
 
 ## Decision Log
@@ -96,10 +150,83 @@ a decode error; after, it succeeds and the report shows the declared queue creat
   progress in this working tree) has landed, been reverted, or been amended.
   Date: 2026-08-05
 
+- Decision: Snapshot existing queues as `Map Text UnvalidatedQueue`, not `Set Text`.
+  Rationale: The plan offered both. Sibling plan
+  `docs/plans/18-report-reconciliation-truthfully-and-document-the-real-contract.md`
+  needs the partitioned/unlogged flags per name to report queue-type drift, and the
+  `Map` shape hands it those flags without a second change to `reconcileQueue`'s
+  signature. `Map.member` costs the same as `Set.member` at the one call site that
+  uses it today.
+  Date: 2026-08-05
+
+- Decision: The textual membership test is behavior-preserving for every row that
+  used to decode.
+  Rationale: Worth stating explicitly because the comparison type changed. `QueueName`
+  is `newtype QueueName Text` with `deriving newtype (Eq, Ord)`, and `parseQueueName`
+  deliberately does not normalize (its haddock says so). So
+  `Set.member qn (Set QueueName)` and `Map.member (queueNameToText qn) (Map Text _)`
+  agree on every name that `parseQueueName` accepts. The only rows whose treatment
+  changed are the ones that previously failed the whole decode.
+  Date: 2026-08-05
+
+- Decision: Correct the mixed-case remediation framing in
+  `docs/design/016-queue-name-validation.md` only, leaving
+  `docs/plans/15-validate-queue-names-and-classify-transient-errors-across-the-pgmq-layers.md`
+  untouched.
+  Rationale: This plan's coordination duty was conditional on plan 15 still being
+  open. It is Complete in MasterPlan 3's registry, so its prose is a historical
+  record of what was true when it was written; rewriting it would falsify that
+  record. The design note is the living document consumers are pointed at (the
+  `parseQueueName` haddock cites it), so the correction belongs there. That haddock
+  itself needed no change — it says such rows fail `listQueues` decoding, which is
+  still exactly true, and never mentioned reconciliation.
+  Date: 2026-08-05
+
+- Decision: Introduce CPP in `pgmq-config/test/ForeignQueueSpec.hs` rather than
+  splitting the effect-parity case into its own module.
+  Rationale: A separate flag-gated module would need its own PostgreSQL instance and
+  its own seeded foreign queue, doubling the fixture for one assertion, or else an
+  awkward hand-off of the observation record across modules. Four `#ifdef` lines keep
+  one instance, one seeding pass, and one place to read the whole story. The library
+  itself remains CPP-free.
+  Date: 2026-08-05
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-08-05. A foreign queue no longer breaks anyone's startup. Concretely:
+seed a database with `select pgmq.create('billing-events')` and call
+`ensureQueues [standardQueue myQueue]` — before this plan the session died with
+`DeserializationCellError "InvalidQueueName ..."`; now it creates the declared queue,
+reports `CreatedQueue`, reports `SkippedQueue` on the next run, and leaves the foreign
+queue's `pgmq.meta` row exactly as it found it. Both the Session and the effect backend
+are covered.
+
+The lenient listing exists at every layer, so the fix is available to consumers as well
+as to the reconciler: `UnvalidatedQueue` (pgmq-core), `listQueuesUnvalidated` statement
+and session (pgmq-hasql, re-exported from the `Pgmq` umbrella), and the
+`ListQueuesUnvalidated` effect operation dispatched by both interpreters. The typed
+`listQueues` is untouched and still validates, which the pgmq-hasql suite's 73 tests
+confirm.
+
+What went right: the three-layer addition was mechanical because plan 16 had already
+collapsed the reconciler to one file, so the behavior change was a four-line edit to
+`Pgmq.Config.Reconcile` plus one field name in each backend. The `withResource`
+observation-record pattern borrowed from `NotifyCrashSpec` paid off twice — it made
+the dedicated-instance requirement trivial to honor, and it made the red state legible
+(one exception, reported against all three cases, naming the exact statement).
+
+What surprised: the `-f-effectful` build broke on the *test suite*, not the library —
+precisely the configuration plan 16's retrospective flagged as easy to forget, and it
+still nearly slipped through because the default-flag build stayed green. Both plans
+now say it: run the flag-off build, and run it on the test suite too, not just
+`cabal build`.
+
+Left for sibling plan
+`docs/plans/18-report-reconciliation-truthfully-and-document-the-real-contract.md`:
+the snapshot is now a `Map Text UnvalidatedQueue`, so the partitioned/unlogged flags it
+needs for queue-type drift reporting are already in hand at the `reconcileQueue` call
+site. It also inherits an established shape for its second three-layer read.
 
 
 ## Context and Orientation
@@ -422,6 +549,26 @@ Pgmq.Effectful.Effect.listQueuesUnvalidated :: (Pgmq :> es) => Eff es [Unvalidat
 -- ReconcileOps: the listQueues field is replaced by
 listQueuesUnvalidated :: m [UnvalidatedQueue]
 ```
+
+Changelog material for the release owner
+(`docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md`; this
+plan bumps no version):
+
+- **pgmq-core** — Added: `UnvalidatedQueue`, a `pgmq.list_queues()` row whose name is
+  plain `Text`, for inspecting databases that contain queues created by other clients
+  under names `parseQueueName` rejects.
+- **pgmq-hasql** — Added: `listQueuesUnvalidated` (statement and session, re-exported
+  from `Pgmq`) and `unvalidatedQueueDecoder`. The typed `listQueues` is unchanged and
+  still validates.
+- **pgmq-effectful** — Added: the `ListQueuesUnvalidated` operation and its
+  `listQueuesUnvalidated` smart function, dispatched by both the plain and traced
+  interpreters (traced span name `pgmq.list_queues`, matching the SQL function
+  invoked). Extending the `Pgmq` GADT is breaking for any consumer that pattern-matches
+  it exhaustively — for example a custom interpreter — so this rides the major bump.
+- **pgmq-config** — Fixed: a queue whose name `parseQueueName` rejects no longer fails
+  `ensureQueues`/`ensureQueuesReport`. The reconciler snapshots existing queues through
+  the unvalidated listing and matches names textually, so foreign queues are simply out
+  of scope rather than fatal at startup.
 
 Coordination: hard-depends on plan 16 (the single reconciler core). Soft coordination
 with MasterPlan 3's plan 15 as described in M3 — nothing here blocks on it, but the

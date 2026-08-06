@@ -13,6 +13,7 @@ where
 
 import Control.Lens ((^.))
 import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
 import GHC.Generics (Generic)
@@ -20,10 +21,10 @@ import Pgmq.Config.Types
 import Pgmq.Hasql.Statements.Types qualified as StmtTypes
 import Pgmq.Types
   ( NotifyInsertThrottle,
-    Queue,
     QueueName,
     TopicBinding,
     TopicPattern,
+    UnvalidatedQueue,
     queueNameToText,
     topicPatternToText,
   )
@@ -32,7 +33,11 @@ import Pgmq.Types
 -- monad so one implementation serves both the 'Hasql.Session.Session' and
 -- @Pgmq@-effect entry points.
 data ReconcileOps m = ReconcileOps
-  { listQueues :: m [Queue],
+  { -- | Deliberately the /unvalidated/ listing: the reconciler only compares
+    -- observed names against declared ones, and re-validating them would make
+    -- one foreign queue whose name 'Pgmq.Types.parseQueueName' rejects fail the
+    -- whole reconcile at application startup.
+    listQueuesUnvalidated :: m [UnvalidatedQueue],
     listTopicBindings :: m [TopicBinding],
     listNotifyInsertThrottles :: m [NotifyInsertThrottle],
     createQueue :: QueueName -> m (),
@@ -53,11 +58,12 @@ ensureQueuesReportWith ::
   [QueueConfig] ->
   m [ReconcileAction]
 ensureQueuesReportWith ops configs = do
-  existingQueues <- ops ^. #listQueues
+  existingQueues <- ops ^. #listQueuesUnvalidated
   existingBindings <- ops ^. #listTopicBindings
   existingThrottles <- ops ^. #listNotifyInsertThrottles
 
-  let existingQueueNames = Set.fromList (map (\q -> q ^. #name) existingQueues)
+  let existingQueuesByName =
+        Map.fromList [(q ^. #unvalidatedName, q) | q <- existingQueues]
       existingBindingSet =
         Set.fromList
           [ (b ^. #bindingQueueName, topicPatternToText (b ^. #bindingPattern))
@@ -65,13 +71,13 @@ ensureQueuesReportWith ops configs = do
           ]
       existingNotifySet = Set.fromList (map (\t -> t ^. #throttleQueueName) existingThrottles)
 
-  concat <$> traverse (reconcileQueue ops existingQueueNames existingBindingSet existingNotifySet) configs
+  concat <$> traverse (reconcileQueue ops existingQueuesByName existingBindingSet existingNotifySet) configs
 
 -- | Reconcile a single queue config against existing state, returning actions taken.
 reconcileQueue ::
   (Monad m) =>
   ReconcileOps m ->
-  Set.Set QueueName ->
+  Map.Map T.Text UnvalidatedQueue ->
   Set.Set (T.Text, T.Text) ->
   Set.Set T.Text ->
   QueueConfig ->
@@ -82,7 +88,7 @@ reconcileQueue ops existingQueues existingBindings existingNotify cfg = do
 
   -- Queue creation
   queueAction <-
-    if Set.member qn existingQueues
+    if Map.member qnText existingQueues
       then pure [SkippedQueue qn]
       else do
         case cfg ^. #queueType of

@@ -4,6 +4,7 @@ module Main (main) where
 
 import ConfigSpec qualified
 import EphemeralDb (withPgmqDb)
+import ForeignQueueSpec qualified
 import NotifyCrashSpec qualified
 import Test.Tasty (defaultMain, testGroup)
 
@@ -16,7 +17,12 @@ main = do
             [ ConfigSpec.tests pool,
               -- NotifyCrashSpec manages its own PostgreSQL instance: it crashes
               -- the server, which the shared pool above could not survive.
-              NotifyCrashSpec.tests
+              NotifyCrashSpec.tests,
+              -- ForeignQueueSpec seeds a queue whose name parseQueueName
+              -- rejects; on the shared pool above that row would fail every
+              -- concurrent typed listQueues call, so it too runs on its own
+              -- PostgreSQL instance.
+              ForeignQueueSpec.tests
             ]
     defaultMain tree
   case result of

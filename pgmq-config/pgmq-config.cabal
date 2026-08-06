@@ -78,6 +78,7 @@ test-suite pgmq-config-test
   other-modules:
     ConfigSpec
     EphemeralDb
+    ForeignQueueSpec
     NotifyCrashSpec
 
   default-extensions:
@@ -109,3 +110,12 @@ test-suite pgmq-config-test
     , tasty-hunit       ^>=0.10
     , text
     , time              ^>=1.14
+
+  -- ForeignQueueSpec asserts that both reconciler backends use the lenient
+  -- queue listing. The effect-backed half only exists when the library's
+  -- effectful flag is on, so it is compiled in behind the same flag.
+  if flag(effectful)
+    cpp-options:   -DPGMQ_EFFECTFUL
+    build-depends:
+      , effectful-core  ^>=2.5 || ^>=2.6
+      , pgmq-effectful  >=0.4  && <0.5
