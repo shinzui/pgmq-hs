@@ -176,6 +176,7 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 - EP-15 implementation (2026-08-05): `pgmq.notify_insert_throttle` carries the same `ON DELETE CASCADE` / no-`ON UPDATE` foreign key onto `pgmq.meta` as `pgmq.topic_bindings`, so any future metadata surgery must treat BOTH child kinds; a naive parent update fails and a naive delete silently destroys notification configuration as well as routing. The remediation itself simplified to insert-canonical-parent, repoint children by `UPDATE`, delete mixed parent (EP-15's Decision Log).
 - EP-15 implementation (2026-08-05): migration ledger unchanged — EP-15 landed no migration, so the next free manifest number remains `0004` for MasterPlan 2 EP-9 or keiro MasterPlan 17 plans 116/118.
 - EP-15 implementation (2026-08-05): plan 12's Milestone 5 still claimed the design directory "runs to 013, so 014 is next"; 014–017 now exist (two from EP-13/14, two from EP-15). Corrected in plan 12 to "take the next free number" (018 at time of correction) — the third instance in this MasterPlan of a stale numbering claim in a sibling plan, after the migration-ledger and ledger-expectation cases.
+- Post-completion review (2026-08-05): the documented mixed-case remediation had a resurrection defect — its no-twin branch canonicalized a `pgmq.meta` row whose physical table was already destroyed (the exact orphan state `AliasingSpec`'s drop test demonstrates), turning a loud decode failure into a phantom queue that lists cleanly and fails every send with 42P01. The remediation now probes `pg_class` first and deletes orphans, pinned by `MixedCaseRemediationSpec`'s orphan case. Fixing it exposed a latent race in the spec itself: its cases ran in parallel on the shared dedicated instance while each executes the database-global sweep, so a sibling's sweep could delete a parent row between a test's `create` and its `bind_topic` (23503) — the two original cases passed only by scheduling luck. The module now uses `sequentialTestGroup`; the dedicated-instance isolation template gains the corollary "a test that runs a global sweep must also serialize against its own siblings". The same review found design note 015 silent on a fail-open consequence: a foreign caller's mixed-case throttle key is permanently invisible to the lowercased trigger lookup, so migration `0003` converts that mismatch from "never notify" into "permanently unthrottled" — strictly better, unreachable through pgmq-hs's validated API, now documented in 015.
 
 
 ## Decision Log
@@ -252,6 +253,14 @@ plan can move.
 
 
 ## Revision Note
+
+2026-08-05 (sixth): pre-release correctness review of all three landed plans (verified
+against the vendored SQL and the pre-fix commits; all suites green). Three amendments:
+the mixed-case remediation in design note 016 now deletes orphaned rows instead of
+resurrecting phantom queues (mirrored in `MixedCaseRemediationSpec` with a new orphan
+case), design note 015 now records that fail-open turns an aliased mixed-case throttle
+key into permanent unthrottled notification, and the remediation spec's cases are now
+sequential because each runs the database-global sweep. No library code changed.
 
 2026-08-05 (fifth): EP-15 implemented and marked Complete, closing the MasterPlan's own
 scope (the release remains with MasterPlan 2 EP-12). Recorded five cross-plan

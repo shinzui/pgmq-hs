@@ -92,6 +92,12 @@ SELECT m.queue_name,
          SELECT 1 FROM pgmq.meta lower_meta
          WHERE lower_meta.queue_name = lower(m.queue_name)
        ) AS has_lowercase_twin,
+       EXISTS (
+         SELECT 1
+         FROM pg_catalog.pg_class c
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'pgmq' AND c.relname = 'q_' || lower(m.queue_name)
+       ) AS has_physical_table,
        (SELECT count(*) FROM pgmq.topic_bindings b
         WHERE b.queue_name = m.queue_name) AS binding_count,
        (SELECT throttle_interval_ms FROM pgmq.notify_insert_throttle n
@@ -115,11 +121,21 @@ parent first, repoints the children, and only then deletes the mixed-case row â€
 transaction per DO block, safe to rerun (after success the detection query returns no
 rows, and the loop body never executes again).
 
+One state must be deleted rather than canonicalized: a mixed-case row whose physical
+table no longer exists. `drop_queue` on the lowercase twin destroys the shared table and
+its own meta row while the mixed-case row lives on, pointing at nothing â€” the state
+`AliasingSpec`'s drop test demonstrates live. Canonicalizing that orphan would insert a
+`pgmq.meta` row for a queue with no table: it lists cleanly and fails every send and
+read with 42P01, converting a loud decode failure into a quiet phantom. The remediation
+therefore probes for the physical table first and deletes orphans outright, letting the
+`CASCADE` remove children that route to nothing.
+
 ```sql
 DO $remediate$
 DECLARE
   bad RECORD;
   twin_exists BOOLEAN;
+  table_exists BOOLEAN;
 BEGIN
   FOR bad IN
     SELECT m.queue_name AS mixed_name, lower(m.queue_name) AS canonical_name
@@ -134,6 +150,20 @@ BEGIN
     PERFORM 1 FROM pgmq.meta
       WHERE queue_name IN (bad.mixed_name, bad.canonical_name)
       FOR UPDATE;
+
+    -- An orphan (its physical table already destroyed, e.g. by drop_queue on
+    -- the lowercase twin) must not be resurrected as a phantom queue: delete
+    -- it and let the CASCADE remove children that route to nothing.
+    table_exists := EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'pgmq' AND c.relname = 'q_' || bad.canonical_name
+    );
+    IF NOT table_exists THEN
+      DELETE FROM pgmq.meta WHERE queue_name = bad.mixed_name;
+      CONTINUE;
+    END IF;
 
     twin_exists := EXISTS (
       SELECT 1 FROM pgmq.meta WHERE queue_name = bad.canonical_name
@@ -197,9 +227,12 @@ such event in plan 15's Decision Log.
 rejections prevent. `pgmq-hasql/test/MixedCaseRemediationSpec.hs` seeds mixed-case
 metadata with topic bindings and a notification throttle, runs the DO block above, proves
 that bindings (including `bound_at`) and throttle configuration survive under the
-canonical name in both the twin and no-twin cases, and proves a second run changes
-nothing. Both database-backed specs run on dedicated PostgreSQL instances because a
-mixed-case meta row poisons `listQueues` decoding for every concurrent test.
+canonical name in both the twin and no-twin cases, proves that an orphaned row (physical
+table already destroyed) is deleted with its children rather than resurrected as a
+phantom queue, and proves a second run changes nothing. Both database-backed specs run on dedicated PostgreSQL instances because a
+mixed-case meta row poisons `listQueues` decoding for every concurrent test; the
+remediation spec's own cases additionally run sequentially, because each executes the
+database-global sweep and would otherwise race a sibling's setup.
 
 
 ## Related documents

@@ -90,12 +90,23 @@ Migration 0003 implements it by disambiguating the two causes of a zero-row upda
 ```
 
 Row present but throttled: suppress, which is correct. Row absent: notify. The `NOT EXISTS`
-probe runs only on the branch that already failed, so steady-state cost is unchanged.
+probe runs only when the `UPDATE` matched no row, so a delivered notification costs nothing
+extra; a throttle-suppressed insert pays one additional index probe.
 
 The trigger deliberately does **not** re-insert the row. The configured interval is gone —
 that is the crash's data loss — and inventing one in the hot path would silently change
 throttling for the queue. The degradation is bounded and self-correcting: unthrottled
 notifications until the next reconcile restores the configured value.
+
+One sharp edge inherited from the queue-name aliasing family (design note 016):
+`enable_notify_insert` stores the throttle row under the caller's original casing, while
+the trigger looks the name up lowercased from `TG_TABLE_NAME`. A row keyed `'MyQueue'` is
+therefore invisible to the trigger — missing *permanently*, not crash-missing — and
+fail-open converts that mismatch from "never notify" (the pre-0003 behaviour) into
+"notify unthrottled on every insert", which no re-enable under the same mixed-case name
+can heal. This is unreachable through pgmq-hs, whose `parseQueueName` rejects the casing
+at every entry path, but remains open to any non-Haskell caller; the detection and
+remediation are design note 016's.
 
 `pgmq-config/test/NotifyCrashSpec.hs` drives the real cycle: start PostgreSQL, enable
 notify, SIGQUIT it, restart on the same data directory, and prove that a post-recovery send
@@ -142,3 +153,5 @@ properties; a re-entrant function needs both.
   in place.
 - Design note 014: the NULL-parameter contract. Migration 0003 also adds the server-side
   `COALESCE(throttle_interval_ms, 250)` that note calls for, for non-Haskell callers.
+- Design note 016: queue-name validation and the mixed-case remediation, including the
+  aliased throttle key that fail-open turns into permanent unthrottled notification.

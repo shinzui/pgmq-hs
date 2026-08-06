@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | PGH-7: the documented mixed-case remediation must preserve topic bindings
--- and notification configuration, transactionally, and must be safe to rerun.
+-- and notification configuration, transactionally, must be safe to rerun, and
+-- must delete an orphaned row (physical table already destroyed) rather than
+-- resurrect it as a phantom queue.
 --
 -- The stricter 'Pgmq.Types.parseQueueName' makes pre-existing mixed-case
 -- @pgmq.meta@ rows fail @listQueues@ decoding, so deployments must remediate
@@ -15,7 +17,9 @@
 -- This module runs on its own dedicated PostgreSQL instance: the remediation
 -- sweeps every mixed-case row in the database, so it must never share an
 -- instance with other tests that construct mixed-case rows (AliasingSpec), let
--- alone the suite-shared pool.
+-- alone the suite-shared pool. For the same reason its own cases run
+-- sequentially — each one executes the global sweep, which would otherwise
+-- race a sibling's setup.
 module MixedCaseRemediationSpec (tests) where
 
 import Control.Monad (void)
@@ -38,16 +42,22 @@ import Hasql.Session (Session, statement)
 import Hasql.Statement (unpreparable)
 import Pgmq.Migration qualified as Migration
 import System.Random (randomRIO)
-import Test.Tasty (TestTree, testGroup, withResource)
+import Test.Tasty (DependencyType (AllFinish), TestTree, sequentialTestGroup, withResource)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
+-- Sequential, not parallel: every test runs the remediation, and the
+-- remediation sweeps EVERY mixed-case row in the database — a concurrent
+-- sibling's sweep landing between this test's @create@ and its @bind_topic@
+-- deletes the parent row out from under the binding (23503).
 tests :: TestTree
 tests =
   withResource acquireDb releaseDb $ \getDb ->
-    testGroup
+    sequentialTestGroup
       "Mixed-Case Remediation (PGH-7)"
+      AllFinish
       [ testNoTwinRename getDb,
-        testTwinMerge getDb
+        testTwinMerge getDb,
+        testOrphanDeletion getDb
       ]
 
 -- | The documented remediation, verbatim from design note 016. One DO block =
@@ -60,6 +70,7 @@ remediationSql =
       "DECLARE",
       "  bad RECORD;",
       "  twin_exists BOOLEAN;",
+      "  table_exists BOOLEAN;",
       "BEGIN",
       "  FOR bad IN",
       "    SELECT m.queue_name AS mixed_name, lower(m.queue_name) AS canonical_name",
@@ -71,6 +82,17 @@ remediationSql =
       "    PERFORM 1 FROM pgmq.meta",
       "      WHERE queue_name IN (bad.mixed_name, bad.canonical_name)",
       "      FOR UPDATE;",
+      "",
+      "    table_exists := EXISTS (",
+      "      SELECT 1",
+      "      FROM pg_catalog.pg_class c",
+      "      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace",
+      "      WHERE n.nspname = 'pgmq' AND c.relname = 'q_' || bad.canonical_name",
+      "    );",
+      "    IF NOT table_exists THEN",
+      "      DELETE FROM pgmq.meta WHERE queue_name = bad.mixed_name;",
+      "      CONTINUE;",
+      "    END IF;",
       "",
       "    twin_exists := EXISTS (",
       "      SELECT 1 FROM pgmq.meta WHERE queue_name = bad.canonical_name",
@@ -203,6 +225,51 @@ testTwinMerge getDb = testCase "twin merge moves bindings, dedupes, and keeps th
   assertEqual "A second run changes no bindings" (V.toList patterns) (V.toList patternsRerun)
   void $ assertSession pool (rawBool ("select pgmq.drop_queue('" <> canonical <> "')"))
 
+-- | The physical table is gone: @drop_queue@ on the lowercase twin destroyed
+-- the shared table and deleted its own meta row, leaving the mixed-case row
+-- pointing at nothing (AliasingSpec demonstrates the state live).
+-- Canonicalizing that orphan would insert a meta row for a queue with no
+-- table — it lists cleanly and fails every send with 42P01 — so the
+-- remediation must delete it, cascading away children that route to nothing.
+testOrphanDeletion :: IO (Pg.Database, Pool.Pool) -> TestTree
+testOrphanDeletion getDb = testCase "orphaned row is deleted, not resurrected as a phantom queue" $ do
+  (_, pool) <- getDb
+  suffix <- genSuffix
+  let mixed = "Ghost_" <> suffix
+      canonical = "ghost_" <> suffix
+  assertSession pool (rawUnit ("select pgmq.create('" <> mixed <> "')"))
+  assertSession pool (rawUnit ("select pgmq.create('" <> canonical <> "')"))
+  assertSession pool (rawUnit ("select pgmq.bind_topic('ghost.*', '" <> mixed <> "')"))
+  assertSession pool (rawUnit ("select pgmq.enable_notify_insert('" <> mixed <> "', 500)"))
+  void $ assertSession pool (rawBool ("select pgmq.drop_queue('" <> canonical <> "')"))
+
+  -- Premise: the shared physical table is destroyed, the mixed-case row and
+  -- its children survive it.
+  tableCount <- assertSession pool (physicalTableCount canonical)
+  assertEqual "The shared physical table is gone" 0 tableCount
+  mixedBefore <- assertSession pool (rawCount ("select count(*) from pgmq.meta where queue_name = '" <> mixed <> "'"))
+  assertEqual "The mixed-case meta row is orphaned, not dropped" 1 mixedBefore
+  bindingsBefore <- assertSession pool (rawCount ("select count(*) from pgmq.topic_bindings where queue_name = '" <> mixed <> "'"))
+  assertEqual "The orphan still carries its binding" 1 bindingsBefore
+  throttleBefore <- assertSession pool (rawCount ("select count(*) from pgmq.notify_insert_throttle where queue_name = '" <> mixed <> "'"))
+  assertEqual "The orphan still carries its throttle row" 1 throttleBefore
+
+  assertSession pool (rawUnit remediationSql)
+
+  detected <- assertSession pool detectionCount
+  assertEqual "Detection query finds nothing after remediation" 0 detected
+  metaAfter <- assertSession pool (rawCount ("select count(*) from pgmq.meta where lower(queue_name) = '" <> canonical <> "'"))
+  assertEqual "No meta row remains under either casing — no phantom queue" 0 metaAfter
+  bindingsAfter <- assertSession pool (rawCount ("select count(*) from pgmq.topic_bindings where lower(queue_name) = '" <> canonical <> "'"))
+  assertEqual "The CASCADE removed the orphan's binding" 0 bindingsAfter
+  throttleAfter <- assertSession pool (rawCount ("select count(*) from pgmq.notify_insert_throttle where lower(queue_name) = '" <> canonical <> "'"))
+  assertEqual "The CASCADE removed the orphan's throttle row" 0 throttleAfter
+
+  -- Rerun: still nothing to do.
+  assertSession pool (rawUnit remediationSql)
+  detectedRerun <- assertSession pool detectionCount
+  assertEqual "A second run still finds nothing" 0 detectedRerun
+
 -- Dedicated database plumbing -------------------------------------------------
 
 acquireDb :: IO (Pg.Database, Pool.Pool)
@@ -266,6 +333,17 @@ bindingPatterns qname =
 throttleInterval :: Text -> Session Int64
 throttleInterval qname =
   rawCount ("select throttle_interval_ms::int8 from pgmq.notify_insert_throttle where queue_name = '" <> qname <> "'")
+
+-- | Same probe the remediation's orphan branch uses.
+physicalTableCount :: Text -> Session Int64
+physicalTableCount canonical =
+  rawCount
+    ( "select count(*) from pg_catalog.pg_class c"
+        <> " join pg_catalog.pg_namespace n on n.oid = c.relnamespace"
+        <> " where n.nspname = 'pgmq' and c.relname = 'q_"
+        <> canonical
+        <> "'"
+    )
 
 assertSession :: Pool.Pool -> Session a -> IO a
 assertSession pool session = do
