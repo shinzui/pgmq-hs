@@ -1,5 +1,78 @@
 # Revision history for pgmq-hasql
 
+## 0.5.0.0 -- 2026-08-06
+
+### Breaking Changes
+
+* `changeVisibilityTimeout` and `setVisibilityTimeoutAt` now return `Maybe Message`
+  instead of `Message`, at both the statement and session layers. `pgmq.set_vt` is
+  `RETURNS SETOF` and yields zero rows when the target message no longer exists (already
+  deleted, archived, or popped). Decoding that with a single-row decoder raised an
+  `UnexpectedRowCountStatementError` — the same error shape a genuine infrastructure
+  failure has — so a caller extending a lease could not distinguish a lost race from a
+  broken database. Callers that used the result must now handle `Nothing`; callers that
+  discarded it compile unchanged. The batch variants are unaffected.
+* Queue names read back from the database are re-validated by `queueDecoder` against the
+  tightened `parseQueueName` in pgmq-core 0.5. See that package's changelog for the
+  required `pgmq.meta` remediation, and `listQueuesUnvalidated` below for the lenient
+  read.
+
+### New Features
+
+* `notifyChannelName` is re-exported from the `Pgmq` umbrella module (defined in
+  pgmq-core). Use it instead of assembling the LISTEN/NOTIFY channel name by hand — the
+  name this package previously documented was wrong; see Documentation below.
+* `listQueuesUnvalidated` (statement, session, and `Pgmq` re-export) reads `pgmq.meta`
+  with the queue name decoded as `Text`, yielding `UnvalidatedQueue` rows. pgmq's
+  server-side validator checks only length, so any co-tenant client can create a name
+  `parseQueueName` rejects, and the typed `listQueues` decoder fails the whole listing on
+  one such row. The typed `listQueues` keeps its strict decoding for API consumers.
+* `listFifoIndexQueueNames` reports which queues already carry a `q_<name>_fifo_idx`. pgmq exposes
+  no index-existence query — `create_fifo_index` delegates to `CREATE INDEX IF NOT EXISTS`
+  and reports nothing back — so this reads the `pg_indexes` catalog view. It is the first
+  statement in this package that queries a PostgreSQL catalog rather than calling a
+  `pgmq.*` function.
+
+### Bug Fixes
+
+* `pop` with `qty = Nothing` now pops one message, as documented. It previously deleted
+  and returned every visible message in the queue. The `Maybe` parameter was encoded as a
+  nullable bind, so `Nothing` reached PostgreSQL as SQL NULL; a plpgsql parameter
+  `DEFAULT` applies only to omitted arguments, and NULL in a `LIMIT` clause means
+  `LIMIT ALL`. Because `pop` deletes, there was no visibility timeout to recover the
+  messages.
+* `readMessage` and `readWithPoll` with `batchSize = Nothing` now read one message, as
+  documented. They previously leased the entire queue through the same `LIMIT NULL` path,
+  hiding every message from other consumers for the visibility timeout.
+* `enableNotifyInsert` with `throttleIntervalMs = Nothing` now installs the documented
+  250 ms throttle. It previously failed with SQLSTATE 23502 on every call, because a
+  column `DEFAULT` does not apply to an explicitly supplied NULL.
+* `ReadMessage.conditional` now filters. The field existed and was documented, but was
+  never encoded, so a `Just` filter was silently ignored and every visible message was
+  returned. `readWithPoll`'s conditional already worked.
+* A message whose body is SQL NULL no longer poisons every read batch. The `message`
+  column is nullable and `pgmq.send('q', NULL::jsonb)` is legal SQL for any non-Haskell
+  producer; one such row made every batch containing it fail at decode — after the read
+  statement had already bumped `vt` and `read_ct` for the whole batch — and the row could
+  not be seen or archived through this client. A SQL NULL body now decodes as JSON `null`
+  (`MessageBody Aeson.Null`, deliberately indistinguishable from an explicitly-sent JSON
+  `null` body), so the row is readable, identifiable, and archivable through the normal
+  API.
+
+### Documentation
+
+* The documented LISTEN/NOTIFY channel name was wrong. `enableNotifyInsert` claimed
+  notifications arrive on `pgmq_<queue_name>`; the real channel is
+  `pgmq.q_<lowercased queue name>.INSERT`, so anyone following the documentation listened
+  on a channel that never receives anything. Corrected on the Haddock and in
+  `docs/design/006-queue-notifications.md`, and replaced by `notifyChannelName`. The full
+  contract — including the poll-fallback requirement and the crash fail-open semantics —
+  is in `docs/design/015-notification-delivery-contract.md`.
+
+### Other Changes
+
+* Bumped `pgmq-core` dependency bound to `>=0.5 && <0.6`.
+
 ## 0.4.0.1 -- 2026-07-14
 
 * Version bump only — coordinated release with pgmq-migration 0.4.0.1.

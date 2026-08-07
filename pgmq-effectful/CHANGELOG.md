@@ -1,5 +1,44 @@
 # Revision history for pgmq-effectful
 
+## 0.5.0.0 -- 2026-08-06
+
+### Breaking Changes
+
+* `changeVisibilityTimeout` and `setVisibilityTimeoutAt` now return `Maybe Message`
+  instead of `Message`. `pgmq.set_vt` is `RETURNS SETOF` and yields zero rows when the
+  target message no longer exists (already deleted, archived, or popped), which the
+  single-row decoder turned into an `UnexpectedRowCountStatementError` indistinguishable
+  from infrastructure failure. Callers that used the result must now handle `Nothing`;
+  callers that discarded it compile unchanged. The batch variants are unaffected.
+* The `Pgmq` effect GADT gains the `ListQueuesUnvalidated` and `ListFifoIndexQueueNames`
+  constructors. Custom interpreters that match exhaustively must handle them; both stock
+  interpreters already do.
+
+### New Features
+
+* `listQueuesUnvalidated` reads the queue listing with names decoded as `Text`
+  (`UnvalidatedQueue`), so a queue created by another client under a name
+  `parseQueueName` rejects does not fail the whole listing. Its traced span keeps the
+  `pgmq.list_queues` name, because the SQL function invoked is the same.
+* `listFifoIndexQueueNames` reports which queues already carry a `q_<name>_fifo_idx`, read from
+  the `pg_indexes` catalog view. Its traced span is named `pgmq.list_fifo_indexes` after
+  this library's own operation, since no `pgmq.*` SQL function backs it.
+
+### Bug Fixes
+
+* `isTransient` now classifies retry-worthy server errors as transient. Serialization
+  failures (40001), deadlocks (40P01), lock timeouts (55P03), server shutdown and recovery
+  (57P01/57P02/57P03), and resource exhaustion (class 53) all arrive as server errors
+  inside `StatementSessionError`, which previously mapped to permanent unconditionally —
+  so retry loops gated on `isTransient` failed fast on exactly the errors retries exist
+  for. Every other statement error, including decode and row-count mismatches, remains
+  permanent. The whitelist is pinned in both directions by tests and recorded in
+  `docs/design/017-transient-error-classification.md`.
+
+### Other Changes
+
+* Bumped `pgmq-core` and `pgmq-hasql` dependency bounds to `>=0.5 && <0.6`.
+
 ## 0.4.0.1 -- 2026-07-14
 
 * Version bump only — coordinated release with pgmq-migration 0.4.0.1.

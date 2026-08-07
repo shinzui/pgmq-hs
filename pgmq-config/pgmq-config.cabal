@@ -1,6 +1,6 @@
 cabal-version:   3.4
 name:            pgmq-config
-version:         0.4.0.1
+version:         0.5.0.0
 synopsis:
   Declarative queue configuration for PGMQ (PostgreSQL Message Queue)
 
@@ -63,15 +63,15 @@ library
     , hasql         ^>=1.10
     , hasql-pool    ^>=1.4
     , lens          ^>=5.3
-    , pgmq-core     >=0.4   && <0.5
-    , pgmq-hasql    >=0.4   && <0.5
+    , pgmq-core     >=0.5   && <0.6
+    , pgmq-hasql    >=0.5   && <0.6
     , text          ^>=2.1
 
   if flag(effectful)
     exposed-modules: Pgmq.Config.Effectful
     build-depends:
       , effectful-core  ^>=2.5 || ^>=2.6
-      , pgmq-effectful  >=0.4  && <0.5
+      , pgmq-effectful  >=0.5  && <0.6
 
   hs-source-dirs:     src
   default-language:   GHC2024
@@ -126,4 +126,4 @@ test-suite pgmq-config-test
     cpp-options:   -DPGMQ_EFFECTFUL
     build-depends:
       , effectful-core  ^>=2.5 || ^>=2.6
-      , pgmq-effectful  >=0.4  && <0.5
+      , pgmq-effectful  >=0.5  && <0.6

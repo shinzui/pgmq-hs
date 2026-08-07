@@ -1,5 +1,80 @@
 # Revision history for pgmq-config
 
+## 0.5.0.0 -- 2026-08-06
+
+The reconciler told three lies about what it had done, and could be taken down at startup
+by a queue it does not manage. This release fixes all four and states the real contract.
+
+### Breaking Changes
+
+* `ReconcileAction` gains two constructors, and one existing constructor becomes
+  reachable. Exhaustive matchers and consumers that count skips need updating.
+  * `UpdatedNotifyThrottle !QueueName !Int32 !Int32` — the declared throttle interval
+    differed from the stored row and was applied. Fields: queue, observed, declared.
+  * `DetectedQueueTypeDrift !QueueName !QueueType !ObservedQueueType` — the queue's
+    observed shape contradicts the declared one. This replaces `SkippedQueue` for the
+    queue it concerns, so the report still carries exactly one queue-existence action per
+    declared config.
+  * `SkippedFifoIndex` was unreachable dead code and is now actually emitted.
+
+### New Features
+
+* `ObservedQueueType` (`ObservedStandard`, `ObservedUnlogged`, `ObservedPartitioned`) —
+  the three-way queue shape `pgmq.list_queues()` actually reports.
+* `defaultThrottleMs :: Int32` — the 250 ms interval pgmq applies when none is given. A
+  `NotifyConfig` whose `throttleMs` is `Nothing` means "use this value".
+
+### Bug Fixes
+
+* A queue created by another client under a name `parseQueueName` rejects no longer fails
+  your application's startup. `ensureQueues` snapshotted existing queues through the typed
+  `listQueues`, whose decoder re-validates every name read back, so one foreign row — say
+  `billing-events` — made reconciliation throw at boot. Someone else's queue became your
+  boot failure. It now snapshots through `listQueuesUnvalidated` and matches declared
+  names textually; foreign rows are simply queues it does not manage, consistent with its
+  additive contract.
+* `CreatedFifoIndex` is no longer reported when no index was created. The reconciler
+  called `create_fifo_index` unconditionally and always reported creation. It now consults
+  a `pg_indexes` snapshot, skips the call when the index is present, and reports which of
+  the two happened.
+* A declared notify throttle that differs from the stored row is now applied instead of
+  silently ignored. The snapshot kept only queue names, so drift was invisible. It now
+  carries intervals, and a difference is written via `pgmq.update_notify_insert` and
+  reported as `UpdatedNotifyThrottle`. `Nothing` and a stored 250 compare equal, so a
+  defaulted config does not flap, and an unchanged interval is still left strictly alone
+  rather than re-enabled — re-enabling resets `last_notified_at`.
+* A declared queue type contradicting the live queue is now reported as
+  `DetectedQueueTypeDrift` rather than the misleading `SkippedQueue`. Nothing is mutated:
+  converting a queue's type means dropping and recreating it, destroying its messages,
+  which a startup reconciler must never do. Partition interval and retention are not
+  drift-checked, because `pgmq.list_queues` does not report them.
+* `withNotifyInsert Nothing` no longer fails reconciliation on every startup. It reached
+  `pgmq.enable_notify_insert` as a SQL NULL throttle, raising SQLSTATE 23502; since
+  reconciliation is not one transaction, this failed application startup repeatedly and
+  permanently for any config using the default throttle. Fixed in the pgmq-hasql
+  statement, which now coalesces to 250 ms.
+
+### Documentation
+
+* The package promised to "ensure all queues exist with the desired settings" and that
+  "all operations are idempotent", neither of which described what the reconciler does.
+  `ensureQueues`' Haddock is now the canonical statement of the contract: additive
+  reconciliation, one documented mutation of existing state (throttle drift, with its
+  `last_notified_at` side effect named), queue-type drift reported rather than repaired,
+  partition settings deliberately unchecked, and the concurrent multi-replica caveat —
+  SQLSTATE 42710 on stock upstream 1.11.0 extension installs, race-free on pgmq-migration
+  installs via migration `0003`. `ensureQueuesReport` and both `Eff` twins point at that
+  one description so the four copies cannot drift. Haddock coverage on the public modules
+  is now 100%. The rationale is in `docs/design/018-reconciliation-contract.md`.
+
+### Other Changes
+
+* The duplicated `Session` and `Effectful` reconciliation logic is now a single
+  backend-agnostic core in the internal `Pgmq.Config.Reconcile` module, parameterized over
+  a `ReconcileOps` record; the public modules are thin adapters over it.
+* Bumped `pgmq-core`, `pgmq-hasql`, and `pgmq-effectful` dependency bounds to
+  `>=0.5 && <0.6`.
+
 ## 0.4.0.1 -- 2026-07-14
 
 * Version bump only — coordinated release with pgmq-migration 0.4.0.1.
