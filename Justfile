@@ -52,6 +52,15 @@ fmt:
 clean:
     cabal clean
 
+# --- Docs ---
+
+# Validate the capability catalog against its pinned profile
+[group("docs")]
+docs-check:
+    mori validate
+    okf validate docs/capabilities --profile docs/capabilities/profile.dhall --profile-enforce --log-enforce
+    okf graph docs/capabilities >/dev/null
+
 # Check database status
 db-status:
     pg_isready -h $PGHOST && echo "PostgreSQL is running" || echo "PostgreSQL is not running"
