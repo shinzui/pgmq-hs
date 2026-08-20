@@ -2,8 +2,8 @@
 -- Project identity manifest for pgmq-hs
 -- See: https://github.com/shinzui/mori
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/027403783777cbce0e87eb660a0b3d8119ebe8d2/package.dhall
-        sha256:d29ca03286afa92b7589d09b7a6d98ad8e39d11b255a4b8751f3327b0722fba3
+      https://raw.githubusercontent.com/shinzui/mori-schema/e4899c15b6a7c36f5d6f2619c8a36ceabe58fc41/package.dhall
+        sha256:f33943bf2a160e4dc2087e482a3e784d39e79ff58d5ec67c1f53bcee3389e323
 
 let augDefault =
       { extraDocs = [] : List Schema.DocRef.Type
@@ -11,6 +11,7 @@ let augDefault =
       , kind = None Schema.DependencyKind
       , source = None Schema.DependencySource
       , scope = None Schema.DependencyScope
+      , versionConstraint = None Text
       }
 
 let internalDep =
@@ -160,6 +161,13 @@ in  Schema.Project::{ project =
         , okfVersion = "0.2"
         , description = Some
             "What pgmq-hs provides today, one concept per capability, with evidence"
+        }
+      , Schema.OkfBundle::{ name = "improvement-requests"
+        , path = "docs/improvement-requests"
+        , profile = Some "docs/improvement-requests/profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some
+            "Cross-repository improvement requests owned by pgmq-hs"
         }
       ]
     }

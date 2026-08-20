@@ -54,12 +54,13 @@ clean:
 
 # --- Docs ---
 
-# Validate the capability catalog against its pinned profile
+# Validate the OKF bundles against their pinned profiles
 [group("docs")]
 docs-check:
     mori validate
     okf validate docs/capabilities --profile docs/capabilities/profile.dhall --profile-enforce --log-enforce
     okf graph docs/capabilities >/dev/null
+    okf validate docs/improvement-requests --profile docs/improvement-requests/profile.dhall --profile-enforce --log-enforce
 
 # Check database status
 db-status:
