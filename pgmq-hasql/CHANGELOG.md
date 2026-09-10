@@ -1,6 +1,6 @@
 # Revision history for pgmq-hasql
 
-## 0.6.0.0 -- Unreleased
+## 0.6.0.0 -- 2026-09-10
 
 Add grouped-head reads and polling (PGMQ 1.12+), and expose all six grouped reads and their
 argument records from `Pgmq`. Add `createPartitionedQueueWithPremake` (PGMQ 1.13+), retaining

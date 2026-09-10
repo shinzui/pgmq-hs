@@ -1,6 +1,6 @@
 # Revision history for pgmq-hs
 
-## 0.6.0.0 -- Unreleased
+## 0.6.0.0 -- 2026-09-10
 
 The five-library family now supports PGMQ 1.12 grouped heads and 1.13 partition controls
 and metrics. Both umbrellas expose all six grouped reads. Explicit premake creation is
@@ -14,8 +14,6 @@ Grouped heads and legacy partition creation work on 1.12/1.13; explicit premake 
 1.13. The nullable metric is unavailable on 1.12 and inapplicable to ordinary queues.
 Its value estimates spill across queue and archive defaults; it is not an instantaneous count.
 See [the upgrade guide](docs/user/pgmq-0.6-upgrade.md) for examples and operator guidance.
-
-This is a repository release candidate; Hackage publication is a separate step.
 
 ## 0.5.0.0 -- 2026-08-06
 

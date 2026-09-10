@@ -1,6 +1,6 @@
 # Revision history for pgmq-config
 
-## 0.6.0.0 -- Unreleased
+## 0.6.0.0 -- 2026-09-10
 
 Breaking: `PartitionConfig` adds `premake :: Maybe Int32`. Supply `Nothing` for the existing
 server default (4), or `Just n` for an explicit count of at least 1 on PGMQ 1.13+.

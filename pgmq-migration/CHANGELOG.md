@@ -1,6 +1,6 @@
 # Changelog for pgmq-migration
 
-## 0.6.0.0 -- Unreleased
+## 0.6.0.0 -- 2026-09-10
 
 Native installs now reach tagged PGMQ 1.13.0 through append-only migrations 0004–0006:
 upstream 1.12 grouped heads, upstream 1.13 partition identities/premake/metrics, then separate

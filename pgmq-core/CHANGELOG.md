@@ -1,6 +1,6 @@
 # Revision history for pgmq-core
 
-## 0.6.0.0 -- Unreleased
+## 0.6.0.0 -- 2026-09-10
 
 Coordinated family version bump; core types are unchanged from 0.5.0.0.
 

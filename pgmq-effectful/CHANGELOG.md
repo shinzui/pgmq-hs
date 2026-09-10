@@ -1,6 +1,6 @@
 # Revision history for pgmq-effectful
 
-## 0.6.0.0 -- Unreleased
+## 0.6.0.0 -- 2026-09-10
 
 Add grouped-head reads and polling to plain/traced interpreters, with Consumer/receive spans.
 Add explicit premake creation (PGMQ 1.13+) using the existing partition-creation span convention.
