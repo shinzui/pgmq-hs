@@ -118,6 +118,7 @@ runPgmq pool = interpret $ \_ -> \case
   CreateQueue q -> runSession pool $ Sessions.createQueue q
   DropQueue q -> runSession pool $ Sessions.dropQueue q
   CreatePartitionedQueue q -> runSession pool $ Sessions.createPartitionedQueue q
+  CreatePartitionedQueueWithPremake q n -> runSession pool $ Sessions.createPartitionedQueueWithPremake q n
   CreateUnloggedQueue q -> runSession pool $ Sessions.createUnloggedQueue q
   DetachArchive _q -> pure ()
   EnableNotifyInsert config -> runSession pool $ Sessions.enableNotifyInsert config
@@ -147,6 +148,8 @@ runPgmq pool = interpret $ \_ -> \case
   ReadWithPoll query -> runSession pool $ Sessions.readWithPoll query
   Pop query -> runSession pool $ Sessions.pop query
   -- FIFO Read (pgmq 1.8.0+)
+  ReadGroupedHead query -> runSession pool $ Sessions.readGroupedHead query
+  ReadGroupedHeadWithPoll query -> runSession pool $ Sessions.readGroupedHeadWithPoll query
   ReadGrouped query -> runSession pool $ Sessions.readGrouped query
   ReadGroupedWithPoll query -> runSession pool $ Sessions.readGroupedWithPoll query
   -- Round-robin FIFO Read (pgmq 1.9.0+)

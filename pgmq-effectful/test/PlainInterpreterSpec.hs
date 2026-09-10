@@ -17,12 +17,14 @@ import Pgmq.Effectful
   )
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
+import TracedInterpreterSpec (plainFeatureTests)
 
 tests :: Pool.Pool -> TestTree
 tests pool =
   testGroup
     "Plain interpreter error propagation"
-    [ testCase "statement error surfaces PgmqSessionError" $ do
+    [ plainFeatureTests,
+      testCase "statement error surfaces PgmqSessionError" $ do
         bogus <- case parseQueueName "queue_that_does_not_exist_xyz" of
           Right q -> pure q
           Left err -> assertFailure ("could not build test queue name: " <> show err) >> fail ""

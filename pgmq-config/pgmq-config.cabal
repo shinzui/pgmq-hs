@@ -98,6 +98,7 @@ test-suite pgmq-config-test
     EphemeralDb
     ForeignQueueSpec
     NotifyCrashSpec
+    PartitionSpec
 
   default-extensions:
     DeriveGeneric

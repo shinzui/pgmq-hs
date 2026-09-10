@@ -18,6 +18,11 @@ provenance:
       at: 2026-09-10T17:02:21Z
       mode: "update"
       note: "Correct prior unknown attribution: the 2026-09-10 PGMQ planning refresh was authored by gpt-6-astra, verified from this session turn_context metadata."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T18:20:29Z
+      mode: "implement"
+      note: "Implement and verify effects, tracing, and creation-only partition premake."
 ---
 # Expose grouped heads and partition controls through effects and configuration
 
@@ -48,13 +53,27 @@ operations emit correctly labelled Consumer spans, and metrics preserve Nothing/
 ## Progress
 
 
-- [ ] Milestone 1: grouped-head and explicit-premake effects added and wired through both interpreters.
-- [ ] Milestone 2: PartitionConfig and the shared reconciler carry optional creation-time premake through both adapters.
-- [ ] Milestone 3: plain/traced operations, nullable metrics, and config creation/skip semantics verified on the version matrix.
+- [x] (2026-09-10) Milestone 1: grouped-head and explicit-premake effects added and wired through both interpreters.
+- [x] (2026-09-10) Milestone 2: PartitionConfig and the shared reconciler carry optional creation-time premake through both adapters.
+- [x] (2026-09-10) Milestone 3: plain/traced operations, nullable metrics, and config creation/skip semantics verified on the version matrix.
 - [ ] Milestone 4: docs and compatibility notes complete; all high-level package tests pass.
 
 
 ## Surprises & Discoveries
+
+
+2026-09-10 acceptance: native 1.13 passes all 38 effectful and 26 config tests with
+required pg_partman. The 1.12 compatibility selection passes 9 effectful and 6 config
+cases, including both adapters. A deliberate grouped-head trace-label substitution with
+pgmq.read_grouped_rr fails exactly at db.operation; the correct label is restored.
+One initial default-concurrency config run had a disposable PostgreSQL connection timeout
+before a new fixture was ready. Running the matrix with -j2 passes all assertions,
+including the existing crash and foreign-queue regressions; no production retry was added.
+
+
+2026-09-10: Both libraries build with exhaustive interpreter handling. ReconcileOps is
+listed under other-modules, not exposed-modules: the plan's custom-public-backend migration
+claim was incorrect. The public config source migration is PartitionConfig's new field.
 
 
 MasterPlan 4 has already extracted `Pgmq.Config.Reconcile` and shipped it in 0.5.0.0.
@@ -191,8 +210,9 @@ remains an unsupported-operation database error; omitting it stays compatible.
 
 Do not change the existing-queue branch, query pg_partman's settings in production, add
 premake drift actions, or reconfigure existing partitions. Document the scope explicitly.
-A new config field means source code constructing PartitionConfig must be migrated; a new
-ReconcileOps field means custom backends must implement it. Record both for EP-12.
+A new config field means source code constructing PartitionConfig must be migrated; the internal
+ReconcileOps record needs matching wiring in both built-in adapters. It is not exposed
+for custom external backends. Record both for EP-12.
 
 Acceptance: pgmq-config builds through both adapters and the shared engine has one dispatch
 decision. Existing queue reconciliation issues no creation call when only premake differs.
@@ -317,3 +337,8 @@ creation API and creation-only reconciliation boundary.
 2026-09-10 (provenance correction): The session's recorded model for the planning refresh was
 `gpt-6-astra`. Added a corrective revision entry with the verified model and `codex-cli`
 harness; retained the earlier `unknown` entry to preserve append-only provenance history.
+
+2026-09-10 implementation: completed effect/reconciler wiring and behavioral version gates;
+added shared plain/traced feature cases and isolated real-partman config tests. The config
+skip proof replaces creation with an erroring function so cached prepared calls cannot hide
+an accidental creation attempt. Documentation and final family build are being finalized.

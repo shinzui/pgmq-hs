@@ -29,6 +29,7 @@ effectfulOps =
       createQueue = Eff.createQueue,
       createUnloggedQueue = Eff.createUnloggedQueue,
       createPartitionedQueue = Eff.createPartitionedQueue,
+      createPartitionedQueueWithPremake = Eff.createPartitionedQueueWithPremake,
       enableNotifyInsert = Eff.enableNotifyInsert,
       createFifoIndex = Eff.createFifoIndex,
       bindTopic = Eff.bindTopic,

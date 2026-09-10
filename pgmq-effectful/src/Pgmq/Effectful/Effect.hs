@@ -6,6 +6,7 @@ module Pgmq.Effectful.Effect
     createQueue,
     dropQueue,
     createPartitionedQueue,
+    createPartitionedQueueWithPremake,
     createUnloggedQueue,
     detachArchive,
 
@@ -46,6 +47,10 @@ module Pgmq.Effectful.Effect
     -- ** FIFO Read (pgmq 1.8.0+)
     readGrouped,
     readGroupedWithPoll,
+
+    -- ** Grouped heads (pgmq 1.12.0+)
+    readGroupedHead,
+    readGroupedHeadWithPoll,
 
     -- ** Round-Robin FIFO Read (pgmq 1.9.0+)
     readGroupedRoundRobin,
@@ -141,6 +146,7 @@ data Pgmq :: Effect where
   CreateQueue :: QueueName -> Pgmq m ()
   DropQueue :: QueueName -> Pgmq m Bool
   CreatePartitionedQueue :: CreatePartitionedQueue -> Pgmq m ()
+  CreatePartitionedQueueWithPremake :: CreatePartitionedQueue -> Int32 -> Pgmq m ()
   CreateUnloggedQueue :: QueueName -> Pgmq m ()
   DetachArchive :: QueueName -> Pgmq m ()
   EnableNotifyInsert :: EnableNotifyInsert -> Pgmq m ()
@@ -169,6 +175,9 @@ data Pgmq :: Effect where
   BatchSetVisibilityTimeoutAt :: BatchVisibilityTimeoutAtQuery -> Pgmq m (Vector Message)
   ReadWithPoll :: ReadWithPollMessage -> Pgmq m (Vector Message)
   Pop :: PopMessage -> Pgmq m (Vector Message)
+  -- Grouped heads (pgmq 1.12.0+)
+  ReadGroupedHead :: ReadGrouped -> Pgmq m (Vector Message)
+  ReadGroupedHeadWithPoll :: ReadGroupedWithPoll -> Pgmq m (Vector Message)
   -- FIFO Read (pgmq 1.8.0+)
   ReadGrouped :: ReadGrouped -> Pgmq m (Vector Message)
   ReadGroupedWithPoll :: ReadGroupedWithPoll -> Pgmq m (Vector Message)
@@ -212,6 +221,11 @@ dropQueue = send . DropQueue
 
 createPartitionedQueue :: (Pgmq :> es) => CreatePartitionedQueue -> Eff es ()
 createPartitionedQueue = send . CreatePartitionedQueue
+
+-- | Create with an explicit pg_partman premake count (PGMQ 1.13+).
+-- Counts below one are server errors; both queue and archive use this count.
+createPartitionedQueueWithPremake :: (Pgmq :> es) => CreatePartitionedQueue -> Int32 -> Eff es ()
+createPartitionedQueueWithPremake q n = send (CreatePartitionedQueueWithPremake q n)
 
 createUnloggedQueue :: (Pgmq :> es) => QueueName -> Eff es ()
 createUnloggedQueue = send . CreateUnloggedQueue
@@ -319,6 +333,16 @@ readGroupedRoundRobin = send . ReadGroupedRoundRobin
 readGroupedRoundRobinWithPoll :: (Pgmq :> es) => ReadGroupedWithPoll -> Eff es (Vector Message)
 readGroupedRoundRobinWithPoll = send . ReadGroupedRoundRobinWithPoll
 
+-- | Lease at most one absolute head per group (PGMQ 1.12+). An invisible
+-- head blocks its group. Expiry permits redelivery; this is not exactly-once.
+readGroupedHead :: (Pgmq :> es) => ReadGrouped -> Eff es (Vector Message)
+readGroupedHead = send . ReadGroupedHead
+
+-- | Poll for group heads (PGMQ 1.12+), occupying a database connection while
+-- waiting. The same head lease and redelivery semantics as 'readGroupedHead' apply.
+readGroupedHeadWithPoll :: (Pgmq :> es) => ReadGroupedWithPoll -> Eff es (Vector Message)
+readGroupedHeadWithPoll = send . ReadGroupedHeadWithPoll
+
 -- Topic Management (pgmq 1.11.0+)
 
 -- | Bind a topic pattern to a queue (pgmq 1.11.0+)
@@ -401,6 +425,8 @@ listQueuesUnvalidated = send ListQueuesUnvalidated
 listFifoIndexQueueNames :: (Pgmq :> es) => Eff es [Text]
 listFifoIndexQueueNames = send ListFifoIndexQueueNames
 
+-- | Partition estimates are Nothing on PGMQ 1.12 and for ordinary queues;
+-- Just values on PGMQ 1.13 are planner estimates, not exact live counts.
 queueMetrics :: (Pgmq :> es) => QueueName -> Eff es QueueMetrics
 queueMetrics = send . QueueMetrics
 

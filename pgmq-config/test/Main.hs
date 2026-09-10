@@ -6,6 +6,7 @@ import ConfigSpec qualified
 import EphemeralDb (withPgmqDb)
 import ForeignQueueSpec qualified
 import NotifyCrashSpec qualified
+import PartitionSpec qualified
 import Test.Tasty (defaultMain, testGroup)
 
 main :: IO ()
@@ -15,6 +16,7 @@ main = do
           testGroup
             "pgmq-config"
             [ ConfigSpec.tests pool,
+              PartitionSpec.tests,
               -- NotifyCrashSpec manages its own PostgreSQL instance: it crashes
               -- the server, which the shared pool above could not survive.
               NotifyCrashSpec.tests,

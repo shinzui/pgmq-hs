@@ -59,7 +59,11 @@ data QueueType
 -- | Configuration for a partitioned queue.
 data PartitionConfig = PartitionConfig
   { partitionInterval :: !Text,
-    retentionInterval :: !Text
+    retentionInterval :: !Text,
+    -- | Creation only: Nothing uses the server default via the legacy call;
+    -- Just requires PGMQ 1.13+ and a count of at least one. Existing queues
+    -- are neither checked nor reconfigured for this setting.
+    premake :: !(Maybe Int32)
   }
   deriving stock (Generic, Show)
 

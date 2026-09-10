@@ -45,6 +45,7 @@ data ReconcileOps m = ReconcileOps
     createQueue :: QueueName -> m (),
     createUnloggedQueue :: QueueName -> m (),
     createPartitionedQueue :: StmtTypes.CreatePartitionedQueue -> m (),
+    createPartitionedQueueWithPremake :: StmtTypes.CreatePartitionedQueue -> Int32 -> m (),
     enableNotifyInsert :: StmtTypes.EnableNotifyInsert -> m (),
     createFifoIndex :: QueueName -> m (),
     bindTopic :: StmtTypes.BindTopic -> m (),
@@ -128,12 +129,15 @@ reconcileQueue ops existingQueues existingBindings existingNotify existingFifo c
           UnloggedQueue ->
             (ops ^. #createUnloggedQueue) qn
           PartitionedQueue pc ->
-            (ops ^. #createPartitionedQueue)
-              StmtTypes.CreatePartitionedQueue
-                { queueName = qn,
-                  partitionInterval = pc ^. #partitionInterval,
-                  retentionInterval = pc ^. #retentionInterval
-                }
+            let query =
+                  StmtTypes.CreatePartitionedQueue
+                    { queueName = qn,
+                      partitionInterval = pc ^. #partitionInterval,
+                      retentionInterval = pc ^. #retentionInterval
+                    }
+             in case pc ^. #premake of
+                  Nothing -> (ops ^. #createPartitionedQueue) query
+                  Just n -> (ops ^. #createPartitionedQueueWithPremake) query n
         pure [CreatedQueue qn declaredType]
 
   -- Notification. A missing row is enabled; a row whose interval already
@@ -180,7 +184,7 @@ reconcileQueue ops existingQueues existingBindings existingNotify existingFifo c
   pure (queueAction ++ notifyAction ++ fifoAction ++ bindingActions)
 
 -- | The shape a declared config asks for, reduced to what @pgmq.list_queues()@
--- can actually report. Partition interval and retention are deliberately
+-- can actually report. Partition interval, retention and premake are deliberately
 -- dropped here: the listing does not expose them, so they are not drift-checked.
 declaredShape :: QueueType -> ObservedQueueType
 declaredShape StandardQueue = ObservedStandard

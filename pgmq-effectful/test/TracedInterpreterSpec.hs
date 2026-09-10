@@ -1,18 +1,25 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module TracedInterpreterSpec (tests) where
+module TracedInterpreterSpec (tests, plainFeatureTests) where
 
 import Control.Concurrent.MVar (MVar, newMVar, putMVar, takeMVar)
 import Control.Exception (bracket)
-import Control.Monad (unless)
+import Control.Monad (unless, when)
+import Data.Aeson (object, (.=))
 import Data.HashMap.Strict qualified as HM
 import Data.IORef (IORef, readIORef)
+import Data.Int (Int32)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Vector qualified as V
-import Effectful (runEff)
-import Effectful.Error.Static (runError)
+import Effectful (Eff, IOE, runEff)
+import Effectful.Error.Static (Error, runError)
+import EphemeralDb (withPgmqDb)
+import Hasql.Decoders qualified as D
+import Hasql.Encoders qualified as E
 import Hasql.Pool qualified as Pool
+import Hasql.Session qualified as Session
+import Hasql.Statement (preparable)
 import OpenTelemetry.Attributes qualified as Attrs
 import OpenTelemetry.Context qualified as Ctxt
 import OpenTelemetry.Context.ThreadLocal qualified as CtxtLocal
@@ -38,7 +45,11 @@ import Pgmq.Effectful
     sendMessage,
     sendMessageTraced,
   )
+import Pgmq.Effectful.Effect qualified as Eff
+import Pgmq.Effectful.Interpreter (runPgmq)
 import Pgmq.Effectful.Telemetry (extractTraceContext, jsonToTraceHeaders)
+import Pgmq.Hasql.Sessions qualified as Sessions
+import Pgmq.Hasql.Statements.Types qualified as Types
 import Pgmq.Types qualified as Pgmq
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.IO.Unsafe (unsafePerformIO)
@@ -50,7 +61,8 @@ tests :: Pool.Pool -> TestTree
 tests pool =
   testGroup
     "Traced interpreter"
-    [ testGroup
+    [ featureTests True,
+      testGroup
         "Error propagation"
         [ testCase "statement error surfaces PgmqSessionError via Error channel" $ do
             (tracer, _provider, _spansRef) <- setupTracer
@@ -412,3 +424,123 @@ withSemconvOptIn value action =
 semconvEnvLock :: MVar ()
 semconvEnvLock = unsafePerformIO (newMVar ())
 {-# NOINLINE semconvEnvLock #-}
+
+-- Each case owns its database: metrics_all must not race unrelated queue drops.
+plainFeatureTests :: TestTree
+plainFeatureTests = featureTests False
+
+featureTests :: Bool -> TestTree
+featureTests traced =
+  testGroup (if traced then "GroupedHead and partition compatibility traced" else "GroupedHead and partition compatibility plain") $
+    [ testCase (if polling then "polling heads" else "heads") $
+        withSemconvOptIn "messaging/dup,database/dup" $
+          isolated $ \pool -> do
+            (tracer, _, spansRef) <- setupTracer
+            queue <- mkUniqueQueue "head"
+            let run :: Eff '[Eff.Pgmq, Error PgmqRuntimeError, IOE] a -> IO a
+                run action = assertRight =<< runEff (runError @PgmqRuntimeError ((if traced then runPgmqTraced pool tracer else runPgmq pool) action))
+            session pool (Sessions.createQueue queue)
+            ids <- traverse (\group -> session pool (Sessions.sendMessageWithHeaders (Types.SendMessageWithHeaders queue (MessageBody "head") (Pgmq.MessageHeaders (object ["x-pgmq-group" .= (group :: Text)])) Nothing))) ["a", "a", "b", "b"]
+            let readHeads = if polling then Eff.readGroupedHeadWithPoll (Types.ReadGroupedWithPoll queue 30 10 1 10) else Eff.readGroupedHead (Types.ReadGrouped queue 30 10)
+            messages <- run readHeads
+            assertEqual "one absolute head per group" [msg | (i, msg) <- zip [0 :: Int ..] ids, even i] (map Pgmq.messageId (V.toList messages))
+            when traced $ do
+              spans <- readIORef spansRef
+              observedSpan <- singleSpan spans "grouped head"
+              spanName observedSpan >>= assertEqual "receive span name" ("receive " <> queueNameToText queue)
+              assertSpanKindConsumer observedSpan
+              assertAttrText observedSpan "messaging.destination.name" (queueNameToText queue)
+              let label = if polling then "pgmq.read_grouped_head_with_poll" else "pgmq.read_grouped_head"
+              assertAttrText observedSpan "db.operation" label
+              assertAttrText observedSpan "db.operation.name" label
+            -- Leased heads block their groups even though later messages are visible.
+            blocked <- run (Eff.readGroupedHead (Types.ReadGrouped queue 30 10))
+            assertEqual "heads block tails" 0 (V.length blocked)
+    | polling <- [False, True]
+    ]
+      ++ [ testCase "nullable metrics and explicit premake" $
+             withSemconvOptIn "messaging/dup,database/dup" $
+               isolated $ \pool -> do
+                 (tracer, _, spansRef) <- setupTracer
+                 let run :: Eff '[Eff.Pgmq, Error PgmqRuntimeError, IOE] a -> IO a
+                     run action = assertRight =<< runEff (runError @PgmqRuntimeError ((if traced then runPgmqTraced pool tracer else runPgmq pool) action))
+                 queue <- mkUniqueQueue "ordinary"
+                 run (Eff.createQueue queue)
+                 ordinary <- run (Eff.queueMetrics queue)
+                 assertEqual "ordinary metric" Nothing (Types.defaultPartitionLength ordinary)
+                 ordinaryAll <- run Eff.allQueueMetrics
+                 assertEqual "all ordinary metrics" [Nothing] (map Types.defaultPartitionLength ordinaryAll)
+                 withPartman pool $ do
+                   stock <- (== Just "1.12.0") <$> lookupEnv "PGMQ_TEST_SCHEMA_VERSION"
+                   partitioned <- mkUniqueQueue "partitioned"
+                   let request = Types.CreatePartitionedQueue partitioned "10" "100"
+                   if stock
+                     then run (Eff.createPartitionedQueue request)
+                     else run (Eff.createPartitionedQueueWithPremake request 2)
+                   counts <-
+                     session pool $
+                       Session.statement (queueNameToText partitioned) $
+                         preparable
+                           "select premake from partman.part_config where parent_table in ('pgmq.q_' || $1, 'pgmq.a_' || $1) order by parent_table"
+                           (E.param (E.nonNullable E.text))
+                           (D.rowList (D.column (D.nonNullable D.int4)))
+                   assertEqual "both parents" (replicate 2 (if stock then 4 else 2 :: Int32)) counts
+                   let q = queueNameToText partitioned
+                   session pool (Session.script ("ANALYZE pgmq.q_" <> q <> "_default; ANALYZE pgmq.a_" <> q <> "_default"))
+                   metric <- run (Eff.queueMetrics partitioned)
+                   let expected = if stock then Nothing else Just 0
+                   assertEqual "partition estimate" expected (Types.defaultPartitionLength metric)
+                   metrics <- run Eff.allQueueMetrics
+                   assertEqual "all partition estimates" [expected] [Types.defaultPartitionLength m | m <- metrics, metricsName m == q]
+                   when traced $ do
+                     spans <- readIORef spansRef
+                     creates <- spansWithFirstWord "pgmq.create_partitioned" spans
+                     observedSpan <- singleSpan creates "partition creation"
+                     spanName observedSpan >>= assertEqual "partition span name" ("pgmq.create_partitioned " <> q)
+                     case OTel.spanKind observedSpan of
+                       OTel.Internal -> pure ()
+                       other -> assertFailure ("expected Internal: " <> show other)
+                     assertAttrText observedSpan "db.operation" "pgmq.create_partitioned"
+                     assertAttrText observedSpan "db.operation.name" "pgmq.create_partitioned",
+           testCase "explicit premake errors reach runtime error channel" $
+             withSemconvOptIn "" $ do
+               -- Fresh pools avoid cached failed prepares on the unsupported 1.12 signature.
+               mapM_
+                 ( \n -> isolated $ \pool -> withPartman pool $ do
+                     (tracer, _, _) <- setupTracer
+                     queue <- mkUniqueQueue "invalid_premake"
+                     stock <- (== Just "1.12.0") <$> lookupEnv "PGMQ_TEST_SCHEMA_VERSION"
+                     result <-
+                       runEff
+                         ( runError @PgmqRuntimeError
+                             ( (if traced then runPgmqTraced pool tracer else runPgmq pool)
+                                 (Eff.createPartitionedQueueWithPremake (Types.CreatePartitionedQueue queue "10" "100") n)
+                             )
+                         )
+                     case result of
+                       Left (_, PgmqSessionError err) -> assertBool "server rejection is retained" (T.isInfixOf (if stock then "42883" else "premake must be at least 1") (T.pack (show err)))
+                       other -> assertFailure ("expected session error, got " <> show other)
+                 )
+                 [0, -1]
+         ]
+
+session :: Pool.Pool -> Session.Session a -> IO a
+session pool action = assertRight =<< Pool.use pool action
+
+isolated :: (Pool.Pool -> IO ()) -> IO ()
+isolated action = assertRight =<< withPgmqDb (\pool -> bracket (pure pool) Pool.release action)
+
+withPartman :: Pool.Pool -> IO () -> IO ()
+withPartman pool action = do
+  available <-
+    session pool $
+      Session.statement () $
+        preparable
+          "select exists (select from pg_extension where extname = 'pg_partman')"
+          E.noParams
+          (D.singleRow (D.column (D.nonNullable D.bool)))
+  required <- (== Just "1") <$> lookupEnv "PGMQ_REQUIRE_PARTMAN"
+  if available then action else if required then assertFailure "pg_partman required" else putStrLn "SKIPPED: pg_partman is unavailable"
+
+metricsName :: Types.QueueMetrics -> Text
+metricsName Types.QueueMetrics {Types.queueName = q} = q

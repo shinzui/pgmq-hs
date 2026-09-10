@@ -58,6 +58,7 @@ sessionOps =
       createQueue = Sessions.createQueue,
       createUnloggedQueue = Sessions.createUnloggedQueue,
       createPartitionedQueue = Sessions.createPartitionedQueue,
+      createPartitionedQueueWithPremake = Sessions.createPartitionedQueueWithPremake,
       enableNotifyInsert = Sessions.enableNotifyInsert,
       createFifoIndex = Sessions.createFifoIndex,
       bindTopic = Sessions.bindTopic,
@@ -94,7 +95,7 @@ sessionOps =
 --   Changing a queue's type means dropping and recreating it, destroying every
 --   message it holds; that is an operator's decision, not a startup task.
 --
--- * A partitioned queue's partition interval and retention interval are never
+-- * A partitioned queue's partition interval, retention interval and premake are never
 --   compared, because @pgmq.list_queues()@ does not report them. Only the
 --   three-way shape is checked.
 --

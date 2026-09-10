@@ -186,6 +186,9 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
   CreatePartitionedQueue pq@(Types.CreatePartitionedQueue qn _ _) ->
     withTracedOp config pool (queueOp "pgmq.create_partitioned" OTel.Internal qn) $
       Sessions.createPartitionedQueue pq
+  CreatePartitionedQueueWithPremake pq@(Types.CreatePartitionedQueue qn _ _) n ->
+    withTracedOp config pool (queueOp "pgmq.create_partitioned" OTel.Internal qn) $
+      Sessions.createPartitionedQueueWithPremake pq n
   CreateUnloggedQueue q ->
     withTracedOp config pool (queueOp "pgmq.create_unlogged" OTel.Internal q) $
       Sessions.createUnloggedQueue q
@@ -239,6 +242,12 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
     withTracedOp config pool (receiveOp "pgmq.pop" qn) $
       Sessions.pop query
   -- FIFO Read (Consumer spans)
+  ReadGroupedHead query@(Types.ReadGrouped qn _ _) ->
+    withTracedOp config pool (receiveOp "pgmq.read_grouped_head" qn) $
+      Sessions.readGroupedHead query
+  ReadGroupedHeadWithPoll query@(Types.ReadGroupedWithPoll qn _ _ _ _) ->
+    withTracedOp config pool (receiveOp "pgmq.read_grouped_head_with_poll" qn) $
+      Sessions.readGroupedHeadWithPoll query
   ReadGrouped query@(Types.ReadGrouped qn _ _) ->
     withTracedOp config pool (receiveOp "pgmq.read_grouped" qn) $
       Sessions.readGrouped query
