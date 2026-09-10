@@ -29,6 +29,16 @@ let thirdPartyDep =
               }
           )
 
+let pkgRef =
+      \(namespace : Text) ->
+      \(name : Text) ->
+      \(package : Text) ->
+        Schema.MoriRef::{ namespace
+        , name
+        , kind = Some Schema.MoriArtifactKind.Package
+        , key = Some package
+        }
+
 in  Schema.Project::{ project =
       Schema.ProjectIdentity::{ name = "pgmq-hs"
       , namespace = "shinzui"
@@ -58,7 +68,7 @@ in  Schema.Project::{ project =
         , language = Schema.Language.Haskell
         , path = Some "./pgmq-hasql"
         , description = Some "Hasql-based pgmq implementation"
-        , dependencies = [ internalDep "pgmq-core", thirdPartyDep "hasql" ]
+        , dependencies = [ internalDep "pgmq-core", thirdPartyDep "hasql/hasql:hasql" ]
         }
       , Schema.Package::{ name = "pgmq-effectful"
         , type = Schema.PackageType.Library
@@ -68,8 +78,8 @@ in  Schema.Project::{ project =
         , dependencies =
           [ internalDep "pgmq-core"
           , internalDep "pgmq-hasql"
-          , thirdPartyDep "effectful-core"
-          , thirdPartyDep "hasql"
+          , thirdPartyDep "effectful/effectful:effectful-core"
+          , thirdPartyDep "hasql/hasql:hasql"
           ]
         }
       , Schema.Package::{ name = "pgmq-migration"
@@ -78,11 +88,11 @@ in  Schema.Project::{ project =
         , path = Some "./pgmq-migration"
         , description = Some "Schema migrations without pgmq extension"
         , dependencies =
-          [ thirdPartyDep "hasql"
-          , thirdPartyDep "hasql-transaction"
-          , thirdPartyDep "pg-migrate"
-          , thirdPartyDep "pg-migrate-embed"
-          , thirdPartyDep "pg-migrate-import-hasql-migration"
+          [ thirdPartyDep "hasql/hasql:hasql"
+          , thirdPartyDep "hasql/hasql:hasql-transaction"
+          , thirdPartyDep "shinzui/pg-migrate:pg-migrate"
+          , thirdPartyDep "shinzui/pg-migrate:pg-migrate-embed"
+          , thirdPartyDep "shinzui/pg-migrate:pg-migrate-import-hasql-migration"
           ]
         }
       , Schema.Package::{ name = "pgmq-config"
@@ -95,8 +105,8 @@ in  Schema.Project::{ project =
           [ internalDep "pgmq-core"
           , internalDep "pgmq-hasql"
           , internalDep "pgmq-effectful"
-          , thirdPartyDep "hasql"
-          , thirdPartyDep "effectful-core"
+          , thirdPartyDep "hasql/hasql:hasql"
+          , thirdPartyDep "effectful/effectful:effectful-core"
           ]
         }
       , Schema.Package::{ name = "pgmq-bench"
@@ -110,8 +120,8 @@ in  Schema.Project::{ project =
           , internalDep "pgmq-hasql"
           , internalDep "pgmq-effectful"
           , internalDep "pgmq-migration"
-          , thirdPartyDep "hasql"
-          , thirdPartyDep "effectful-core"
+          , thirdPartyDep "hasql/hasql:hasql"
+          , thirdPartyDep "effectful/effectful:effectful-core"
           ]
         }
       ]
@@ -129,7 +139,24 @@ in  Schema.Project::{ project =
         , primary = "pgmq-hasql"
         }
       ]
-    , dependencies = [ "pgmq/pgmq" ]
+    , dependencies =
+      [ "pgmq/pgmq:pgmq-extension"
+      , "hasql/hasql:hasql"
+      , "hasql/hasql:hasql-transaction"
+      , "effectful/effectful:effectful-core"
+      , "shinzui/pg-migrate:pg-migrate"
+      , "shinzui/pg-migrate:pg-migrate-embed"
+      , "shinzui/pg-migrate:pg-migrate-import-hasql-migration"
+      ]
+    , dependencyRefs =
+      [ pkgRef "pgmq" "pgmq" "pgmq-extension"
+      , pkgRef "hasql" "hasql" "hasql"
+      , pkgRef "hasql" "hasql" "hasql-transaction"
+      , pkgRef "effectful" "effectful" "effectful-core"
+      , pkgRef "shinzui" "pg-migrate" "pg-migrate"
+      , pkgRef "shinzui" "pg-migrate" "pg-migrate-embed"
+      , pkgRef "shinzui" "pg-migrate" "pg-migrate-import-hasql-migration"
+      ]
     , docs =
       [ Schema.DocRef::{ key = "readme"
         , kind = Schema.DocKind.Reference
