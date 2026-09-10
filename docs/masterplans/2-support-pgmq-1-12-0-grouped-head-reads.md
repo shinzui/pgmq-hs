@@ -131,7 +131,7 @@ enough to justify more milestones, but does not require another coordination lay
 | 9 | Vendor PGMQ 1.12/1.13 and preserve native upgrade contracts | docs/plans/9-vendor-pgmq-1-12-0-and-add-the-native-schema-migration.md | None | None | Complete |
 | 10 | Add grouped heads, premake, and compatible metrics to pgmq-hasql | docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md | EP-9 | None | Complete |
 | 11 | Expose grouped heads and partition controls through effects and configuration | docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md | EP-10 | None | Complete |
-| 12 | Expose the complete API and prepare the 0.6.0.0 release | docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md | EP-9, EP-10, EP-11 | None | In Progress |
+| 12 | Expose the complete API and prepare the 0.6.0.0 release | docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md | EP-9, EP-10, EP-11 | None | Complete |
 
 Statuses are Not Started, In Progress, Complete, or Cancelled. The filenames retain their
 historical titles for stable references; the titles and content above describe the current work.
@@ -252,7 +252,7 @@ are recorded, not automatically brought into scope.
 - [x] (2026-09-10) EP-11: plain/traced effects and declarative premake implemented through the shared reconciler.
 - [x] (2026-09-10) EP-11: tracing, nullable metrics and config creation/skip semantics verified.
 - [x] (2026-09-10) EP-12: umbrella-only API tests, complete operator/API docs and 0.6.0.0 changelogs prepared.
-- [ ] EP-12: required version/partition tests, package builds and in-scope consumer validation green; release candidate committed.
+- [x] (2026-09-10) EP-12: required version/partition tests, extracted packages and both consumer builds validated; test retries/pending cases recorded, source candidate a9e0790 committed.
 
 
 ## Surprises & Discoveries
@@ -262,7 +262,10 @@ Migration cases share a resettable database and require serial execution; the cl
 recommendation is not global. Consumer validation exposed hasql test-fixture queue-name
 collisions and unsupported NUL generation during shrinking; the fixtures now use Word64
 suffixes and valid PostgreSQL JSON text. The scoped Shibuya adapter passes 161 examples;
-Keiro validation remains in progress.
+Keiro builds all components and clears its reported test failures with documented retries.
+Its nested Cabal compiler/CLI calls require the candidate project to be propagated explicitly;
+its schema checks require PostgreSQL 18 and symbolic tests require Z3. Two pre-existing
+pending consumer cases remain separate from executed mandatory pgmq partition acceptance.
 
 
 EP-11: both effect interpreters and configuration adapters pass the required-partman version
@@ -365,12 +368,22 @@ superseded by this revision.
 ## Outcomes & Retrospective
 
 
-EP-9, EP-10 and EP-11 are complete. Native SQL reaches 1.13 through immutable upgrades;
-direct and effectful clients can use grouped heads, explicit premake and nullable partition
-estimates. Both configuration adapters apply optional premake only at creation and preserve
-existing queue settings. Native and 1.12 high-level tests pass with real pg_partman.
-All family libraries, test binaries and benchmarks compile. EP-12 is the sole remaining
-child, owning umbrella exports, release preparation and consumer validation. No release or consumer rollout is claimed.
+All four child plans are complete. Native SQL reaches 1.13 through immutable upgrades;
+both public Haskell umbrellas expose grouped heads, explicit premake and nullable partition
+estimates. Both configuration adapters apply optional premake only at creation. The five
+libraries form a coherent 0.6.0.0 source candidate at a9e0790c52d320ff44e9005a51f6c07729321825.
+
+Native and extracted packages pass 175 cases; the 1.12 selections pass 29. Real pg_partman
+acceptance, source-distribution integrity and umbrella export-removal checks pass. Both scoped
+consumers build all components and pass their test acceptance with the retries and existing
+pending examples detailed in [release evidence](../releases/0.6.0.0-candidate.md).
+All other discovered consumers have their actual retained state recorded.
+
+Reviewed the decisions, discoveries and outcomes of all four children and distilled durable
+constraints into [the compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md): immutable
+upgrade provenance, the version-compatible API, creation-only configuration, required partition
+testing, fixture isolation and candidate propagation to nested consumer builds.
+Hackage publication remains a separate workflow; no published 0.6.0.0 release is claimed.
 
 
 ## Revision Note
@@ -398,3 +411,7 @@ visibility in the release handoff, and recorded the two-worker fixture constrain
 
 2026-09-10 EP-12: completed public API/release preparation and versioned package acceptance;
 consumer and final extracted-artifact checks are in progress.
+
+2026-09-10 completion: EP-12 and the full registry are complete. Recorded the committed source
+candidate, verified source distributions, both consumer rollouts and qualified test evidence;
+completed ADR distillation across all four children.

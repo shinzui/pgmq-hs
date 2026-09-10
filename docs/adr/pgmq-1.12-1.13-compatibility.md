@@ -105,6 +105,9 @@ owning umbrella so a missing export cannot be masked by internal-module imports.
 keeps all five libraries and internal bounds in the 0.6 family while preserving published
 0.5 change history. Consumer validation uses temporary project overrides with concrete local
 candidate packages; those machine-local paths must never become committed source pins.
+Nested consumer compiler/CLI tests must also use the candidate project: Cabal subprocesses
+do not inherit the parent process's --project-file argument. Propagate that validation context
+without committing machine-local paths or changing production dependency resolution.
 Registry project-only edges are discovery hints, not proof that Cabal dependencies are absent.
 See [release evidence](../releases/0.6.0.0-candidate.md) for the actual retained consumer states.
 

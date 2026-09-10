@@ -68,11 +68,20 @@ Completed MasterPlans 3 and 4 are protected baselines, not work to repeat.
 - [x] (2026-09-10) Milestone 2 source edits: all five versions/family bounds are 0.6; six new changelog entries preserve published history byte-for-byte.
 - [x] (2026-09-10) Milestone 2 validation: all libraries, tests and benchmark compile with the 0.6 family.
 - [x] (2026-09-10) Milestone 3: reconciled README, configuration guidance and a source-upgrade guide with existing operator recovery documentation.
-- [ ] Milestone 4: required version/partition matrix and source distributions pass; in-scope consumers build against the candidate.
-- [ ] Milestone 5: release candidate committed with complete evidence and unchanged published history.
+- [x] (2026-09-10) Milestone 4: required version/partition matrix, extracted source distributions and both consumer all-component builds pass; consumer test retries/pending cases are recorded in release evidence.
+- [x] (2026-09-10) Milestone 5: source candidate a9e0790 committed; complete artifact/consumer evidence recorded and published history preserved.
 
 
 ## Surprises & Discoveries
+
+Full-component validation in mori://shinzui/keiro found a pre-existing parser-scaling benchmark import of
+removed modulePath/moduleText selectors. Its current ScaffoldModule fields are path/text;
+update only that benchmark to the existing record-dot convention, then rerun all components.
+Keiro benchmark repair e03e92df restores the complete build. Its symbolic tests require
+Z3 and PostgreSQL 18 from the consumer development shell; the schema checker explicitly
+rejects PostgreSQL 17. The corrected run uses PostgreSQL 18.4, pg_partman and Z3 4.16.0.
+The Shibuya rollout is committed at mori://shinzui/shibuya-pgmq-adapter commit 2b67a65,
+validated against local candidate a9e0790. Final tarballs match every candidate source byte.
 
 Native acceptance passes 12 core, 88 hasql, 38 effectful, 26 config and 11 migration tests.
 The 1.12 selection passes 14 hasql, 9 effectful and 6 config tests. Required pg_partman
@@ -87,7 +96,7 @@ fixture suffix to Word64 and exclude NUL from generated strings; retain Unicode 
 These are test-data corrections, not production behavior or dependency workarounds.
 
 The existing dist-newstyle package index triggers a Cabal 3.16 assertion during configure.
-A separate dist-release directory gets past configuration and is compiling the candidate;
+A separate dist-release directory builds and tests the candidate successfully;
 no dependency bounds or production code were changed to hide the assertion. Consumer
 inventory found additional real Cabal users behind project-only registry references.
 Keiro needs one PartitionConfig constructor update plus bounds in multiple components.
@@ -103,7 +112,7 @@ operation is internal wiring, not a new public backend contract. EP-11 also supp
 On September 10, all five Hackage preferred-version endpoints list 0.5.0.0 as the latest
 normal release. Upstream pgmq-hs tag v0.5.0.0 resolves to
 `fc13d7a432dbc0cf0ad4cd3616e5d7d28fdf5abe`. The root changelog explicitly says grouped-head
-support was excluded from that release. Current Cabal versions are 0.5.0.0.
+support was excluded from that release. Cabal versions were 0.5.0.0 at implementation start; the candidate uses 0.6.0.0.
 
 The SQL 1.13 release adds premake and default-partition metrics even though its release-note
 heading describes a partition bug fix. The native upgrade must preserve the existing local
@@ -116,6 +125,11 @@ shipped with 0.5.0.0. Do not automatically repeat them or rewrite the published 
 
 ## Decision Log
 
+
+2026-09-10 release validation: retain temporary consumer project overrides and propagate
+them to nested Cabal compiler/CLI invocations. Use each consumer's required database/tool
+versions. Record pre-existing pending examples and the load-sensitive cutover retry separately
+from mandatory pgmq partition acceptance; do not weaken runtime or test assertions.
 
 2026-09-10 EP-11 handoff: keep ReconcileOps internal and limit public record migration
 guidance to QueueMetrics and PartitionConfig. This corrects visibility assumptions without
@@ -140,10 +154,22 @@ See [the compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md) for the dura
 ## Outcomes & Retrospective
 
 
-Not implemented. At completion record the candidate SHA, package versions, test commands and
-counts, PostgreSQL/pg_partman versions, upstream tag identities, source-distribution results,
-and a consumer matrix with exact tested or intentionally retained versions. Distinguish a
-repository candidate from a Hackage-published release.
+Candidate a9e0790c52d320ff44e9005a51f6c07729321825 prepares all five libraries as 0.6.0.0
+and retains pgmq-bench 0.1.0.0. Native and extracted packages pass 175 cases; both checkout
+and extracted 1.12 selections pass 29. Both export-removal checks reject the missing symbol
+and compile after restoration. The Shibuya rollout passes all components and 161 adapter
+examples and is committed as 2b67a65 in mori://shinzui/shibuya-pgmq-adapter.
+Keiro builds every component; its 55-suite run passes
+52 suites initially, with operations (48 examples), DSL (719 examples), and both runtime
+failure cases passing the documented retries. Its PGMQ suite retains two pre-existing
+pending examples, separately recorded from executed mandatory partition acceptance.
+The rollout in mori://shinzui/keiro at e4ec781b follows the separate benchmark repair e03e92df.
+All five milestones are complete. Durable cross-plan findings have been distilled into
+the compatibility ADR; Hackage publication remains outside this plan.
+
+[Release evidence](../releases/0.6.0.0-candidate.md) records commands, counts, PostgreSQL
+17.10 / pg_partman 5.4.3, upstream identities, archive hashes and retained consumer states.
+No Hackage publication is claimed.
 
 
 ## Context and Orientation
@@ -154,17 +180,18 @@ environment and test-only schema selection. Verify dependency bounds against aut
 registries/tags after discovering their source with Mori; local corpus versions can lag.
 
 `pgmq-hasql/src/Pgmq.hs` is the direct umbrella. `pgmq-effectful/src/Pgmq/Effectful.hs` is
-the effect umbrella. Neither currently exports the four existing grouped reads. EP-10/11 add
-two more and explicit premake below those umbrellas; this plan owns the final re-exports.
+the effect umbrella. Both now export all six grouped reads, both grouped parameter records
+and explicit premake. EP-10/11 own the underlying implementations; this plan owns re-exports
+and the registered UmbrellaExportsSpec compile witnesses in both packages.
 
 The library family consists of pgmq-core, pgmq-hasql, pgmq-effectful, pgmq-migration and
 pgmq-config. Each has a Cabal file and CHANGELOG.md; the root CHANGELOG.md aggregates them.
 `pgmq-bench` is unpublished and keeps its independent version, though its dependency bounds
 or source construction sites may need changes.
 
-Current native migrations are 0001 baseline, 0002 canary and 0003 local notification/partition
-hardening. EP-9 appends upstream 1.12, upstream 1.13 and local four-argument re-entry
-preservation; derive the final names from the manifest. `pgmqV1_11StateValidator` and the
+The native manifest contains 0001 baseline, 0002 canary, 0003 local notification/partition
+hardening, 0004 upstream 1.12, 0005 upstream 1.13 and 0006 local four-argument re-entry
+preservation. EP-9 completed the append-only suffix. `pgmqV1_11StateValidator` and the
 original ledger bytes are deliberately immutable because they describe imported predecessor
 state, not the final target.
 
@@ -431,3 +458,7 @@ after inspecting the Cabal module list; retained EP-12 as Not Started.
 
 2026-09-10 EP-12 implementation: public exports, release metadata and documentation prepared;
 recorded package-integrity evidence and started native, extracted-package and consumer builds.
+
+2026-09-10 completion: finalized exact candidate and archive identities, both scoped consumer
+rollouts, nested-Cabal validation requirements and explicit retry/pending evidence. Reviewed
+all living sections and distilled durable release/testing constraints into the compatibility ADR.
