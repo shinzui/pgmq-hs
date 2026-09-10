@@ -119,7 +119,7 @@ enough to justify more milestones, but does not require another coordination lay
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 9 | Vendor PGMQ 1.12/1.13 and preserve native upgrade contracts | docs/plans/9-vendor-pgmq-1-12-0-and-add-the-native-schema-migration.md | None | None | Complete |
-| 10 | Add grouped heads, premake, and compatible metrics to pgmq-hasql | docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md | EP-9 | None | In Progress |
+| 10 | Add grouped heads, premake, and compatible metrics to pgmq-hasql | docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md | EP-9 | None | Complete |
 | 11 | Expose grouped heads and partition controls through effects and configuration | docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md | EP-10 | None | Not Started |
 | 12 | Expose the complete API and prepare the 0.6.0.0 release | docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md | EP-9, EP-10, EP-11 | None | Not Started |
 
@@ -237,8 +237,8 @@ are recorded, not automatically brought into scope.
 - [x] (2026-09-10) Rebased all four children onto completed MasterPlans 3/4 and the three-entry native ledger; recorded the durable upgrade and compatibility decision.
 - [x] (2026-09-10) EP-9: vendored 1.13.0 and preserved a tagged 1.12 comparison fixture; appended upstream upgrades and the explicit local re-entry override.
 - [x] (2026-09-10) EP-9: proved fresh/checkpoint/legacy convergence, immutable history, migrated identities, data-preserving recovery, and required pg_partman execution.
-- [ ] EP-10: grouped-head sessions, premake statement/session, nullable metrics and compatible projections implemented.
-- [ ] EP-10: grouped, polling, metrics and partition-control acceptance passes on the documented versions.
+- [x] (2026-09-10) EP-10: grouped-head sessions, premake statement/session, nullable metrics and compatible projections implemented.
+- [x] (2026-09-10) EP-10: grouped, polling, metrics and partition-control acceptance passes on the documented versions.
 - [ ] EP-11: plain/traced effects and declarative premake implemented through the shared reconciler.
 - [ ] EP-11: tracing, nullable metrics and config creation/skip semantics verified.
 - [ ] EP-12: umbrella-only API tests, complete operator/API docs and 0.6.0.0 changelogs prepared.
@@ -247,6 +247,13 @@ are recorded, not automatically brought into scope.
 
 ## Surprises & Discoveries
 
+
+EP-10 implementation: 88 native 1.13 tests and 14 selected 1.12 tests pass with required
+pg_partman and default parallel execution; all packages and benchmark/test binaries build.
+MetricsSpec existed but was unregistered. It is now registered and uses a separate database
+per case because metrics_all can race unrelated queue drops. Explicit 1.12 error cases use
+fresh pools because the pinned driver can cache failed prepares (42883 followed by 26000).
+EP-11 inherits the exact planned sessions and nullable metric; no dependency pins changed.
 
 EP-9 implementation: the locked Nix package set supplies PostgreSQL 17.10 and pg_partman
 5.4.3 through the new `partman` shell. All 11 migration tests pass with required partition
@@ -289,6 +296,10 @@ inspect actual package sources and distinguish direct consumers from project-lev
 ## Decision Log
 
 
+On 2026-09-10 during EP-10 implementation, keep the planned direct API contract unchanged.
+Isolate database-wide metrics acceptance and unsupported-signature failures at the fixture
+level. The existing compatibility ADR now records these constraints for downstream testing.
+
 On 2026-09-10 during EP-9 implementation, establish `nix develop .#partman` as the shared
 required-extension test entry point. Keep the metrics-dependent hasql failure visible for
 EP-10 while validating notification crash safety through a scalar observation query. The
@@ -321,10 +332,12 @@ superseded by this revision.
 ## Outcomes & Retrospective
 
 
-EP-9 is complete: native SQL reaches 1.13 through immutable, provenance-checked upgrades,
-with populated partition recovery and notification regressions verified. EP-10 is next and
-owns the direct APIs and compatible metrics decoder. EP-11 and EP-12 remain Not Started;
-no release or consumer rollout is claimed. Full matrix and consumer gates remain in EP-12.
+EP-9 and EP-10 are complete. Native SQL reaches 1.13 through immutable upgrades, and direct
+clients can use grouped heads, explicit premake and truthful nullable partition estimates.
+The direct layer passes both server-version gates with real pg_partman; dependent libraries
+and test/benchmark binaries compile. EP-11 is next: effects, tracing and declarative premake.
+EP-12 remains Not Started and owns umbrella exports, release preparation and consumer gates.
+No release or consumer rollout is claimed.
 
 
 ## Revision Note
@@ -341,3 +354,7 @@ migration counts and release dependencies throughout all children; retained stab
 2026-09-10 (provenance correction): The session's recorded model for the planning refresh was
 `gpt-6-astra`. Added a corrective revision entry with the verified model and `codex-cli`
 harness; retained the earlier `unknown` entry to preserve append-only provenance history.
+
+2026-09-10 EP-10 implementation: completed direct grouped-head/premake/metrics APIs and the
+required-partman version matrix; recorded mutation evidence, downstream build success,
+metrics fixture isolation and the unchanged interface handoff to EP-11.

@@ -61,7 +61,7 @@ owns umbrella exports and the 0.6.0.0 release.
 - [x] (2026-09-10) Milestone 1: add grouped-head statements/sessions and demonstrate absolute-head behavior.
 - [x] (2026-09-10) Milestone 2: add the explicit premake statement/session while preserving the original API.
 - [x] (2026-09-10) Milestone 3: extend QueueMetrics and both metrics projections/decoders for 1.12 and 1.13.
-- [ ] Milestone 4: verify polling, partition creation, metrics and version compatibility; hand off clean interfaces.
+- [x] (2026-09-10) Milestone 4: verify polling, partition creation, metrics and version compatibility; hand off clean interfaces.
 
 
 ## Surprises & Discoveries
@@ -75,7 +75,7 @@ selection also passes all 14 grouped, metrics and partition cases, including aft
 fixture isolation under the default parallel runner. The round-robin mutation fails two of six grouped tests (six IDs instead of three,
 and two implicit-group messages instead of one). The non-null metric mutation fails all
 five metrics tests with `UnexpectedNullCellError` at column 7. Both edits were restored;
-the final package build remains to be completed.
+the final all-package build passes, including effectful/config tests and the benchmark binary.
 
 
 A default parallel run exposed a metrics_all table-lookup race when unrelated tests dropped
@@ -87,8 +87,8 @@ The old plan's round-robin mutation check was invalid: `qty = 3` with three grou
 one per group under either algorithm. Use `qty = 6` with two messages in each of three groups;
 grouped-head returns three while round-robin can fill six.
 
-The current `QueueMetrics` has seven fields in `Pgmq.Hasql.Statements.Types`, not pgmq-core.
-Both observability statements currently use SELECT * and the same seven-column decoder.
+At implementation start, `QueueMetrics` had seven fields in `Pgmq.Hasql.Statements.Types`, not pgmq-core.
+Both observability statements used SELECT * and the same seven-column decoder.
 The eighth upstream field needs deliberate handling for both SQL versions.
 
 `Pgmq.Hasql.Statements.Message` currently imports `preparable` from `Hasql.Statement`;
@@ -125,12 +125,23 @@ See [the compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md).
 ## Outcomes & Retrospective
 
 
-The direct API and behavior tests are implemented. The native 1.13 required-partman suite
-passed 88 tests, and the required-partman 1.12 compatibility selection passed 14 tests.
-Both planned mutations failed behavior assertions and were restored. The final default-parallel native suite also passes all 88 cases. The
-dependent-package build is in progress. QueueMetrics gains its eighth field;
-existing CreatePartitionedQueue and grouped parameter records remain source-compatible.
+Completed on 2026-09-10. The direct API exposes both grouped-head sessions, the explicit
+premake statement/session and the nullable eighth QueueMetrics field. The original three-field
+CreatePartitionedQueue record and grouped argument records remain intact. Existing record
+construction of QueueMetrics must supply the new field; release migration guidance remains
+EP-12's responsibility.
 
+The final native 1.13 suite passes all 88 cases with default parallel execution. The 1.12
+selection passes all 14 grouped, metrics and partition cases with default parallel execution.
+Both require actual pg_partman through the locked `partman` shell (PostgreSQL 17.10,
+pg_partman 5.4.3, established by EP-9). The all-package build succeeds, including downstream
+libraries, test binaries and the benchmark. Formatting and git diff whitespace checks pass.
+The planned round-robin and non-null decoder mutations both failed behavioral assertions
+before restoration. Implementation is committed as `b756f7e`.
+
+No effect constructors, umbrella exports, versions or dependency pins changed here. EP-11
+can consume the exact session signatures below. Durable metrics isolation, nullable semantics,
+and the pinned-driver unsupported-call limitation are recorded in the compatibility ADR.
 
 
 ## Context and Orientation
@@ -317,8 +328,19 @@ git diff --check
 
 The manifest must contain the three new suffix entries from EP-9; numbers are read from the
 live manifest rather than assumed to be 0003. The required-partman command uses EP-9's
-documented environment. Add a named partition compatibility selection for the 1.12 default
-creation/explicit-error checks and record its exact command after naming the test group.
+documented environment. The implemented named selection and final commands, run from the
+repository root, are:
+
+```bash
+nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct
+nix develop .#partman --command env PGMQ_TEST_SCHEMA_VERSION=1.12.0 cabal test pgmq-hasql --test-show-details=direct --test-options='--pattern "/GroupedHead/ || /Metrics/ || /PartitionCompatibility/"'
+nix develop .#partman --command cabal build all
+git diff --check
+```
+
+These produce 88 passing native tests, 14 passing 1.12 tests and a successful package build.
+`PartitionCompatibility` includes legacy premake 4 on both parents, explicit premake 2 on
+1.13 or SQLSTATE 42883 on 1.12, and rejected zero/negative values with no residual objects.
 
 Format changed Haskell files using the repository formatter. Commit scoped files with a
 Conventional Commit and these trailers:
@@ -387,3 +409,8 @@ server versions and mandatory partition validation.
 2026-09-10 (provenance correction): The session's recorded model for the planning refresh was
 `gpt-6-astra`. Added a corrective revision entry with the verified model and `codex-cli`
 harness; retained the earlier `unknown` entry to preserve append-only provenance history.
+
+2026-09-10 implementation: completed all four milestones, added registered and isolated
+metrics tests, verified both version runs with required pg_partman and planned mutations,
+and built all packages. Promoted database-wide metrics isolation and the unsupported-call
+fixture constraint into the existing compatibility ADR.
