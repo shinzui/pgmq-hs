@@ -217,12 +217,16 @@ data QueueMetrics = QueueMetrics
     totalMessages :: !Int64,
     scrapeTime :: !UTCTime,
     -- | Count of messages available for reading (pgmq 1.5.0+)
-    queueVisibleLength :: !Int64
+    queueVisibleLength :: !Int64,
+    -- | Planner estimate of rows in queue and archive default partitions (1.13+).
+    -- 'Nothing' means unavailable on 1.12 or inapplicable for ordinary queues;
+    -- it must not be interpreted as zero. Estimates can lag writes.
+    defaultPartitionLength :: !(Maybe Int64)
   }
   deriving stock (Generic, Show)
 
 -- | Parameters for FIFO grouped read (pgmq 1.8.0+)
--- Used for both read_grouped and read_grouped_rr functions.
+-- Used for read_grouped, read_grouped_rr and read_grouped_head functions.
 -- Note: conditional parameter was removed in pgmq 1.9.0 (commit 9e9c3dc)
 data ReadGrouped = ReadGrouped
   { queueName :: !QueueName,

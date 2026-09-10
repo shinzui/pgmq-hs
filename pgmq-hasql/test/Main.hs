@@ -8,6 +8,7 @@ import AllFunctionsDecoderSpec qualified
 import DecoderValidationSpec qualified
 import EphemeralDb (withPgmqDb)
 import MessageSpec qualified
+import MetricsSpec qualified
 import MixedCaseRemediationSpec qualified
 import NotifyChannelSpec qualified
 import NotifyRaceSpec qualified
@@ -30,6 +31,7 @@ main = do
             "pgmq-hasql"
             ( [ QueueSpec.tests pool,
                 MessageSpec.tests pool,
+                MetricsSpec.tests,
                 AdvancedOpsSpec.tests pool,
                 NullSemanticsSpec.tests pool,
                 NullBodySpec.tests pool,

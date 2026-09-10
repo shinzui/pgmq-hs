@@ -23,6 +23,7 @@ module Pgmq.Hasql.Encoders
     enableNotifyInsertEncoder,
     readWithPollEncoder,
     createPartitionedQueueEncoder,
+    createPartitionedQueueWithPremakeEncoder,
     -- FIFO encoders (pgmq 1.8.0+)
     readGroupedEncoder,
     readGroupedWithPollEncoder,
@@ -214,8 +215,13 @@ createPartitionedQueueEncoder =
     <> (view #partitionInterval >$< E.param (E.nonNullable E.text))
     <> (view #retentionInterval >$< E.param (E.nonNullable E.text))
 
+createPartitionedQueueWithPremakeEncoder :: E.Params (CreatePartitionedQueue, Int32)
+createPartitionedQueueWithPremakeEncoder =
+  (fst >$< createPartitionedQueueEncoder)
+    <> (snd >$< E.param (E.nonNullable E.int4))
+
 -- | Encoder for ReadGrouped (pgmq 1.8.0+)
--- Used for read_grouped and read_grouped_rr
+-- Used for read_grouped, read_grouped_rr and read_grouped_head
 readGroupedEncoder :: E.Params ReadGrouped
 readGroupedEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))
@@ -223,7 +229,7 @@ readGroupedEncoder =
     <> (view #qty >$< E.param (E.nonNullable E.int4))
 
 -- | Encoder for ReadGroupedWithPoll (pgmq 1.8.0+)
--- Used for read_grouped_with_poll and read_grouped_rr_with_poll
+-- Used for read_grouped_with_poll, read_grouped_rr_with_poll and read_grouped_head_with_poll
 readGroupedWithPollEncoder :: E.Params ReadGroupedWithPoll
 readGroupedWithPollEncoder =
   (view #queueName >$< E.param (E.nonNullable queueNameValue))

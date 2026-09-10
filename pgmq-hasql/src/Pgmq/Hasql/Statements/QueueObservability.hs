@@ -50,16 +50,26 @@ listFifoIndexQueueNames = preparable sql E.noParams decoder
       \where schemaname = 'pgmq' and indexname ~ '^q_.*_fifo_idx$'"
     decoder = D.rowList (D.column (D.nonNullable D.text))
 
+-- | Metrics with a stable projection on pgmq 1.12 and 1.13.
+-- The JSON record lookup preserves SQL NULL for the missing 1.12 attribute.
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#metrics
 queueMetrics :: Statement QueueName QueueMetrics
 queueMetrics = preparable sql queueNameEncoder decoder
   where
-    sql = "select * from pgmq.metrics($1)"
+    sql =
+      "select m.queue_name, m.queue_length, m.newest_msg_age_sec, m.oldest_msg_age_sec, \
+      \m.total_messages, m.scrape_time, m.queue_visible_length, \
+      \(to_jsonb(m)->>'default_partition_length')::bigint \
+      \from pgmq.metrics($1) as m"
     decoder = D.singleRow queueMetricsDecoder
 
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#metrics_all
 allQueueMetrics :: Statement () [QueueMetrics]
 allQueueMetrics = preparable sql E.noParams decoder
   where
-    sql = "select * from pgmq.metrics_all()"
+    sql =
+      "select m.queue_name, m.queue_length, m.newest_msg_age_sec, m.oldest_msg_age_sec, \
+      \m.total_messages, m.scrape_time, m.queue_visible_length, \
+      \(to_jsonb(m)->>'default_partition_length')::bigint \
+      \from pgmq.metrics_all() as m"
     decoder = D.rowList queueMetricsDecoder

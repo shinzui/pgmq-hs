@@ -2,6 +2,7 @@ module Pgmq.Hasql.Statements.QueueManagement
   ( createQueue,
     dropQueue,
     createPartitionedQueue,
+    createPartitionedQueueWithPremake,
     createUnloggedQueue,
     detachArchive,
     enableNotifyInsert,
@@ -15,11 +16,12 @@ module Pgmq.Hasql.Statements.QueueManagement
   )
 where
 
+import Data.Int (Int32)
 import Hasql.Decoders qualified as D
 import Hasql.Encoders qualified as E
 import Hasql.Statement (Statement, preparable)
 import Pgmq.Hasql.Decoders (notifyInsertThrottleDecoder)
-import Pgmq.Hasql.Encoders (createPartitionedQueueEncoder, enableNotifyInsertEncoder, queueNameEncoder, updateNotifyInsertEncoder)
+import Pgmq.Hasql.Encoders (createPartitionedQueueEncoder, createPartitionedQueueWithPremakeEncoder, enableNotifyInsertEncoder, queueNameEncoder, updateNotifyInsertEncoder)
 import Pgmq.Hasql.Statements.Types (CreatePartitionedQueue, EnableNotifyInsert, UpdateNotifyInsert)
 import Pgmq.Types (NotifyInsertThrottle, QueueName)
 
@@ -41,6 +43,13 @@ createPartitionedQueue :: Statement CreatePartitionedQueue ()
 createPartitionedQueue = preparable sql createPartitionedQueueEncoder D.noResult
   where
     sql = "select from pgmq.create_partitioned($1,$2,$3)"
+
+-- | Create with an explicit premake count (pgmq 1.13.0+).
+-- Counts below one are server errors; no fallback is attempted on older servers.
+createPartitionedQueueWithPremake :: Statement (CreatePartitionedQueue, Int32) ()
+createPartitionedQueueWithPremake = preparable sql createPartitionedQueueWithPremakeEncoder D.noResult
+  where
+    sql = "select from pgmq.create_partitioned($1,$2,$3,$4)"
 
 -- | https://pgmq.github.io/pgmq/api/sql/functions/#create_unlogged
 createUnloggedQueue :: Statement QueueName ()

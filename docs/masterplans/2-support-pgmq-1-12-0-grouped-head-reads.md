@@ -22,6 +22,11 @@ provenance:
       at: 2026-09-10T17:24:05Z
       mode: "implement"
       note: "Implement the released SQL upgrade and coordinate dependent API work."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T17:42:32Z
+      mode: "implement"
+      note: "Coordinate EP-10 direct client implementation and version-matrix validation."
 ---
 # Support pgmq 1.12 and 1.13: grouped reads, partition controls, and metrics
 
@@ -114,7 +119,7 @@ enough to justify more milestones, but does not require another coordination lay
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 9 | Vendor PGMQ 1.12/1.13 and preserve native upgrade contracts | docs/plans/9-vendor-pgmq-1-12-0-and-add-the-native-schema-migration.md | None | None | Complete |
-| 10 | Add grouped heads, premake, and compatible metrics to pgmq-hasql | docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md | EP-9 | None | Not Started |
+| 10 | Add grouped heads, premake, and compatible metrics to pgmq-hasql | docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md | EP-9 | None | In Progress |
 | 11 | Expose grouped heads and partition controls through effects and configuration | docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md | EP-10 | None | Not Started |
 | 12 | Expose the complete API and prepare the 0.6.0.0 release | docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md | EP-9, EP-10, EP-11 | None | Not Started |
 

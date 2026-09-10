@@ -8,11 +8,14 @@
 -- - read_grouped functions
 module AdvancedOpsSpec (tests) where
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (forkFinally, killThread, newEmptyMVar, putMVar, takeMVar, threadDelay)
+import Control.Exception (bracket, finally, throwIO)
 import Data.Aeson (object, (.=))
+import Data.List (nub, sortOn)
 import Data.Time.Clock (addUTCTime, getCurrentTime)
 import Data.Vector qualified as V
 import EphemeralDb (TestFixture (..), withTestFixture)
+import GHC.Clock (getMonotonicTimeNSec)
 import Hasql.Pool qualified as Pool
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types
@@ -21,6 +24,7 @@ import Pgmq.Hasql.Statements.Types
     BatchSendMessageWithHeaders (..),
     BatchVisibilityTimeoutAtQuery (..),
     BatchVisibilityTimeoutQuery (..),
+    MessageQuery (..),
     PopMessage (..),
     ReadGrouped (..),
     ReadGroupedWithPoll (..),
@@ -31,6 +35,7 @@ import Pgmq.Hasql.Statements.Types
   )
 import Pgmq.Types (MessageBody (..), MessageHeaders (..), MessageId (..))
 import Pgmq.Types qualified as PgmqTypes
+import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import TestUtils (assertJust, assertSession, cleanupQueue)
@@ -49,7 +54,8 @@ tests p =
       testReadWithPollEmpty p,
       testCreateFifoIndex p,
       testReadGrouped p,
-      testReadGroupedRoundRobin p
+      testReadGroupedRoundRobin p,
+      groupedHeadTests p
     ]
 
 -- | Test pop with default qty (single message)
@@ -377,3 +383,104 @@ testReadGroupedRoundRobin p = testCase "readGroupedRoundRobin interleaves across
         Sessions.batchDeleteMessages
           BatchMessageQuery {queueName = queueName, messageIds = msgIds}
     cleanupQueue pool queueName
+
+-- These assertions deliberately request more messages than there are groups.
+-- Round-robin would fill six, whereas absolute-head reads can return only three.
+groupedHeadTests :: Pool.Pool -> TestTree
+groupedHeadTests p =
+  testGroup
+    "GroupedHead"
+    [ testCase "absolute heads block successors and removal advances only that group" $
+        withTestFixture p $ \TestFixture {pool, queueName} -> flip finally (cleanupQueue pool queueName) $ do
+          ids <- seedHeads pool queueName
+          let query = ReadGrouped queueName 60 6
+          heads <- assertSession pool (Sessions.readGroupedHead query)
+          assertEqual "absolute head IDs" [ids !! 0, ids !! 2, ids !! 4] (map PgmqTypes.messageId (sortOn PgmqTypes.messageId (V.toList heads)))
+          assertEqual "head bodies" [headBody 1, headBody 3, headBody 5] (map PgmqTypes.body (sortOn PgmqTypes.messageId (V.toList heads)))
+          assertEqual "three distinct groups" 3 (length (nub (map PgmqTypes.headers (V.toList heads))))
+          blocked <- assertSession pool (Sessions.readGroupedHead query)
+          assertEqual "invisible heads block all successors" V.empty blocked
+          deleted <- assertSession pool (Sessions.deleteMessage (MessageQuery queueName (ids !! 0)))
+          assertBool "deleted head" deleted
+          advanced <- assertSession pool (Sessions.readGroupedHead query)
+          assertEqual "only A advances after deletion" [ids !! 1] (map PgmqTypes.messageId (V.toList advanced))
+          archived <- assertSession pool (Sessions.archiveMessage (MessageQuery queueName (ids !! 2)))
+          assertBool "archived head" archived
+          advancedAgain <- assertSession pool (Sessions.readGroupedHead query)
+          assertEqual "only B advances after archive" [ids !! 3] (map PgmqTypes.messageId (V.toList advancedAgain)),
+      testCase "lease expiry redelivers the same head with a higher read count" $
+        withTestFixture p $ \TestFixture {pool, queueName} -> flip finally (cleanupQueue pool queueName) $ do
+          _ <- seedHeads pool queueName
+          let query = ReadGrouped queueName 60 1
+          first <- assertSession pool (Sessions.readGroupedHead query)
+          assertEqual "qty bounds groups" 1 (V.length first)
+          let headMessage = V.head first
+          past <- addUTCTime (-1) <$> getCurrentTime
+          _ <- assertSession pool (Sessions.setVisibilityTimeoutAt (VisibilityTimeoutAtQuery queueName (PgmqTypes.messageId headMessage) past))
+          again <- assertSession pool (Sessions.readGroupedHead (ReadGrouped queueName 60 6))
+          let redelivered = V.filter ((== PgmqTypes.messageId headMessage) . PgmqTypes.messageId) again
+          assertEqual "same ID redelivered" 1 (V.length redelivered)
+          assertEqual "read count increases" (PgmqTypes.readCount headMessage + 1) (PgmqTypes.readCount (V.head redelivered)),
+      testCase "missing headers form one implicit group" $
+        withTestFixture p $ \TestFixture {pool, queueName} -> flip finally (cleanupQueue pool queueName) $ do
+          assertSession pool (Sessions.createQueue queueName)
+          assertSession pool (Sessions.createFifoIndex queueName)
+          ids <- assertSession pool (Sessions.batchSendMessage (BatchSendMessage queueName [headBody 1, headBody 2] Nothing))
+          heads <- assertSession pool (Sessions.readGroupedHead (ReadGrouped queueName 60 6))
+          assertEqual "one implicit head" (take 1 ids) (map PgmqTypes.messageId (V.toList heads))
+          blocked <- assertSession pool (Sessions.readGroupedHead (ReadGrouped queueName 60 6))
+          assertEqual "implicit group blocks" V.empty blocked,
+      testCase "poll returns available absolute heads promptly" $
+        withTestFixture p $ \TestFixture {pool, queueName} -> flip finally (cleanupQueue pool queueName) $ do
+          ids <- seedHeads pool queueName
+          (elapsed, heads) <- timedPoll (assertSession pool (Sessions.readGroupedHeadWithPoll (ReadGroupedWithPoll queueName 60 6 5 50)))
+          assertBool "ready work returns before poll deadline" (elapsed < 4)
+          assertEqual "poll preserves head identity" [ids !! 0, ids !! 2, ids !! 4] (map PgmqTypes.messageId (sortOn PgmqTypes.messageId (V.toList heads))),
+      testCase "empty poll waits then returns empty" $
+        withTestFixture p $ \TestFixture {pool, queueName} -> flip finally (cleanupQueue pool queueName) $ do
+          assertSession pool (Sessions.createQueue queueName)
+          (elapsed, heads) <- timedPoll (assertSession pool (Sessions.readGroupedHeadWithPoll (ReadGroupedWithPoll queueName 60 6 1 50)))
+          assertEqual "empty result" V.empty heads
+          assertBool "waits about one second with scheduling margin" (elapsed >= 0.8 && elapsed < 4),
+      testCase "poll sees a separately committed arrival" $
+        withTestFixture p $ \TestFixture {pool, queueName} -> flip finally (cleanupQueue pool queueName) $ do
+          assertSession pool (Sessions.createQueue queueName)
+          -- The pool has three connections. The poll occupies one while this
+          -- sender checks out another; forkFinally propagates sender failures.
+          result <- newEmptyMVar
+          bracket
+            (forkFinally (threadDelay 300000 >> assertSession pool (Sessions.sendMessage (SendMessage queueName (headBody 1) Nothing))) (putMVar result))
+            killThread
+            ( \_ -> do
+                (elapsed, heads) <- timedPoll (assertSession pool (Sessions.readGroupedHeadWithPoll (ReadGroupedWithPoll queueName 60 6 5 50)))
+                sent <- assertJust =<< timeout 8000000 (takeMVar result)
+                ident <- either throwIO pure sent
+                assertEqual "arriving message returned" [ident] (map PgmqTypes.messageId (V.toList heads))
+                assertBool "arrival precedes poll deadline" (elapsed < 4)
+            )
+    ]
+
+headBody :: Int -> MessageBody
+headBody n = MessageBody (object ["msg" .= n])
+
+seedHeads :: Pool.Pool -> PgmqTypes.QueueName -> IO [MessageId]
+seedHeads pool queueName = do
+  assertSession pool (Sessions.createQueue queueName)
+  assertSession pool (Sessions.createFifoIndex queueName)
+  assertSession
+    pool
+    ( Sessions.batchSendMessageWithHeaders
+        ( BatchSendMessageWithHeaders
+            queueName
+            (map headBody [1 .. 6])
+            [MessageHeaders (object ["x-pgmq-group" .= group]) | group <- ["A", "A", "B", "B", "C", "C" :: String]]
+            Nothing
+        )
+    )
+
+timedPoll :: IO a -> IO (Double, a)
+timedPoll action = do
+  start <- getMonotonicTimeNSec
+  result <- assertJust =<< timeout 8000000 action
+  end <- getMonotonicTimeNSec
+  pure (fromIntegral (end - start) / 1000000000, result)

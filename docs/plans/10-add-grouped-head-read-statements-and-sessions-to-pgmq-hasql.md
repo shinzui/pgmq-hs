@@ -18,6 +18,11 @@ provenance:
       at: 2026-09-10T17:02:21Z
       mode: "update"
       note: "Correct prior unknown attribution: the 2026-09-10 PGMQ planning refresh was authored by gpt-6-astra, verified from this session turn_context metadata."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T17:42:17Z
+      mode: "implement"
+      note: "Implement grouped heads, explicit premake, and version-compatible nullable metrics."
 ---
 # Add grouped heads, premake, and compatible metrics to pgmq-hasql
 
@@ -53,14 +58,30 @@ owns umbrella exports and the 0.6.0.0 release.
 ## Progress
 
 
-- [ ] Milestone 1: add grouped-head statements/sessions and demonstrate absolute-head behavior.
-- [ ] Milestone 2: add the explicit premake statement/session while preserving the original API.
-- [ ] Milestone 3: extend QueueMetrics and both metrics projections/decoders for 1.12 and 1.13.
+- [x] (2026-09-10) Milestone 1: add grouped-head statements/sessions and demonstrate absolute-head behavior.
+- [x] (2026-09-10) Milestone 2: add the explicit premake statement/session while preserving the original API.
+- [x] (2026-09-10) Milestone 3: extend QueueMetrics and both metrics projections/decoders for 1.12 and 1.13.
 - [ ] Milestone 4: verify polling, partition creation, metrics and version compatibility; hand off clean interfaces.
 
 
 ## Surprises & Discoveries
 
+
+EP-10 implementation: `MetricsSpec` was listed in Cabal but absent from `Main.hs`, so its
+existing tests never ran. Registered it and added real default-partition cases. The native
+1.13 required-partman run passes all 88 tests, including the six new grouped-head cases,
+three partition compatibility cases and five metrics cases. The 1.12 required-partman
+selection also passes all 14 grouped, metrics and partition cases, including after metrics
+fixture isolation under the default parallel runner. The round-robin mutation fails two of six grouped tests (six IDs instead of three,
+and two implicit-group messages instead of one). The non-null metric mutation fails all
+five metrics tests with `UnexpectedNullCellError` at column 7. Both edits were restored;
+the final package build remains to be completed.
+
+
+A default parallel run exposed a metrics_all table-lookup race when unrelated tests dropped
+queues after its metadata enumeration (SQLSTATE 42P01). Each metrics case now provisions its
+own disposable database, closes its pool, and keeps the database-wide catalog stable while
+both metrics APIs run. This preserves parallel execution of the suite.
 
 The old plan's round-robin mutation check was invalid: `qty = 3` with three groups can return
 one per group under either algorithm. Use `qty = 6` with two messages in each of three groups;
@@ -80,6 +101,13 @@ not to a rewritten 0.5.0.0 entry.
 ## Decision Log
 
 
+On 2026-09-10, isolate unsupported-signature error checks in fresh pools. The repository's
+pinned driver, `mori://hasql/hasql` at `aa3d6ae499e187c291422443f221f9f486c43a9e`, reports
+SQLSTATE 42883 for the initial 1.12 explicit-premake call but SQLSTATE 26000 on a repeated
+call through its cached prepared statement. The failure fixtures now observe each original
+server error independently. Do not change dependency pins or silently discard premake.
+
+
 Retain the July 14 decisions to reuse `ReadGrouped`/`ReadGroupedWithPoll` and leave umbrella
 exports to EP-12. These records carry exactly the arguments of the two new grouped functions.
 
@@ -97,9 +125,12 @@ See [the compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md).
 ## Outcomes & Retrospective
 
 
-Not implemented. Record observed test counts for both version runs, pg_partman versions and
-results, and any decoder migration notes here when complete. Do not claim full 1.13 support
-if explicit premake or the archive-inclusive metric remains untested.
+The direct API and behavior tests are implemented. The native 1.13 required-partman suite
+passed 88 tests, and the required-partman 1.12 compatibility selection passed 14 tests.
+Both planned mutations failed behavior assertions and were restored. The final default-parallel native suite also passes all 88 cases. The
+dependent-package build is in progress. QueueMetrics gains its eighth field;
+existing CreatePartitionedQueue and grouped parameter records remain source-compatible.
+
 
 
 ## Context and Orientation
@@ -121,9 +152,9 @@ Reuse their encoders and `messageDecoder`. `CreatePartitionedQueue` has three fi
 `queueName :: QueueName`, `partitionInterval :: Text` and `retentionInterval :: Text`.
 Its existing encoder and statement retain three parameters.
 
-`QueueMetrics` currently contains queueName Text, queueLength Int64, nullable newest/oldest
-ages Int32, totalMessages Int64, scrapeTime UTCTime and queueVisibleLength Int64, in that order.
-Add a final nullable Int64 field. Neither Message nor any pgmq-core type changes.
+`QueueMetrics` contains queueName Text, queueLength Int64, nullable newest/oldest
+ages Int32, totalMessages Int64, scrapeTime UTCTime and queueVisibleLength Int64, in that order,
+followed by the new defaultPartitionLength (Maybe Int64). Neither Message nor any pgmq-core type changes.
 
 `pgmq-hasql/test/Main.hs` registers `AdvancedOpsSpec`, `QueueSpec` and `MetricsSpec`.
 `test/EphemeralDb.hs` provisions the database and supplies `withTestFixture`;

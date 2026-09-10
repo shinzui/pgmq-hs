@@ -105,6 +105,7 @@ queueMetricsDecoder =
     <*> D.column (D.nonNullable D.int8)
     <*> D.column (D.nonNullable D.timestamptz)
     <*> D.column (D.nonNullable D.int8) -- queue_visible_length (pgmq 1.5.0+)
+    <*> D.column (D.nullable D.int8) -- default_partition_length (pgmq 1.13.0+)
 
 -- | Decoder for topic binding records (pgmq 1.11.0+)
 -- Column order: pattern, queue_name, bound_at, compiled_regex

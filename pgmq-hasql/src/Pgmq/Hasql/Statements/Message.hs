@@ -26,6 +26,9 @@ module Pgmq.Hasql.Statements.Message
     -- Round-robin FIFO functions (pgmq 1.9.0+)
     readGroupedRoundRobin,
     readGroupedRoundRobinWithPoll,
+    -- Grouped-head reads (pgmq 1.12.0+)
+    readGroupedHead,
+    readGroupedHeadWithPoll,
     -- Topic send functions (pgmq 1.11.0+)
     sendTopic,
     sendTopicWithHeaders,
@@ -310,6 +313,23 @@ readGroupedRoundRobinWithPoll = preparable sql readGroupedWithPollEncoder decode
   where
     sql = "select * from pgmq.read_grouped_rr_with_poll($1,$2,$3,$4,$5)"
     decoder = D.rowVector messageDecoder
+
+-- | Lease at most one absolute head per group (pgmq 1.12.0+).
+-- @qty@ bounds the number of groups. An invisible lowest-ID message blocks
+-- its group; lease expiry redelivers that same head. Delete or archive it to
+-- advance the group. Messages without a group header share one implicit group.
+-- A visibility lease does not guarantee exactly-once processing.
+readGroupedHead :: Statement ReadGrouped (Vector Message)
+readGroupedHead = preparable sql readGroupedEncoder (D.rowVector messageDecoder)
+  where
+    sql = "select * from pgmq.read_grouped_head($1,$2,$3)"
+
+-- | Poll for 'readGroupedHead' results (pgmq 1.12.0+).
+-- Occupies the database connection until work arrives or the poll times out.
+readGroupedHeadWithPoll :: Statement ReadGroupedWithPoll (Vector Message)
+readGroupedHeadWithPoll = preparable sql readGroupedWithPollEncoder (D.rowVector messageDecoder)
+  where
+    sql = "select * from pgmq.read_grouped_head_with_poll($1,$2,$3,$4,$5)"
 
 -- | Send a message via topic routing (pgmq 1.11.0+)
 -- Returns the count of queues the message was delivered to.

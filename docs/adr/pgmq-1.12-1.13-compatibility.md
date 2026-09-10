@@ -70,6 +70,22 @@ Both catalog checkpoints converge with exactly the three planned local body exce
 The underlying SQL runner uses a transaction per migration, so queue-creation traffic must
 wait until the entire suffix is applied, including the local override in 0006.
 
+Metrics tests need a stable database-wide catalog: `metrics_all()` enumerates metadata and
+then queries queue tables, so a concurrent drop can produce SQLSTATE 42P01. Give each metrics
+case its own disposable database rather than sharing unrelated queue-creation/drop fixtures.
+This is test isolation, not a new guarantee about concurrent production DDL.
+
+The direct client projects and decodes the nullable metric successfully on both real server
+versions. Acceptance checks analyze both default partitions and compare their combined row
+count through both metrics APIs; ordinary and unlogged queues retain `Nothing`. Grouped-head
+acceptance requests more messages than there are groups, so substituting round-robin fails.
+
+An explicit premake call on 1.12 is an unsupported operation, not a capability probe to retry
+on the same connection. The current pinned driver (`mori://hasql/hasql`) can report SQLSTATE
+26000 on repeats after its first SQLSTATE 42883 because the failed prepare remains cached.
+Compatibility tests use fresh pools for these failure cases. This does not alter the server
+version floor or introduce fallback behavior.
+
 ## Alternatives
 
 Replacing the baseline breaks legacy checksum imports. Editing vendor SQL destroys provenance.

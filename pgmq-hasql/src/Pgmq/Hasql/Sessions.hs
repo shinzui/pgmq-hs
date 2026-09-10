@@ -2,6 +2,7 @@ module Pgmq.Hasql.Sessions
   ( createQueue,
     dropQueue,
     createPartitionedQueue,
+    createPartitionedQueueWithPremake,
     createUnloggedQueue,
     detachArchive,
     enableNotifyInsert,
@@ -38,6 +39,9 @@ module Pgmq.Hasql.Sessions
     -- Round-robin FIFO functions (pgmq 1.9.0+)
     readGroupedRoundRobin,
     readGroupedRoundRobinWithPoll,
+    -- Grouped-head reads (pgmq 1.12.0+)
+    readGroupedHead,
+    readGroupedHeadWithPoll,
     -- FIFO index functions (pgmq 1.8.0+)
     createFifoIndex,
     createFifoIndexesAll,
@@ -198,6 +202,12 @@ listFifoIndexQueueNames = statement () Stmt.listFifoIndexQueueNames
 createPartitionedQueue :: CreatePartitionedQueue -> Session ()
 createPartitionedQueue q = statement q Stmt.createPartitionedQueue
 
+-- | Create with an explicit number of partitions made ahead (pgmq 1.13.0+).
+-- Counts below one are server errors. On 1.12 this operation is unsupported;
+-- use 'createPartitionedQueue' for the server's default premake count.
+createPartitionedQueueWithPremake :: CreatePartitionedQueue -> Int32 -> Session ()
+createPartitionedQueueWithPremake q premake = statement (q, premake) Stmt.createPartitionedQueueWithPremake
+
 createUnloggedQueue :: QueueName -> Session ()
 createUnloggedQueue q = statement q Stmt.createUnloggedQueue
 
@@ -244,6 +254,19 @@ readGroupedRoundRobin query = statement query Msg.readGroupedRoundRobin
 -- | Round-robin FIFO read with polling (pgmq 1.9.0+)
 readGroupedRoundRobinWithPoll :: ReadGroupedWithPoll -> Session (Vector Message)
 readGroupedRoundRobinWithPoll query = statement query Msg.readGroupedRoundRobinWithPoll
+
+-- | Lease at most one absolute head per group (pgmq 1.12.0+).
+-- @qty@ bounds the number of groups. An invisible lowest-ID message blocks
+-- its group; lease expiry redelivers that same head. Delete or archive it to
+-- advance the group. Messages without a group header share one implicit group.
+-- A visibility lease does not guarantee exactly-once processing.
+readGroupedHead :: ReadGrouped -> Session (Vector Message)
+readGroupedHead query = statement query Msg.readGroupedHead
+
+-- | Poll for 'readGroupedHead' results (pgmq 1.12.0+).
+-- Occupies the database connection until work arrives or the poll times out.
+readGroupedHeadWithPoll :: ReadGroupedWithPoll -> Session (Vector Message)
+readGroupedHeadWithPoll query = statement query Msg.readGroupedHeadWithPoll
 
 -- | Create FIFO index for a queue (pgmq 1.8.0+)
 createFifoIndex :: QueueName -> Session ()
