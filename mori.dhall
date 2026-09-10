@@ -2,8 +2,8 @@
 -- Project identity manifest for pgmq-hs
 -- See: https://github.com/shinzui/mori
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/e4899c15b6a7c36f5d6f2619c8a36ceabe58fc41/package.dhall
-        sha256:f33943bf2a160e4dc2087e482a3e784d39e79ff58d5ec67c1f53bcee3389e323
+      https://raw.githubusercontent.com/shinzui/mori-schema/3522f4a51181d73c9c90fc27a7c0838bd29ae95f/package.dhall
+        sha256:dcb19e2312e790bad14e622cc98a1281cd2298c5b564a2f0d0534d3c718d8803
 
 let augDefault =
       { extraDocs = [] : List Schema.DocRef.Type
