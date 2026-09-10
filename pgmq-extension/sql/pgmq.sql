@@ -21,6 +21,16 @@ CREATE TABLE IF NOT EXISTS pgmq.meta (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+-- Grant permission to pg_monitor to all tables and sequences
+-- These grants are intentionally placed here (after creating `pgmq.meta` but before creating other tables). This
+-- allows the `pg_dump` output for a fresh installation to match the output for an installation that followed the
+-- upgrade path.
+GRANT USAGE ON SCHEMA pgmq TO pg_monitor;
+GRANT SELECT ON ALL TABLES IN SCHEMA pgmq TO pg_monitor;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA pgmq TO pg_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON TABLES TO pg_monitor;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON SEQUENCES TO pg_monitor;
+
 -- Table to track notification throttling for queues
 CREATE UNLOGGED TABLE IF NOT EXISTS pgmq.notify_insert_throttle (
     queue_name           VARCHAR UNIQUE NOT NULL -- Queue name (without 'q_' prefix)
@@ -62,7 +72,7 @@ CREATE TABLE IF NOT EXISTS pgmq.topic_bindings
 -- Includes queue_name and compiled_regex to allow index-only scans (no table access needed)
 CREATE INDEX IF NOT EXISTS idx_topic_bindings_covering ON pgmq.topic_bindings (pattern) INCLUDE (queue_name, compiled_regex);
 
--- Allow pgmq.meta to be dumped by `pg_dump` when pgmq is installed as an extension
+-- Allow the following `pgmq` tables to be dumped by `pg_dump` when pgmq is installed as an extension
 DO
 $$
 BEGIN
@@ -74,15 +84,10 @@ BEGIN
 END
 $$;
 
--- Grant permission to pg_monitor to all tables and sequences
-GRANT USAGE ON SCHEMA pgmq TO pg_monitor;
-GRANT SELECT ON ALL TABLES IN SCHEMA pgmq TO pg_monitor;
-GRANT SELECT ON ALL SEQUENCES IN SCHEMA pgmq TO pg_monitor;
-ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON TABLES TO pg_monitor;
-ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT ON SEQUENCES TO pg_monitor;
-
 -- This type has the shape of a message in a queue, and is often returned by
--- pgmq functions that return messages
+-- pgmq functions that return messages.
+-- Note: Changing the order of fields in this type is a breaking change -- our Rust Diesel client implementation
+-- expects a specific order of fields.
 CREATE TYPE pgmq.message_record AS (
     msg_id BIGINT,
     read_ct INTEGER,
@@ -93,6 +98,8 @@ CREATE TYPE pgmq.message_record AS (
     headers JSONB
 );
 
+-- Note: Changing the order of fields in this type is a breaking change -- our Rust Diesel client implementation
+-- expects a specific order of fields.
 CREATE TYPE pgmq.queue_record AS (
     queue_name VARCHAR,
     is_partitioned BOOLEAN,
@@ -221,6 +228,87 @@ BEGIN
 
       FOR r IN
         SELECT * FROM pgmq.read_grouped_rr(queue_name, vt, qty)
+      LOOP
+        RETURN NEXT r;
+      END LOOP;
+      IF FOUND THEN
+        RETURN;
+      ELSE
+        PERFORM pg_sleep(poll_interval_ms::numeric / 1000);
+      END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- read_grouped_head:  read the head of N different FIFO groups in a single operation.
+-- This supports horizontal scaling by processing groups in parallel while ensuring message ordering is preserved per group.
+CREATE FUNCTION pgmq.read_grouped_head(
+    queue_name TEXT,
+    vt INTEGER,
+    qty INTEGER
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    sql TEXT;
+    qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+BEGIN
+    sql := FORMAT(
+        $QUERY$
+        WITH fifo_groups AS (
+            -- Determine the absolute head (oldest) message id per FIFO group, regardless of visibility
+            SELECT
+                COALESCE(headers->>'x-pgmq-group', '_default_fifo_group') AS fifo_key,
+                MIN(msg_id) AS head_msg_id
+            FROM pgmq.%1$I
+            GROUP BY COALESCE(headers->>'x-pgmq-group', '_default_fifo_group')
+        ),
+        selected_messages AS (
+            -- Take at most 1 message per group
+            SELECT g.head_msg_id msg_id
+            FROM fifo_groups g
+            JOIN pgmq.%1$I q ON q.msg_id = g.head_msg_id
+	        WHERE q.vt <= clock_timestamp()
+            ORDER BY q.msg_id
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE pgmq.%1$I m
+        SET
+            vt = clock_timestamp() + %2$L,
+            read_ct = read_ct + 1,
+            last_read_at = clock_timestamp()
+        FROM selected_messages sm
+        WHERE m.msg_id = sm.msg_id
+        RETURNING m.msg_id, m.read_ct, m.enqueued_at, m.last_read_at, m.vt, m.message, m.headers;
+        $QUERY$,
+        qtable, make_interval(secs => vt)
+    );
+    RETURN QUERY EXECUTE sql USING qty;
+END;
+$$ LANGUAGE plpgsql;
+
+-- read_grouped_head_with_poll
+-- reads the head of N different FIFO groups in a single operation, with polling support
+CREATE FUNCTION pgmq.read_grouped_head_with_poll(
+    queue_name TEXT,
+    vt INTEGER,
+    qty INTEGER,
+    max_poll_seconds INTEGER DEFAULT 5,
+    poll_interval_ms INTEGER DEFAULT 100
+)
+RETURNS SETOF pgmq.message_record AS $$
+DECLARE
+    r pgmq.message_record;
+    stop_at TIMESTAMPTZ;
+BEGIN
+    stop_at := clock_timestamp() + make_interval(secs => max_poll_seconds);
+    LOOP
+      IF clock_timestamp() >= stop_at THEN
+        RETURN;
+      END IF;
+
+      FOR r IN
+        SELECT * FROM pgmq.read_grouped_head(queue_name, vt, qty)
       LOOP
         RETURN NEXT r;
       END LOOP;
@@ -766,6 +854,8 @@ CREATE FUNCTION pgmq.send_batch(
 $$ LANGUAGE sql;
 
 -- returned by pgmq.metrics() and pgmq.metrics_all
+-- Note: Changing the order of fields in this type is a breaking change -- our Rust Diesel client implementation
+-- expects a specific order of fields.
 CREATE TYPE pgmq.metrics_result AS (
     queue_name text,
     queue_length bigint,
@@ -773,7 +863,8 @@ CREATE TYPE pgmq.metrics_result AS (
     oldest_msg_age_sec int,
     total_messages bigint,
     scrape_time timestamp with time zone,
-    queue_visible_length bigint
+    queue_visible_length bigint,
+    default_partition_length bigint
 );
 
 -- get metrics for a single queue
@@ -783,7 +874,24 @@ DECLARE
     result_row pgmq.metrics_result;
     query TEXT;
     qtable TEXT := pgmq.format_table_name(queue_name, 'q');
+    q_default_partition TEXT := qtable || '_default';
+    a_default_partition TEXT := pgmq.format_table_name(queue_name, 'a') || '_default';
+    default_partition_length BIGINT;
 BEGIN
+    -- Only partitioned queues have default partitions. Messages in them have no
+    -- partition of their own, which means pg_partman maintenance is failing for
+    -- this queue; a non-zero value here is the signal to act on. The planner's
+    -- estimate is used so that a large spill does not slow down every scrape.
+    IF to_regclass(FORMAT('pgmq.%I', q_default_partition)) IS NOT NULL THEN
+        SELECT COALESCE(SUM(GREATEST(c.reltuples, 0))::bigint, 0)
+        INTO default_partition_length
+        FROM pg_class c
+        WHERE c.oid IN (
+            to_regclass(FORMAT('pgmq.%I', q_default_partition)),
+            to_regclass(FORMAT('pgmq.%I', a_default_partition))
+        );
+    END IF;
+
     query := FORMAT(
         $QUERY$
         WITH q_summary AS (
@@ -808,10 +916,11 @@ BEGIN
             q_summary.oldest_msg_age_sec,
             all_metrics.total_messages,
             q_summary.scrape_time,
-            q_summary.queue_visible_length
+            q_summary.queue_visible_length,
+            %L::bigint as default_partition_length
         FROM q_summary, all_metrics
         $QUERY$,
-        qtable, qtable || '_msg_id_seq', queue_name
+        qtable, qtable || '_msg_id_seq', queue_name, default_partition_length
     );
     EXECUTE query INTO result_row;
     RETURN result_row;
@@ -1267,7 +1376,8 @@ $$;
 CREATE FUNCTION pgmq.create_partitioned(
   queue_name TEXT,
   partition_interval TEXT DEFAULT '10000',
-  retention_interval TEXT DEFAULT '100000'
+  retention_interval TEXT DEFAULT '100000',
+  premake INTEGER DEFAULT 4
 )
 RETURNS void AS $$
 DECLARE
@@ -1282,12 +1392,15 @@ BEGIN
   PERFORM pgmq.validate_queue_name(queue_name);
   PERFORM pgmq.acquire_queue_lock(queue_name);
   PERFORM pgmq._ensure_pg_partman_installed();
+  IF premake < 1 THEN
+    RAISE EXCEPTION 'premake must be at least 1, got %', premake;
+  END IF;
   SELECT pgmq._get_partition_col(partition_interval) INTO partition_col;
 
   EXECUTE FORMAT(
     $QUERY$
     CREATE TABLE IF NOT EXISTS pgmq.%I (
-        msg_id BIGINT GENERATED ALWAYS AS IDENTITY,
+        msg_id BIGINT GENERATED BY DEFAULT AS IDENTITY,
         read_ct INT DEFAULT 0 NOT NULL,
         enqueued_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
         last_read_at TIMESTAMP WITH TIME ZONE,
@@ -1307,6 +1420,7 @@ BEGIN
       p_parent_table := %L,
       p_control := %L,
       p_interval := %L,
+      p_premake := %s,
       p_type := case
         when pgmq._get_pg_partman_major_version() = 5 then 'range'
         else 'native'
@@ -1316,7 +1430,8 @@ BEGIN
     pgmq._get_pg_partman_schema(),
     fq_qtable,
     partition_col,
-    partition_interval
+    partition_interval,
+    premake
   );
 
   EXECUTE FORMAT(
@@ -1381,6 +1496,7 @@ BEGIN
       p_parent_table := %L,
       p_control := %L,
       p_interval := %L,
+      p_premake := %s,
       p_type := case
         when pgmq._get_pg_partman_major_version() = 5 then 'range'
         else 'native'
@@ -1390,7 +1506,8 @@ BEGIN
     pgmq._get_pg_partman_schema(),
     fq_atable,
     a_partition_col,
-    partition_interval
+    partition_interval,
+    premake
   );
 
   EXECUTE FORMAT(

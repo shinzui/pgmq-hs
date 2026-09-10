@@ -1,0 +1,1402 @@
+use crate::errors::PgmqError;
+use crate::queue::sql::READ;
+use crate::queue::sqlx::util::handle_read_batch_result;
+use crate::queue::{Queue, QueueTransaction};
+use crate::types::queue_name::check_queue_name;
+use crate::types::{
+    ListNotifyInsertThrottlesRow, ListTopicBindingsRow, Message, PGMQueueMeta, QueueMetrics,
+    SendBatchTopicRow,
+};
+use crate::types::{QueueName, VisibilityTimeoutOffset};
+use crate::util::{
+    connect, queue_name_to_insert_notification_channel_name, serialize_list,
+    serialize_optional_list,
+};
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, Pool, Postgres};
+use std::ops::Deref;
+
+const DEFAULT_POLL_TIMEOUT_S: i32 = 5;
+const DEFAULT_POLL_INTERVAL_MS: i32 = 250;
+
+/// Main controller for interacting with a managed by the PGMQ Postgres extension.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct PGMQueueExt {
+    pub url: String,
+    pub connection: Pool<Postgres>,
+}
+
+impl AsRef<Pool<Postgres>> for PGMQueueExt {
+    fn as_ref(&self) -> &Pool<Postgres> {
+        &self.connection
+    }
+}
+
+impl Deref for PGMQueueExt {
+    type Target = Pool<Postgres>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.connection
+    }
+}
+
+impl PGMQueueExt {
+    /// Initialize a connection to PGMQ/Postgres
+    pub async fn new(url: String, max_connections: u32) -> Result<Self, PgmqError> {
+        Ok(Self {
+            connection: connect(&url, max_connections).await?,
+            url,
+        })
+    }
+
+    /// BYOP  - bring your own pool
+    /// initialize a PGMQ connection with your own SQLx Postgres connection pool
+    pub async fn new_with_pool(pool: Pool<Postgres>) -> Self {
+        Self {
+            url: "".to_owned(),
+            connection: pool,
+        }
+    }
+
+    #[cfg(feature = "install-sql-github")]
+    #[deprecated(
+        note = "Use install_sql_from_github_with_cxn/install_sql_from_github or install_sql_embedded_with_cxn/install_sql_embedded instead.",
+        since = "0.33.0"
+    )]
+    pub async fn install_sql_with_cxn(
+        &self,
+        pool: &Pool<Postgres>,
+        version: Option<&String>,
+    ) -> Result<(), PgmqError> {
+        self.install_sql_from_github_with_cxn(pool, version.map(|v| v.as_str()))
+            .await
+    }
+
+    #[cfg(feature = "install-sql-github")]
+    #[deprecated(
+        note = "Use install_sql_from_github_with_cxn/install_sql_from_github or install_sql_embedded_with_cxn/install_sql_embedded instead.",
+        since = "0.33.0"
+    )]
+    pub async fn install_sql(&self, version: Option<&String>) -> Result<(), PgmqError> {
+        self.install_sql_from_github(version.map(|v| v.as_str()))
+            .await
+    }
+
+    #[cfg(feature = "install-sql")]
+    #[doc = include_str!("../install/init_migrations_table.md")]
+    pub async fn init_migrations_table_with_cxn(
+        &self,
+        pool: &Pool<Postgres>,
+        version: &str,
+    ) -> Result<(), PgmqError> {
+        use std::str::FromStr;
+        crate::install::init_migrations_table(pool, crate::install::Version::from_str(version)?)
+            .await
+    }
+
+    #[cfg(feature = "install-sql")]
+    #[doc = include_str!("../install/init_migrations_table.md")]
+    pub async fn init_migrations_table(&self, version: &str) -> Result<(), PgmqError> {
+        self.init_migrations_table_with_cxn(&self.connection, version)
+            .await
+    }
+
+    #[cfg(feature = "install-sql")]
+    #[doc = include_str!("../install/installed_version.md")]
+    pub async fn installed_version_with_cxn(
+        &self,
+        pool: &Pool<Postgres>,
+    ) -> Result<Option<crate::install::Version>, PgmqError> {
+        crate::install::installed_version(pool).await
+    }
+
+    #[cfg(feature = "install-sql")]
+    #[doc = include_str!("../install/installed_version.md")]
+    pub async fn installed_version(&self) -> Result<Option<crate::install::Version>, PgmqError> {
+        self.installed_version_with_cxn(&self.connection).await
+    }
+
+    #[cfg(feature = "install-sql-github")]
+    #[doc = include_str!("../install/github/install_sql_github.md")]
+    pub async fn install_sql_from_github_with_cxn(
+        &self,
+        pool: &Pool<Postgres>,
+        version: Option<&str>,
+    ) -> Result<(), PgmqError> {
+        crate::install::install_sql_from_github(pool, version).await
+    }
+
+    #[cfg(feature = "install-sql-github")]
+    #[doc = include_str!("../install/github/install_sql_github.md")]
+    pub async fn install_sql_from_github(&self, version: Option<&str>) -> Result<(), PgmqError> {
+        self.install_sql_from_github_with_cxn(&self.connection, version)
+            .await
+    }
+
+    #[cfg(feature = "install-sql-embedded")]
+    #[doc = include_str!("../install/embedded/install_sql_embedded.md")]
+    pub async fn install_sql_from_embedded_with_cxn(
+        &self,
+        pool: &Pool<Postgres>,
+    ) -> Result<(), PgmqError> {
+        crate::install::install_sql_from_embedded(pool).await
+    }
+
+    #[cfg(feature = "install-sql-embedded")]
+    #[doc = include_str!("../install/embedded/install_sql_embedded.md")]
+    pub async fn install_sql_from_embedded(&self) -> Result<(), PgmqError> {
+        self.install_sql_from_embedded_with_cxn(&self.connection)
+            .await
+    }
+
+    pub async fn init_with_cxn<'c, E: sqlx::Acquire<'c, Database = Postgres>>(
+        &self,
+        executor: E,
+    ) -> Result<bool, PgmqError> {
+        let mut txn = executor.begin().await?;
+        crate::util::init_lock(&mut txn).await?;
+        sqlx::query("CREATE EXTENSION IF NOT EXISTS pgmq CASCADE;")
+            .execute(&mut *txn)
+            .await
+            .map(|_| true)?;
+        txn.commit().await?;
+        Ok(true)
+    }
+
+    pub async fn init(&self) -> Result<bool, PgmqError> {
+        self.init_with_cxn(&self.connection).await
+    }
+
+    /// Acquire a transaction-level advisory lock specific to the provided queue. Useful to prevent
+    /// race conditions when performing queue/table-level operations, such as creating an index
+    /// for the queue (e.g., with [`Self::create_fifo_index`].
+    pub async fn acquire_queue_lock_with_txn<'c>(
+        &self,
+        queue_name: &str,
+        txn: &mut sqlx::Transaction<'c, Postgres>,
+    ) -> Result<(), PgmqError> {
+        let queue_name: QueueName = queue_name.try_into()?;
+        txn.acquire_queue_lock(queue_name).await
+    }
+
+    /// Acquire a transaction-level advisory lock specific to the provided queue. Useful to prevent
+    /// race conditions when performing queue/table-level operations, such as creating an index
+    /// for the queue (e.g., with [`Self::create_fifo_index`]).
+    ///
+    /// Returns the [`sqlx::Transaction`] that should be used to perform the queue/table-level
+    /// operations. Remember to call [`sqlx::Transaction::commit`] after performing the desired
+    /// operations.
+    pub async fn acquire_queue_lock_with_cxn<'c, E: sqlx::Acquire<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<sqlx::Transaction<'c, Postgres>, PgmqError> {
+        let mut txn = executor.begin().await?;
+
+        self.acquire_queue_lock_with_txn(queue_name, &mut txn)
+            .await?;
+
+        Ok(txn)
+    }
+
+    /// Acquire a transaction-level advisory lock specific to the provided queue. Useful to prevent
+    /// race conditions when performing queue/table-level operations, such as creating an index
+    /// for the queue (e.g., with [`Self::create_fifo_index_with_cxn`]).
+    ///
+    /// Returns the [`sqlx::Transaction`] that should be used to perform the queue/table-level
+    /// operations. Remember to call [`sqlx::Transaction::commit`] after performing the desired
+    /// operations.
+    pub async fn acquire_queue_lock<'c>(
+        &self,
+        queue_name: &str,
+    ) -> Result<sqlx::Transaction<'c, Postgres>, PgmqError> {
+        let txn = self
+            .acquire_queue_lock_with_cxn(queue_name, &self.connection)
+            .await?;
+        Ok(txn)
+    }
+
+    pub async fn create_with_cxn<'c, E>(
+        &self,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<(), PgmqError>
+    where
+        E: sqlx::Executor<'c, Database = Postgres>,
+    {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::create(executor, queue_name).await
+    }
+
+    pub async fn create(&self, queue_name: &str) -> Result<(), PgmqError> {
+        self.create_with_cxn(queue_name, &self.connection).await
+    }
+
+    pub async fn create_unlogged_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::create_unlogged(executor, queue_name).await
+    }
+
+    pub async fn create_unlogged(&self, queue_name: &str) -> Result<(), PgmqError> {
+        self.create_unlogged_with_cxn(queue_name, &self.connection)
+            .await
+    }
+
+    pub async fn create_partitioned_with_cxn<'c, E: sqlx::Acquire<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        partition_interval: &str,
+        retention_interval: &str,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        /*
+        `pg_partman` create operations are currently unable to be idempotent, which means
+        `pgmq.create_partitioned` can not be called for a queue that already exists. So, we
+        need to check whether the queue exists first. To avoid race conditions, we acquire the
+        queue lock (which initiates a transaction) and perform the "exists" check and
+        the `create_partitioned` call within the transaction. When the transaction is committed or
+        goes out of scope, the queue lock is released.
+        */
+
+        let queue_name: QueueName = queue_name.try_into()?;
+        let mut txn = self
+            .acquire_queue_lock_with_cxn(*queue_name, executor)
+            .await?;
+
+        let exists = txn.queue_metadata(queue_name).await?.is_some();
+        if exists {
+            return Ok(());
+        }
+
+        crate::queue::sqlx::create_partitioned(
+            &mut *txn,
+            queue_name,
+            partition_interval,
+            retention_interval,
+        )
+        .await?;
+
+        txn.commit().await?;
+
+        Ok(())
+    }
+
+    /// Create a new partitioned queue.
+    pub async fn create_partitioned(
+        &self,
+        queue_name: &str,
+        partition_interval: &str,
+        retention_interval: &str,
+    ) -> Result<(), PgmqError> {
+        self.create_partitioned_with_cxn(
+            queue_name,
+            partition_interval,
+            retention_interval,
+            &self.connection,
+        )
+        .await
+    }
+
+    pub async fn convert_archive_partitioned_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+    >(
+        &self,
+        queue_name: &str,
+        partition_interval: &str,
+        retention_interval: &str,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::convert_archive_partitioned(
+            executor,
+            queue_name,
+            partition_interval,
+            retention_interval,
+        )
+        .await
+    }
+
+    pub async fn convert_archive_partitioned(
+        &self,
+        queue_name: &str,
+        partition_interval: &str,
+        retention_interval: &str,
+    ) -> Result<(), PgmqError> {
+        self.convert_archive_partitioned_with_cxn(
+            queue_name,
+            partition_interval,
+            retention_interval,
+            &self.connection,
+        )
+        .await
+    }
+
+    pub async fn drop_queue_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::drop_queue(executor, queue_name).await
+    }
+
+    /// Drop an existing queue table.
+    pub async fn drop_queue(&self, queue_name: &str) -> Result<(), PgmqError> {
+        self.drop_queue_with_cxn(queue_name, &self.connection).await
+    }
+
+    /// Drop an existing queue table.
+    pub async fn purge_queue_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<i64, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::purge_queue(executor, queue_name).await
+    }
+
+    /// Drop an existing queue table.
+    pub async fn purge_queue(&self, queue_name: &str) -> Result<i64, PgmqError> {
+        self.purge_queue_with_cxn(queue_name, &self.connection)
+            .await
+    }
+
+    pub async fn list_queues_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        executor: E,
+    ) -> Result<Vec<PGMQueueMeta>, PgmqError> {
+        let queues = sqlx::query(r#"SELECT queue_name, is_partitioned, is_unlogged, created_at from pgmq.list_queues();"#)
+            .fetch_all(executor)
+            .await?;
+        let queues = queues
+            .iter()
+            .map(PGMQueueMeta::from_row)
+            .collect::<Result<_, _>>()?;
+        Ok(queues)
+    }
+
+    /// List all queues in the Postgres instance.
+    pub async fn list_queues(&self) -> Result<Vec<PGMQueueMeta>, PgmqError> {
+        self.list_queues_with_cxn(&self.connection).await
+    }
+
+    pub async fn set_vt_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        msg_id: i64,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        executor: E,
+    ) -> Result<Option<Message<T, H>>, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        let vt: VisibilityTimeoutOffset = vt.into();
+        crate::queue::sqlx::set_vt(executor, queue_name, &[msg_id], vt)
+            .await
+            .map(|msgs| msgs.into_iter().next())
+    }
+    // Set the visibility time on an existing message.
+    pub async fn set_vt<T: for<'de> Deserialize<'de>, H: for<'de> Deserialize<'de>>(
+        &self,
+        queue_name: &str,
+        msg_id: i64,
+        vt: impl Into<VisibilityTimeoutOffset>,
+    ) -> Result<Option<Message<T, H>>, PgmqError> {
+        self.set_vt_with_cxn(queue_name, msg_id, vt, &self.connection)
+            .await
+    }
+
+    pub async fn send_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>, T: Serialize>(
+        &self,
+        queue_name: &str,
+        message: &T,
+        executor: E,
+    ) -> Result<i64, PgmqError> {
+        self.send_delay_with_cxn(queue_name, message, 0, executor)
+            .await
+    }
+
+    pub async fn send<T: Serialize>(
+        &self,
+        queue_name: &str,
+        message: &T,
+    ) -> Result<i64, PgmqError> {
+        self.send_with_cxn(queue_name, message, &self.connection)
+            .await
+    }
+
+    pub async fn send_delay_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: Serialize,
+    >(
+        &self,
+        queue_name: &str,
+        message: &T,
+        delay: impl Into<VisibilityTimeoutOffset>,
+        executor: E,
+    ) -> Result<i64, PgmqError> {
+        self.send_delay_with_headers_with_cxn(
+            queue_name,
+            message,
+            Option::<&()>::None,
+            delay,
+            executor,
+        )
+        .await
+    }
+
+    pub async fn send_delay<T: Serialize>(
+        &self,
+        queue_name: &str,
+        message: &T,
+        delay: impl Into<VisibilityTimeoutOffset>,
+    ) -> Result<i64, PgmqError> {
+        self.send_delay_with_cxn(queue_name, message, delay, &self.connection)
+            .await
+    }
+
+    pub async fn send_delay_with_headers_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: Serialize,
+        H: Serialize,
+    >(
+        &self,
+        queue_name: &str,
+        message: &T,
+        headers: Option<&H>,
+        delay: impl Into<VisibilityTimeoutOffset>,
+        executor: E,
+    ) -> Result<i64, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        let delay: VisibilityTimeoutOffset = delay.into();
+        let message = serde_json::to_value(message)?;
+        let headers = serde_json::to_value(headers)?;
+        crate::queue::sqlx::send(executor, queue_name, message, headers, delay).await
+    }
+
+    pub async fn send_delay_with_headers<T: Serialize, H: Serialize>(
+        &self,
+        queue_name: &str,
+        message: &T,
+        headers: Option<&H>,
+        delay: impl Into<VisibilityTimeoutOffset>,
+    ) -> Result<i64, PgmqError> {
+        self.send_delay_with_headers_with_cxn(queue_name, message, headers, delay, &self.connection)
+            .await
+    }
+
+    pub async fn send_batch_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: Serialize,
+    >(
+        &self,
+        queue_name: &str,
+        messages: &[T],
+        executor: E,
+    ) -> Result<Vec<i64>, PgmqError> {
+        self.send_batch_with_delay_with_cxn(queue_name, messages, 0, executor)
+            .await
+    }
+
+    pub async fn send_batch<T: Serialize>(
+        &self,
+        queue_name: &str,
+        messages: &[T],
+    ) -> Result<Vec<i64>, PgmqError> {
+        self.send_batch_with_cxn(queue_name, messages, &self.connection)
+            .await
+    }
+
+    pub async fn send_batch_with_delay_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: Serialize,
+    >(
+        &self,
+        queue_name: &str,
+        messages: &[T],
+        delay: impl Into<VisibilityTimeoutOffset>,
+        executor: E,
+    ) -> Result<Vec<i64>, PgmqError> {
+        self.send_batch_with_delay_with_headers_with_cxn(
+            queue_name,
+            messages,
+            Option::<&[()]>::None,
+            delay,
+            executor,
+        )
+        .await
+    }
+
+    pub async fn send_batch_with_delay<T: Serialize>(
+        &self,
+        queue_name: &str,
+        messages: &[T],
+        delay: impl Into<VisibilityTimeoutOffset>,
+    ) -> Result<Vec<i64>, PgmqError> {
+        self.send_batch_with_delay_with_cxn(queue_name, messages, delay, &self.connection)
+            .await
+    }
+
+    pub async fn send_batch_with_delay_with_headers_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: Serialize,
+        H: Serialize,
+    >(
+        &self,
+        queue_name: &str,
+        messages: &[T],
+        headers: Option<&[H]>,
+        delay: impl Into<VisibilityTimeoutOffset>,
+        executor: E,
+    ) -> Result<Vec<i64>, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        let delay: VisibilityTimeoutOffset = delay.into();
+        let messages = serialize_list(messages)?;
+        let headers = serialize_optional_list(headers)?;
+        crate::queue::sqlx::send_batch(executor, queue_name, messages, headers, delay).await
+    }
+
+    pub async fn send_batch_with_delay_with_headers<T: Serialize, H: Serialize>(
+        &self,
+        queue_name: &str,
+        messages: &[T],
+        headers: Option<&[H]>,
+        delay: impl Into<VisibilityTimeoutOffset>,
+    ) -> Result<Vec<i64>, PgmqError> {
+        self.send_batch_with_delay_with_headers_with_cxn(
+            queue_name,
+            messages,
+            headers,
+            delay,
+            &self.connection,
+        )
+        .await
+    }
+
+    pub async fn read_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        executor: E,
+    ) -> Result<Option<Message<T, H>>, PgmqError> {
+        self.read_batch_with_cxn(queue_name, vt, 1, executor)
+            .await
+            .map(|result| result.into_iter().next())
+    }
+
+    pub async fn read<T: for<'de> Deserialize<'de>, H: for<'de> Deserialize<'de>>(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+    ) -> Result<Option<Message<T, H>>, PgmqError> {
+        self.read_with_cxn(queue_name, vt, &self.connection).await
+    }
+
+    pub async fn read_batch_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+        executor: E,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        let query = sqlx::query(READ);
+
+        Self::read_batch_common(query, queue_name, vt, qty, executor).await
+    }
+
+    pub async fn read_batch<T: for<'de> Deserialize<'de>, H: for<'de> Deserialize<'de>>(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        self.read_batch_with_cxn(queue_name, vt, qty, &self.connection)
+            .await
+    }
+
+    pub async fn read_with_poll_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        poll_timeout: Option<std::time::Duration>,
+        poll_interval: Option<std::time::Duration>,
+        executor: E,
+    ) -> Result<Option<Message<T, H>>, PgmqError> {
+        self.read_batch_with_poll_with_cxn(queue_name, vt, 1, poll_timeout, poll_interval, executor)
+            .await
+            .map(|result| result.into_iter().next())
+    }
+
+    pub async fn read_with_poll<'c, T: for<'de> Deserialize<'de>, H: for<'de> Deserialize<'de>>(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        poll_timeout: Option<std::time::Duration>,
+        poll_interval: Option<std::time::Duration>,
+    ) -> Result<Option<Message<T, H>>, PgmqError> {
+        self.read_with_poll_with_cxn(
+            queue_name,
+            vt,
+            poll_timeout,
+            poll_interval,
+            &self.connection,
+        )
+        .await
+    }
+
+    pub async fn read_batch_with_poll_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        max_batch_size: i32,
+        poll_timeout: Option<std::time::Duration>,
+        poll_interval: Option<std::time::Duration>,
+        executor: E,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        let query = sqlx::query(
+            r#"SELECT msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers from pgmq.read_with_poll(
+                queue_name=>$1::text,
+                vt=>$2::integer,
+                qty=>$3::integer,
+                max_poll_seconds=>$4::integer,
+                poll_interval_ms=>$5::integer
+            )"#,
+        );
+
+        Self::read_batch_with_poll_common(
+            query,
+            queue_name,
+            vt,
+            max_batch_size,
+            poll_timeout,
+            poll_interval,
+            executor,
+        )
+        .await
+    }
+
+    pub async fn read_batch_with_poll<
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        max_batch_size: i32,
+        poll_timeout: Option<std::time::Duration>,
+        poll_interval: Option<std::time::Duration>,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        self.read_batch_with_poll_with_cxn(
+            queue_name,
+            vt,
+            max_batch_size,
+            poll_timeout,
+            poll_interval,
+            &self.connection,
+        )
+        .await
+    }
+
+    pub async fn read_grouped_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+        executor: E,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::read_grouped(executor, queue_name, vt.into(), qty).await
+    }
+
+    pub async fn read_grouped<T: for<'de> Deserialize<'de>, H: for<'de> Deserialize<'de>>(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        self.read_grouped_with_cxn(queue_name, vt, qty, &self.connection)
+            .await
+    }
+
+    pub async fn read_grouped_with_poll_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+        poll_timeout: Option<std::time::Duration>,
+        poll_interval: Option<std::time::Duration>,
+        executor: E,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        let query = sqlx::query(
+            r#"SELECT msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers from pgmq.read_grouped_with_poll(
+                queue_name=>$1::text,
+                vt=>$2::integer,
+                qty=>$3::integer,
+                max_poll_seconds=>$4::integer,
+                poll_interval_ms=>$5::integer
+            )"#,
+        );
+
+        Self::read_batch_with_poll_common(
+            query,
+            queue_name,
+            vt,
+            qty,
+            poll_timeout,
+            poll_interval,
+            executor,
+        )
+        .await
+    }
+
+    pub async fn read_grouped_with_poll<
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+        poll_timeout: Option<std::time::Duration>,
+        poll_interval: Option<std::time::Duration>,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        self.read_grouped_with_poll_with_cxn(
+            queue_name,
+            vt,
+            qty,
+            poll_timeout,
+            poll_interval,
+            &self.connection,
+        )
+        .await
+    }
+
+    pub async fn read_grouped_head_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+        executor: E,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::read_grouped_head(executor, queue_name, vt.into(), qty).await
+    }
+
+    pub async fn read_grouped_head<T: for<'de> Deserialize<'de>, H: for<'de> Deserialize<'de>>(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        self.read_grouped_head_with_cxn(queue_name, vt, qty, &self.connection)
+            .await
+    }
+
+    pub async fn read_grouped_rr_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+        executor: E,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::read_grouped_rr(executor, queue_name, vt.into(), qty).await
+    }
+
+    pub async fn read_grouped_rr<T: for<'de> Deserialize<'de>, H: for<'de> Deserialize<'de>>(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        self.read_grouped_rr_with_cxn(queue_name, vt, qty, &self.connection)
+            .await
+    }
+
+    pub async fn read_grouped_rr_with_poll_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+        poll_timeout: Option<std::time::Duration>,
+        poll_interval: Option<std::time::Duration>,
+        executor: E,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        let query = sqlx::query(
+            r#"SELECT msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers from pgmq.read_grouped_rr_with_poll(
+                queue_name=>$1::text,
+                vt=>$2::integer,
+                qty=>$3::integer,
+                max_poll_seconds=>$4::integer,
+                poll_interval_ms=>$5::integer
+            )"#,
+        );
+
+        Self::read_batch_with_poll_common(
+            query,
+            queue_name,
+            vt,
+            qty,
+            poll_timeout,
+            poll_interval,
+            executor,
+        )
+        .await
+    }
+
+    pub async fn read_grouped_rr_with_poll<
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+        poll_timeout: Option<std::time::Duration>,
+        poll_interval: Option<std::time::Duration>,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        self.read_grouped_rr_with_poll_with_cxn(
+            queue_name,
+            vt,
+            qty,
+            poll_timeout,
+            poll_interval,
+            &self.connection,
+        )
+        .await
+    }
+
+    async fn read_batch_common<
+        'c,
+        'q,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        query: sqlx::query::Query<'q, Postgres, <Postgres as sqlx::Database>::Arguments>,
+        queue_name: &'q str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        qty: i32,
+        executor: E,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        check_queue_name(queue_name)?;
+        let vt: VisibilityTimeoutOffset = vt.into();
+        let rows = query
+            .bind(queue_name)
+            .bind(vt)
+            .bind(qty)
+            .fetch_all(executor)
+            .await?;
+
+        handle_read_batch_result(rows)
+    }
+
+    async fn read_batch_with_poll_common<
+        'c,
+        'q,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        query: sqlx::query::Query<'q, Postgres, <Postgres as sqlx::Database>::Arguments>,
+        queue_name: &'q str,
+        vt: impl Into<VisibilityTimeoutOffset>,
+        max_batch_size: i32,
+        poll_timeout: Option<std::time::Duration>,
+        poll_interval: Option<std::time::Duration>,
+        executor: E,
+    ) -> Result<Vec<Message<T, H>>, PgmqError> {
+        check_queue_name(queue_name)?;
+        let vt: VisibilityTimeoutOffset = vt.into();
+        let poll_timeout_s = poll_timeout.map_or(DEFAULT_POLL_TIMEOUT_S, |t| t.as_secs() as i32);
+        let poll_interval_ms =
+            poll_interval.map_or(DEFAULT_POLL_INTERVAL_MS, |i| i.as_millis() as i32);
+        let rows = query
+            .bind(queue_name)
+            .bind(vt)
+            .bind(max_batch_size)
+            .bind(poll_timeout_s)
+            .bind(poll_interval_ms)
+            .fetch_all(executor)
+            .await?;
+
+        handle_read_batch_result(rows)
+    }
+
+    pub async fn archive_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        msg_id: i64,
+        executor: E,
+    ) -> Result<bool, PgmqError> {
+        self.archive_batch_with_cxn(queue_name, &[msg_id], executor)
+            .await
+            .map(|archived| !archived.is_empty())
+    }
+    /// Move a message to the archive table.
+    pub async fn archive(&self, queue_name: &str, msg_id: i64) -> Result<bool, PgmqError> {
+        self.archive_with_cxn(queue_name, msg_id, &self.connection)
+            .await
+    }
+
+    /// Move a slice of messages to the archive table.
+    pub async fn archive_batch_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        msg_ids: &[i64],
+        executor: E,
+    ) -> Result<Vec<i64>, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::archive(executor, queue_name, msg_ids).await
+    }
+
+    /// Move a slice of messages to the archive table.
+    pub async fn archive_batch(
+        &self,
+        queue_name: &str,
+        msg_ids: &[i64],
+    ) -> Result<Vec<i64>, PgmqError> {
+        self.archive_batch_with_cxn(queue_name, msg_ids, &self.connection)
+            .await
+    }
+
+    pub async fn pop_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+        H: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<Option<Message<T, H>>, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::pop(executor, queue_name, 1)
+            .await
+            .map(|result| result.into_iter().next())
+    }
+    // Read and message and immediately delete it.
+    pub async fn pop<T: for<'de> Deserialize<'de>, H: for<'de> Deserialize<'de>>(
+        &self,
+        queue_name: &str,
+    ) -> Result<Option<Message<T, H>>, PgmqError> {
+        self.pop_with_cxn(queue_name, &self.connection).await
+    }
+
+    pub async fn delete_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        msg_id: i64,
+        executor: E,
+    ) -> Result<bool, PgmqError> {
+        self.delete_batch_with_cxn(queue_name, &[msg_id], executor)
+            .await
+            .map(|deleted| !deleted.is_empty())
+    }
+
+    // Delete a message by message id.
+    pub async fn delete(&self, queue_name: &str, msg_id: i64) -> Result<bool, PgmqError> {
+        self.delete_with_cxn(queue_name, msg_id, &self.connection)
+            .await
+    }
+
+    pub async fn delete_batch_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        msg_ids: &[i64],
+        executor: E,
+    ) -> Result<Vec<i64>, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::delete(executor, queue_name, msg_ids).await
+    }
+
+    // Delete with a slice of message ids
+    pub async fn delete_batch(
+        &self,
+        queue_name: &str,
+        msg_ids: &[i64],
+    ) -> Result<Vec<i64>, PgmqError> {
+        self.delete_batch_with_cxn(queue_name, msg_ids, &self.connection)
+            .await
+    }
+
+    pub async fn create_fifo_index_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::create_fifo_index(executor, queue_name).await
+    }
+
+    pub async fn create_fifo_index(&self, queue_name: &str) -> Result<(), PgmqError> {
+        self.create_fifo_index_with_cxn(queue_name, &self.connection)
+            .await
+    }
+
+    pub async fn create_fifo_indexes_all_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+    >(
+        &self,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        crate::queue::sqlx::create_fifo_indexes_all(executor).await
+    }
+
+    pub async fn create_fifo_indexes_all(&self) -> Result<(), PgmqError> {
+        self.create_fifo_indexes_all_with_cxn(&self.connection)
+            .await
+    }
+
+    pub async fn bind_topic_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        pattern: &str,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::bind_topic(executor, pattern, queue_name).await
+    }
+
+    pub async fn bind_topic(&self, pattern: &str, queue_name: &str) -> Result<(), PgmqError> {
+        self.bind_topic_with_cxn(pattern, queue_name, &self.connection)
+            .await
+    }
+
+    pub async fn unbind_topic_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        pattern: &str,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::unbind_topic(executor, pattern, queue_name).await
+    }
+
+    pub async fn unbind_topic(&self, pattern: &str, queue_name: &str) -> Result<(), PgmqError> {
+        self.unbind_topic_with_cxn(pattern, queue_name, &self.connection)
+            .await
+    }
+
+    pub async fn list_topic_bindings_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<Vec<ListTopicBindingsRow>, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::list_topic_bindings(executor, queue_name).await
+    }
+
+    pub async fn list_topic_bindings(
+        &self,
+        queue_name: &str,
+    ) -> Result<Vec<ListTopicBindingsRow>, PgmqError> {
+        self.list_topic_bindings_with_cxn(queue_name, &self.connection)
+            .await
+    }
+
+    pub async fn list_topic_bindings_all_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+    >(
+        &self,
+        executor: E,
+    ) -> Result<Vec<ListTopicBindingsRow>, PgmqError> {
+        crate::queue::sqlx::list_topic_bindings_all(executor).await
+    }
+
+    pub async fn list_topic_bindings_all(&self) -> Result<Vec<ListTopicBindingsRow>, PgmqError> {
+        self.list_topic_bindings_all_with_cxn(&self.connection)
+            .await
+    }
+
+    /// Send a message using topic-based routing. Will send the message to every queue that has
+    /// a topic binding that matches the given `routing_key`. Returns the number of queues that
+    /// the message was sent to.
+    pub async fn send_topic_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: Serialize,
+        H: Serialize,
+    >(
+        &self,
+        routing_key: &str,
+        message: &T,
+        headers: Option<&H>,
+        delay: impl Into<VisibilityTimeoutOffset>,
+        executor: E,
+    ) -> Result<i32, PgmqError> {
+        let delay: VisibilityTimeoutOffset = delay.into();
+        let message = serde_json::to_value(message)?;
+        let headers = serde_json::to_value(headers)?;
+        crate::queue::sqlx::send_topic(executor, routing_key, message, headers, delay).await
+    }
+
+    pub async fn send_topic<T: Serialize, H: Serialize>(
+        &self,
+        routing_key: &str,
+        message: &T,
+        headers: Option<&H>,
+        delay: impl Into<VisibilityTimeoutOffset>,
+    ) -> Result<i32, PgmqError> {
+        self.send_topic_with_cxn(routing_key, message, headers, delay, &self.connection)
+            .await
+    }
+
+    /// Send messages using topic-based routing. Will send the messages to every queue that has
+    /// a topic binding that matches the given `routing_key`.
+    pub async fn send_batch_topic_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: Serialize,
+        H: Serialize,
+    >(
+        &self,
+        routing_key: &str,
+        messages: &[T],
+        headers: Option<&[H]>,
+        delay: impl Into<VisibilityTimeoutOffset>,
+        executor: E,
+    ) -> Result<Vec<SendBatchTopicRow>, PgmqError> {
+        let delay: VisibilityTimeoutOffset = delay.into();
+        let messages = serialize_list(messages)?;
+        let headers = serialize_optional_list(headers)?;
+        crate::queue::sqlx::send_batch_topic(executor, routing_key, messages, headers, delay).await
+    }
+
+    pub async fn send_batch_topic<T: Serialize, H: Serialize>(
+        &self,
+        routing_key: &str,
+        messages: &[T],
+        headers: Option<&[H]>,
+        delay: impl Into<VisibilityTimeoutOffset>,
+    ) -> Result<Vec<SendBatchTopicRow>, PgmqError> {
+        self.send_batch_topic_with_cxn(routing_key, messages, headers, delay, &self.connection)
+            .await
+    }
+
+    /// Enable sending a Postgres notification when an item is inserted into the specified queue.
+    /// Provide a non-zero throttle interval to specify how often a notification can be sent.
+    ///
+    /// To actually receive the notification when an item is inserted, use a
+    /// [`sqlx::postgres::PgListener`]. This can be created using [`Self::queue_insert_listener`]
+    /// (or one of the other similarly-named methods).
+    ///
+    /// Postgres notifications can be useful for queues that must be acted upon immediately
+    /// but rarely have items. However, in most cases, it's recommended to use a polling mechanism
+    /// to fetch items from the queue. In fact, because Postgres notifications are transient and
+    /// may be missed, it's recommended to also use a polling mechanism as a fallback instead of
+    /// relying entirely on notifications.
+    pub async fn enable_notify_insert_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        throttle_interval: std::time::Duration,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::enable_notify_insert(executor, queue_name, throttle_interval.into())
+            .await
+    }
+
+    pub async fn enable_notify_insert(
+        &self,
+        queue_name: &str,
+        throttle_interval: std::time::Duration,
+    ) -> Result<(), PgmqError> {
+        self.enable_notify_insert_with_cxn(queue_name, throttle_interval, &self.connection)
+            .await
+    }
+
+    /// Disable sending insert notifications for the specified queue.
+    pub async fn disable_notify_insert_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::disable_notify_insert(executor, queue_name).await
+    }
+
+    pub async fn disable_notify_insert(&self, queue_name: &str) -> Result<(), PgmqError> {
+        self.disable_notify_insert_with_cxn(queue_name, &self.connection)
+            .await
+    }
+
+    /// Update the throttle interval for Postgres notifications sent for the specified queue.
+    pub async fn update_notify_insert_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        throttle_interval: std::time::Duration,
+        executor: E,
+    ) -> Result<(), PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::update_notify_insert(executor, queue_name, throttle_interval.into())
+            .await
+    }
+
+    pub async fn update_notify_insert(
+        &self,
+        queue_name: &str,
+        throttle_interval: std::time::Duration,
+    ) -> Result<(), PgmqError> {
+        self.update_notify_insert_with_cxn(queue_name, throttle_interval, &self.connection)
+            .await
+    }
+
+    pub async fn list_notify_insert_throttles_with_cxn<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+    >(
+        &self,
+        executor: E,
+    ) -> Result<Vec<ListNotifyInsertThrottlesRow>, PgmqError> {
+        crate::queue::sqlx::list_notify_insert_throttles(executor).await
+    }
+
+    pub async fn list_notify_insert_throttles(
+        &self,
+    ) -> Result<Vec<ListNotifyInsertThrottlesRow>, PgmqError> {
+        self.list_notify_insert_throttles_with_cxn(&self.connection)
+            .await
+    }
+
+    /// Create a [`sqlx::postgres::PgListener`] that will listen to insert notifications for the
+    /// specified queue. The listener can be configured to listen to more queues by calling
+    /// [`sqlx::postgres::PgListener::listen`] with the channel name returned by
+    /// [`queue_name_to_insert_notification_channel_name`].
+    ///
+    /// Note: The listener will hold a connection from the pool for as long as it is in scope.
+    pub async fn queue_insert_listener_with_pool(
+        &self,
+        queue_name: &str,
+        pool: &Pool<Postgres>,
+    ) -> Result<sqlx::postgres::PgListener, PgmqError> {
+        let mut listener = sqlx::postgres::PgListener::connect_with(pool).await?;
+        listener
+            .listen(&queue_name_to_insert_notification_channel_name(queue_name)?)
+            .await?;
+        Ok(listener)
+    }
+
+    pub async fn queue_insert_listener(
+        &self,
+        queue_name: &str,
+    ) -> Result<sqlx::postgres::PgListener, PgmqError> {
+        self.queue_insert_listener_with_pool(queue_name, &self.connection)
+            .await
+    }
+
+    /// Create a [`sqlx::postgres::PgListener`] that will listen to insert notifications for all the
+    /// specified queues. The listener can be configured to listen to more queues by calling
+    /// [`sqlx::postgres::PgListener::listen`] with the channel name returned by
+    /// [`queue_name_to_insert_notification_channel_name`].
+    ///
+    /// Note: The listener will hold a connection from the pool for as long as it is in scope.
+    pub async fn queue_insert_listener_all_with_pool(
+        &self,
+        queue_names: impl IntoIterator<Item = &str>,
+        pool: &Pool<Postgres>,
+    ) -> Result<sqlx::postgres::PgListener, PgmqError> {
+        let mut listener = sqlx::postgres::PgListener::connect_with(pool).await?;
+        let channel_names = queue_names
+            .into_iter()
+            .map(queue_name_to_insert_notification_channel_name)
+            .collect::<Result<Vec<_>, _>>()?;
+        listener
+            .listen_all(channel_names.iter().map(|s| s.as_str()))
+            .await?;
+        Ok(listener)
+    }
+
+    pub async fn queue_insert_listener_all(
+        &self,
+        queue_names: impl IntoIterator<Item = &str>,
+    ) -> Result<sqlx::postgres::PgListener, PgmqError> {
+        self.queue_insert_listener_all_with_pool(queue_names, &self.connection)
+            .await
+    }
+
+    pub async fn metrics_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        queue_name: &str,
+        executor: E,
+    ) -> Result<QueueMetrics, PgmqError> {
+        let queue_name = queue_name.try_into()?;
+        crate::queue::sqlx::metrics(executor, queue_name).await
+    }
+
+    pub async fn metrics(&self, queue_name: &str) -> Result<QueueMetrics, PgmqError> {
+        self.metrics_with_cxn(queue_name, &self.connection).await
+    }
+
+    pub async fn metrics_all_with_cxn<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+        &self,
+        executor: E,
+    ) -> Result<Vec<QueueMetrics>, PgmqError> {
+        crate::queue::sqlx::metrics_all(executor).await
+    }
+
+    pub async fn metrics_all(&self) -> Result<Vec<QueueMetrics>, PgmqError> {
+        self.metrics_all_with_cxn(&self.connection).await
+    }
+}
