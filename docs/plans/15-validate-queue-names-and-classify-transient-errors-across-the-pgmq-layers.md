@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-23T23:12:20Z
 intention: intention_01kz9yszpmejztjbet6k4bvcf7
 master_plan: "docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md"
+provenance:
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T19:03:47Z
+      mode: "update"
+      note: "Refresh completed hardening status and PGMQ 1.12/1.13 migration and release handoffs."
 ---
 
 # Validate queue names and classify transient errors across the pgmq layers
@@ -17,6 +24,15 @@ change.
 
 
 ## Purpose / Big Picture
+
+Current status (2026-09-10): this child is Complete and its hardening shipped in 0.5.0.0
+on 2026-08-06. The implementation milestones and dated evidence below describe the historical
+work, not instructions to repeat it. MasterPlan 2 EP-9/10/11 subsequently delivered PGMQ
+1.12/1.13 support; EP-12 now owns the 0.6.0.0 candidate and remaining consumer validation.
+Preserve published 0.5.0.0 history. See
+[the compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md) and
+[release evidence](../releases/0.6.0.0-candidate.md) for current upgrade and release constraints.
+
 
 Three input/classification defects in the pgmq-hs family, the Haskell client stack for PGMQ,
 let bad inputs and
@@ -47,6 +63,8 @@ consumer-impact handoff for the single release owner, plan 12.
 
 
 ## Progress
+
+- [x] (2026-09-10) Reconciled the completed 0.5.0.0 hardening with the PGMQ 1.12/1.13 upgrade and 0.6.0.0 release handoff. Documentation inspection only; no tests rerun.
 
 - [x] M1 (2026-08-05, repro/evidence): raw-SQL aliasing tests demonstrate consequences
       (a) and (b) live on a dedicated instance (throttle row never matched for `MyQueue`;
@@ -84,6 +102,8 @@ consumer-impact handoff for the single release owner, plan 12.
 
 
 ## Surprises & Discoveries
+
+- Reconciliation (2026-09-10): published 0.5.0.0 and the six-entry native ledger supersede the historical release and migration-allocation assumptions below. PGMQ 1.13 needs migration 0006 to preserve partition re-entry after replacing the upstream function signature.
 
 Seeded from the 2026-07 pgmq-hs review (2026-07-23; PGH-7 and PGH-10 confirmed by code
 reading; PGH-11 decode-throw certain from the decoder, reachability via any non-Haskell
@@ -176,6 +196,8 @@ producer):
 
 
 ## Decision Log
+
+- Decision (2026-09-10): preserve this shipped hardening as a regression baseline; EP-12 now prepares 0.6.0.0. The former future-0.5.0.0 release instructions are historical. The existing compatibility ADR governs the upgrade; no implementation is reopened.
 
 - Decision: REJECT uppercase queue names in `parseQueueName` (lowercase ASCII letters,
   digits, underscore only) rather than silently normalizing to lowercase.
@@ -295,11 +317,11 @@ mode is gone, with the pre-fix damage (whole-batch `read_ct` bump on a failed ca
 preserved as a green evidence test; and the mixed-case remediation is documented in
 design note 016 and proven by `MixedCaseRemediationSpec` for both the twin and no-twin
 cases, including rerun idempotence and the trigger matching the throttle row afterward.
-Release material is staged in the root CHANGELOG for plan 12, whose rollout checklist was
-verified complete against this plan's four requirements.
+Release material is published in the root and package 0.5.0.0 changelogs. Plan 12 now
+tracks the 0.6.0.0 candidate and current consumer evidence.
 
-What remains, deliberately: nothing ships to consumers until MasterPlan 2's plan 12 cuts
-0.5.0.0 — that plan owns versions, per-package changelogs, and the keiro/shibuya rollout.
+The hardening shipped on 2026-08-06; MasterPlan 2's plan 12 owns subsequent 0.6.0.0
+preparation. Its open consumer validation does not reopen this completed child.
 The derived-`FromJSON` bypass still exists on `RoutingKey` and `TopicPattern`, recorded
 here as an adjacent hazard for a follow-up, not silently fixed in passing.
 
@@ -316,6 +338,13 @@ shape; reading the actual constraints before writing the procedure paid for itse
 
 
 ## Context and Orientation
+
+The current native manifest contains immutable 0001–0003 followed by 0004 (upstream 1.12),
+0005 (upstream 1.13), and 0006 (local four-argument partition re-entry preservation). The
+current vendor is 1.13.0; the tagged 1.12 fixture is
+`pgmq-migration/test/fixtures/pgmq-1.12.0.sql`. The original baseline descriptions below
+explain the completed fix. Use the compatibility ADR for current function identities and
+version-specific acceptance.
 
 Work happens in this Cabal multi-package repository; ignore `dist-newstyle/` and run commands
 from the repository root inside `nix develop`, which provides GHC 9.12.4, Cabal, and the
@@ -703,7 +732,7 @@ SQL-inserted NULL-body message being read (as JSON null) and archived through th
 Haskell client — a sequence that failed at the read step before the fix, with the
 before-state (whole-batch decode failure after `read_ct` was bumped) preserved in the
 M1 transcript. Release handoff: plan 12 contains the complete bounds, source-change, and
-consumer-test matrix before it cuts 0.5.0.0.
+consumer-test matrix for the current 0.6.0.0 candidate; the 0.5.0.0 hardening is published.
 
 
 ## Idempotence and Recovery
@@ -761,3 +790,7 @@ Expanded transient classification to 57P02/57P03, replaced the unsafe mixed-case
 with a transactional remediation that preserves `topic_bindings` and notification
 configuration, removed conditional last-lander duties, and handed the complete consumer
 rollout to plan 12.
+
+2026-09-10: Refreshed status, release handoff, and migration context for completed 0.5.0.0
+hardening and the PGMQ 1.12/1.13 upgrade. Historical implementation evidence remains dated;
+current compatibility follows the existing ADR and release work remains with EP-12.

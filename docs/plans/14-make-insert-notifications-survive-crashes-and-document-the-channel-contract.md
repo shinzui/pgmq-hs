@@ -5,6 +5,13 @@ title: "Make insert notifications survive crashes and document the channel contr
 kind: exec-plan
 created_at: 2026-07-23T23:12:20Z
 master_plan: "docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md"
+provenance:
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T19:03:47Z
+      mode: "update"
+      note: "Refresh completed hardening status and PGMQ 1.12/1.13 migration and release handoffs."
 ---
 
 # Make insert notifications survive crashes and document the channel contract
@@ -16,6 +23,15 @@ change.
 
 
 ## Purpose / Big Picture
+
+Current status (2026-09-10): this child is Complete and its hardening shipped in 0.5.0.0
+on 2026-08-06. The implementation milestones and dated evidence below describe the historical
+work, not instructions to repeat it. MasterPlan 2 EP-9/10/11 subsequently delivered PGMQ
+1.12/1.13 support; EP-12 now owns the 0.6.0.0 candidate and remaining consumer validation.
+Preserve published 0.5.0.0 history. See
+[the compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md) and
+[release evidence](../releases/0.6.0.0-candidate.md) for current upgrade and release constraints.
+
 
 pgmq-hs, the Haskell client family for PGMQ, can notify LISTENing
 consumers when a message is inserted into a queue. Today that machinery has three defects.
@@ -42,6 +58,8 @@ immediate-shutdown restart.
 
 
 ## Progress
+
+- [x] (2026-09-10) Reconciled the completed 0.5.0.0 hardening with the PGMQ 1.12/1.13 upgrade and 0.6.0.0 release handoff. Documentation inspection only; no tests rerun.
 
 - [x] M1 (repro) (2026-08-05): crash-cycle test `pgmq-config/test/NotifyCrashSpec.hs`
       written against a dedicated ephemeral-pg instance and confirmed red (send after
@@ -75,6 +93,8 @@ immediate-shutdown restart.
 
 
 ## Surprises & Discoveries
+
+- Reconciliation (2026-09-10): published 0.5.0.0 and the six-entry native ledger supersede the historical release and migration-allocation assumptions below. PGMQ 1.13 needs migration 0006 to preserve partition re-entry after replacing the upstream function signature.
 
 Seeded from the 2026-07 pgmq-hs review verification (2026-07-23, PostgreSQL 18.4, repo's
 own migration; full live crash cycle):
@@ -164,6 +184,8 @@ M2 implementation (2026-08-05):
 
 
 ## Decision Log
+
+- Decision (2026-09-10): preserve this shipped hardening as a regression baseline; EP-12 now prepares 0.6.0.0. The former future-0.5.0.0 release instructions are historical. The existing compatibility ADR governs the upgrade; no implementation is reopened.
 
 - Decision: Fix PGH-6 in the trigger (fail-open NOTIFY when no throttle row exists), not
   by making `pgmq.notify_insert_throttle` a logged table.
@@ -295,7 +317,8 @@ What went differently from the plan. Three things.
 The plan asserted that the notify functions are pgmq-hs-local SQL with no upstream-parity
 cost. They are not: all three re-created functions are vendored upstream code, byte-identical
 between `vendor/pgmq/pgmq-extension/sql/pgmq.sql` and the install migration. Plan 9's
-convergence-test allowlist therefore needs all three signatures, not one.
+convergence tests now allow all three signatures at each checkpoint, using the four-argument
+partition function on 1.13. Migration 0006 preserves this plan's partition hardening there.
 
 PGH-8 was carried as plausible-needs-verification. It is confirmed, and the collision rate
 is high enough that it would have shown up in production within days of two replicas
@@ -314,6 +337,13 @@ about to change, and correct it in the same commit.
 
 
 ## Context and Orientation
+
+The current native manifest contains immutable 0001–0003 followed by 0004 (upstream 1.12),
+0005 (upstream 1.13), and 0006 (local four-argument partition re-entry preservation). The
+current vendor is 1.13.0; the tagged 1.12 fixture is
+`pgmq-migration/test/fixtures/pgmq-1.12.0.sql`. The original baseline descriptions below
+explain the completed fix. Use the compatibility ADR for current function identities and
+version-specific acceptance.
 
 Work happens in this Cabal multi-package Haskell repository; ignore `dist-newstyle/`. Run all
 commands from the repository root inside its nix dev shell (`nix develop`; it provides GHC
@@ -492,37 +522,22 @@ passing; `cabal test pgmq-hasql-test` shows the race outcome, whichever it is, r
 Scope: one new migration file plus its manifest line; at the end the M1 crash test is
 green and the race test shows zero failures.
 
-Determine the filename by reading `pgmq-migration/migrations/manifest` immediately before
-implementation. The immutable baseline starts with `0001-install-v1.11.0.sql` and
-`0002-schema-management-comment.sql`; official MasterPlan 2 plan 9 and external keiro
-MasterPlan 17 plans 116/118 may have appended entries by then. Claim the next free sequential
-number without leaving a gap, use the slug `notify-crash-safety-and-locking.sql`, and record
-the actual filename in the Decision Log. Append the filename to
-`pgmq-migration/migrations/manifest` (the TH embed in
-`pgmq-migration/src/Pgmq/Migration/Internal/Definition.hs` picks it up at compile time).
+This milestone completed as `0003-notify-crash-safety-and-locking.sql` on 2026-08-05.
+Do not allocate another migration or edit/replay that historical payload. The SQL below
+records its original three-function implementation against the 1.11 baseline.
 
-The file contains three `CREATE OR REPLACE FUNCTION` statements. Before copying any function,
-establish its effective definition at the current migration head. MasterPlan 2 plan 9 advances
-the vendored upstream SQL through 1.11.1 to a commit prepared as 1.12.0; it may land before
-this plan. Compare the immutable 1.11.0 definition, every later migration that touches the
-function, and `vendor/pgmq/pgmq-extension/sql/pgmq.sql`. Use the newest effective body as the
-base and add only the changes described below. Do not blindly re-create the 1.11.0 body over a
-newer upstream definition. Record the comparison and chosen base commit in Surprises &
-Discoveries.
+MasterPlan 2 EP-9 has since landed migrations 0004–0006. Upstream 1.13 drops the
+three-argument `create_partitioned` function; 0006 preserves our queue/archive registration
+guards on `create_partitioned(text,text,text,integer)`, including the upstream identity and
+premake behavior. The notification functions remain protected by 0003. Queue-creation
+traffic must wait until 0006 has applied.
 
-**If MasterPlan 2 plan 9 has already landed, you must also allowlist these three functions in
-its schema-convergence test, in the same commit as this migration.** That test asserts that
-every `pgmq` function body after the full migration ledger matches a fresh install of the
-vendored upstream `pgmq.sql`. All three functions below deliberately diverge from upstream, so
-without the allowlist entries `cabal test pgmq-migration:pgmq-migration-test` goes red on a
-change that is correct. Plan 9 builds the allowlist for exactly this purpose (see
-`docs/plans/9-vendor-pgmq-1-12-0-and-add-the-native-schema-migration.md`, Milestone 4, and
-Integration Point 7 of `docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md`). Add one
-entry per function with a comment naming the decision here that authorises the deviation. Do
-**not** repair the failure by removing the body comparison — that would drop the guarantee for
-every function this repository does *not* own. If plan 9 has not landed yet, there is no
-convergence test and nothing to do; plan 9 lands with an empty allowlist and its own tests
-still pass.
+`testConvergence` in `pgmq-migration/test/Main.hs` compares both the four-entry 1.12 checkpoint
+and full six-entry 1.13 ledger to their corresponding upstream SQL. Both allow exactly three
+local bodies: `notify_queue_listeners()`, `enable_notify_insert(text,integer)`, and the
+version-appropriate three/four-argument `create_partitioned`. Preserve the comparison and
+behavioral tests; do not restore the old overload or remove body checking. The durable
+ownership decision is in `docs/adr/pgmq-1.12-1.13-compatibility.md`.
 
 First, the trigger function — the effective body (the 1.11.0 baseline is at install SQL lines
 1566-1592) plus the fail-open branch:
@@ -748,7 +763,7 @@ EphemeralPg.restart :: Database -> IO (Either StartError Database)
 -- Database.shutdownMode :: ShutdownMode   (record field, ShutdownImmediate = SIGQUIT)
 ```
 
-SQL functions re-created by this plan's migration (same signatures as today):
+SQL functions re-created by this plan's immutable migration 0003 (historical signatures):
 `pgmq.notify_queue_listeners()`, `pgmq.enable_notify_insert(TEXT, INTEGER DEFAULT 250)`
 (now advisory-locked and NULL-coalescing), `pgmq.create_partitioned(TEXT, TEXT, TEXT)`
 (now create_parent-idempotent). New test dependency: `postgresql-libpq >=0.10.1 &&
@@ -757,8 +772,9 @@ directly) — already transitively present via hasql, so it costs nothing to the
 plan. Coordination: plan 13 owns all encoder/statement Haskell changes including the
 client-side `coalesce($2, 250)` on enable (this plan's server-side COALESCE is
 belt-and-braces for non-Haskell callers); plan 15 owns queue-name validation (after
-which `notifyChannelName`'s `toLower` is defensive only). Plan 12 owns the 0.5.0.0 version
-bump, consolidated changelogs, and consumer rollout.
+which `notifyChannelName`'s `toLower` is defensive only). The 0.5.0.0 release is published. Plan 12 now owns the 0.6.0.0
+candidate, changelogs, and consumer validation; the current partition signature has a fourth
+integer argument, preserved by migration 0006.
 
 
 ## Revision Note
@@ -775,3 +791,7 @@ Corrected the crash test to release dead resources, reconnect and re-LISTEN afte
 and encode `Text` for libpq's `ByteString` API. Removed stale migration-number reservations,
 made the live manifest authoritative, moved durable documentation to `docs/design/`, and
 assigned release work to plan 12.
+
+2026-09-10: Refreshed status, release handoff, and migration context for completed 0.5.0.0
+hardening and the PGMQ 1.12/1.13 upgrade. Historical implementation evidence remains dated;
+current compatibility follows the existing ADR and release work remains with EP-12.

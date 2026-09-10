@@ -5,14 +5,21 @@ title: "Harden the pgmq-hs family surfaced by the 2026-07 review"
 kind: master-plan
 created_at: 2026-07-23T23:12:20Z
 intention: intention_01kz9yszpmejztjbet6k4bvcf7
+provenance:
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T19:03:46Z
+      mode: "update"
+      note: "Reconcile shipped hardening with PGMQ 1.12/1.13, six-entry migrations, and the 0.6.0.0 handoff."
 ---
 
 # Harden the pgmq-hs family surfaced by the 2026-07 review
 
 This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
-If durable project context changes, update or create a note under `docs/design/` in the same
-change.
+Durable hardening contracts live under `docs/design/`; the subsequent version-compatibility
+decision lives in `docs/adr/pgmq-1.12-1.13-compatibility.md`.
 
 
 ## Vision & Scope
@@ -25,23 +32,28 @@ statement, encoder, and decoder, both effectful interpreters, and the config rec
 verified its serious findings with live reproductions on PostgreSQL 18.4 using this
 repository's migration. The library's core is otherwise sound: bind parameterization prevents
 an injection path, read/pop/archive are single-statement atomic operations, decoder fidelity
-is property-tested, and the traced interpreter is faithful. The immutable install baseline is
-upstream pgmq 1.11.0; `docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md` owns the
-audited 1.11.0-to-1.12.0 vendor and migration upgrade, including upstream 1.11.1.
+is property-tested, and the traced interpreter is faithful. The immutable install baseline remains
+upstream pgmq 1.11.0. The current vendor is 1.13.0, and the six-entry native ledger upgrades
+through 1.12.0 to 1.13.0 while preserving this hardening.
+`docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md` owns those completed upgrades
+and the remaining 0.6.0.0 release preparation. This MasterPlan and EP-13/14/15 are complete;
+their changes shipped in 0.5.0.0 on 2026-08-06. The findings below describe the July baseline,
+not outstanding defects in the current tree.
 
-The confirmed defects are a family of NULL-parameter traps plus notify-machinery fragility, all currently latent (no registered consumer hits them today) but armed for the 10-15-service adoption where teams will call these APIs directly. Live-verified: `pop` with `qty = Nothing` — documented "default 1" — passes SQL NULL to `LIMIT`, which PostgreSQL reads as `LIMIT ALL`, deleting and returning the entire queue in one statement with no visibility-timeout safety net (PGH-1); `read` with `batchSize = Nothing` leases the whole queue the same way, and `readWithPoll` shares the hazard (PGH-3); `ReadMessage.conditional` is silently dead — never encoded, and the `readMessageConditional` its docs point to does not exist, while the comment justifying the 3-arg form was refuted live (PGH-2); `enable_notify_insert` with `throttleMs = Nothing` — documented "pgmq default 250ms" — deterministically fails with a NOT NULL violation (the destroys-existing-trigger half was refuted: statement atomicity rolls the drop back) (PGH-4); and the notify throttle table is UNLOGGED, so a crash/immediate-shutdown recovery truncates it and the insert trigger silently never notifies again until an application-side re-enable — demonstrated with a full live crash cycle (PGH-6). Also confirmed by review: `setVisibilityTimeoutAt` throws on a raced-away row instead of returning `Nothing` (PGH-5); uppercase queue names silently alias two logical queues onto one physical table and break notify, and `FromJSON QueueName` bypasses validation entirely (PGH-7); the reconciler races concurrent replica startups on notify-trigger creation and partitioned re-entry (PGH-8); the documented NOTIFY channel name is wrong on every component (PGH-9); `isTransient` classifies deadlock/serialization SQLSTATEs as permanent (PGH-10); and a NULL message body inserted by any non-Haskell producer poisons every read batch at decode (PGH-11).
+The review confirmed a family of NULL-parameter traps plus notify-machinery fragility, latent at review time (no registered consumer exercised those NULL/notify paths then) but armed for the 10-15-service adoption where teams will call these APIs directly. Live-verified: `pop` with `qty = Nothing` — documented "default 1" — passes SQL NULL to `LIMIT`, which PostgreSQL reads as `LIMIT ALL`, deleting and returning the entire queue in one statement with no visibility-timeout safety net (PGH-1); `read` with `batchSize = Nothing` leases the whole queue the same way, and `readWithPoll` shares the hazard (PGH-3); `ReadMessage.conditional` is silently dead — never encoded, and the `readMessageConditional` its docs point to does not exist, while the comment justifying the 3-arg form was refuted live (PGH-2); `enable_notify_insert` with `throttleMs = Nothing` — documented "pgmq default 250ms" — deterministically fails with a NOT NULL violation (the destroys-existing-trigger half was refuted: statement atomicity rolls the drop back) (PGH-4); and the notify throttle table is UNLOGGED, so a crash/immediate-shutdown recovery truncates it and the insert trigger silently never notifies again until an application-side re-enable — demonstrated with a full live crash cycle (PGH-6). Also confirmed by review: `setVisibilityTimeoutAt` throws on a raced-away row instead of returning `Nothing` (PGH-5); uppercase queue names silently alias two logical queues onto one physical table and break notify, and `FromJSON QueueName` bypasses validation entirely (PGH-7); the reconciler races concurrent replica startups on notify-trigger creation and partitioned re-entry (PGH-8); the documented NOTIFY channel name is wrong on every component (PGH-9); `isTransient` classifies deadlock/serialization SQLSTATEs as permanent (PGH-10); and a NULL message body inserted by any non-Haskell producer poisons every read batch at decode (PGH-11).
 
-After this initiative: no `Maybe` parameter can silently mean "unbounded" or "always fails" —
+The completed hardening guarantees: no `Maybe` parameter can silently mean "unbounded" or "always fails" —
 each defaults as documented via `COALESCE` or has an explicit type; notifications continue
 after crash recovery even though throttle state is temporarily lost, and the channel contract
 is exported as code; queue names are rejected consistently across every entry path; transient
 SQLSTATEs classify as transient; and the new behavior is pinned by tests, including the
 previously-untested `Nothing` cases. In scope are PGH-1 through PGH-11 and their pgmq-hs tests
-and documentation. The coordinated 0.5.0.0 version bump, changelog integration, and consumer
-rollout are owned by
+and documentation. The 0.5.0.0 release is published. Subsequent 0.6.0.0 changelog integration and consumer
+validation are owned by
 `docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md`.
 
-Out of scope are the grouped-head feature owned by MasterPlan 2; the FIFO ordering, index, and
+Out of scope are grouped heads, explicit partition premake, and default-partition metrics
+owned by MasterPlan 2; the FIFO ordering, index, and
 partition-retention findings owned by keiro MasterPlan 17 plans 116 and 118; and new queue
 features.
 
@@ -62,14 +74,14 @@ surfaces: statement semantics, crash/notification cycles, and validation/classif
 Folding PGH-8 into EP-15 was rejected because its fix is SQL and advisory-lock work in the
 same functions EP-14 touches.
 
-Durable library decisions belong under this repository's `docs/design/` directory. Keiro's
-`docs/adr/0001-keiro-pgmq-job-processing-telemetry-contract.md` remains an external consumer
-constraint: none of these plans may change the traced interpreter's span semantics. Both
-anticipated design notes now exist: `docs/design/014-null-parameter-contract.md` (the rule
-"no optional parameter may widen scope", from EP-13) and
-`docs/design/015-notification-delivery-contract.md` (the channel name, the poll-fallback
-requirement, and the crash fail-open rule, from EP-14). EP-15 should expect to write or
-correct one of its own.
+Durable hardening decisions remain in `docs/design/014-null-parameter-contract.md`,
+`docs/design/015-notification-delivery-contract.md`,
+`docs/design/016-queue-name-validation.md`, and
+`docs/design/017-transient-error-classification.md`. The accepted
+[compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md) explains how later upgrades preserve
+those contracts: immutable history, a separate four-argument partition override, and
+version-specific convergence tests. This update records that existing decision; it does not
+change architecture or reopen the completed children.
 
 
 ## Exec-Plan Registry
@@ -83,58 +95,63 @@ correct one of its own.
 
 ## Dependency Graph
 
-There are no hard dependencies among EP-13, EP-14, and EP-15. They have integration
-dependencies on shared files described below. EP-14 should define `notifyChannelName` before
-the final reconciliation of EP-15's `Pgmq.Types` edits, but either can begin first.
-
-The release dependency points outward: MasterPlan 2's EP-12 must not cut 0.5.0.0 until EP-13,
-EP-14, and EP-15 are complete. The migration ledger is shared by MasterPlan 2 EP-9, keiro
-MasterPlan 17 plans 116 and 118, and EP-14. No plan reserves a numeric migration filename in
-advance; each takes the next free manifest number when it lands.
+EP-13, EP-14, and EP-15 completed independently, with integration dependencies on the
+shared artifacts below. Their old gate on a future 0.5.0.0 release is satisfied and obsolete.
+MasterPlan 2 EP-9/10/11 are now Complete, and EP-12 remains In Progress for 0.6.0.0 release
+preparation and consumer validation. Hardening is a protected regression baseline, not an
+unimplemented prerequisite. Follow EP-12 and its release evidence for current release status.
 
 
 ## Integration Points
 
-`pgmq-migration/migrations/` is owned by EP-14 within this MasterPlan. EP-13 had no
-migration: its `enable_notify_insert` client statement coalesces its bound value, while
-EP-14's migration adds the complete server-side guard for non-Haskell callers. EP-14 landed
-`0003-notify-crash-safety-and-locking.sql`, so the ledger is now `0001`, `0002`, `0003` and
-the next free number is `0004`. The immutable `0001-install-v1.11.0.sql` is unchanged and
-must stay that way.
+`pgmq-migration/migrations/` was owned by EP-14 within this MasterPlan. It landed
+`0003-notify-crash-safety-and-locking.sql`; EP-13 and EP-15 needed no migrations. MasterPlan 2
+EP-9 subsequently appended `0004-upgrade-v1.12.0.sql`, `0005-upgrade-v1.13.0.sql`, and
+`0006-preserve-partitioned-reentry-v1.13.0.sql`. Entries 0001–0003 remain immutable, including
+`0001-install-v1.11.0.sql`. Future authors must read the manifest at implementation time
+rather than reuse the historical 0004 allocation advice below.
 
-The migration directory is also shared with MasterPlan 2 EP-9, and that coupling goes beyond
-numbering. EP-9 adds a schema-convergence test asserting that every `pgmq` function body after
-the full ledger matches a fresh install of the vendored upstream `pgmq.sql`. EP-14 landed
-first, so EP-9 must seed that test's deliberate-deviation allowlist with the three signatures
-migration `0003` re-creates — `pgmq.notify_queue_listeners()`,
-`pgmq.enable_notify_insert(TEXT, INTEGER)`, and
-`pgmq.create_partitioned(TEXT, TEXT, TEXT)` — each with a comment naming EP-14's Decision Log
-entry that authorises it. All three are upstream-vendored code (verified by diff against
-`vendor/pgmq/pgmq-extension/sql/pgmq.sql`), so all three will otherwise fail the comparison.
-Repairing that failure by removing the body comparison is forbidden — it would discard the
-guarantee for every function this repository does not own. See Integration Point 7 of
-`docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md`.
+The 1.13 upstream upgrade drops `create_partitioned(text,text,text)` and replaces it with
+`create_partitioned(text,text,text,integer)`. Migration 0006 restores EP-14's queue/archive
+parent-registration guards and retains the advisory lock, while preserving upstream premake
+forwarding and `GENERATED BY DEFAULT` identities. Do not replay 0003 or recreate the old
+overload. Queue-creation traffic must wait for the entire migration suffix, including 0006.
+The notification fail-open function and NULL throttle guard from 0003 remain in force.
 
-EP-9 and keiro MasterPlan 17 plans 116/118 also inherit a simplification from EP-14: the
-ledger expectations in `pgmq-migration/test/Main.hs` now derive from the plan rather than
-being enumerated positionally, so appending a migration means adding one line to the list in
-`testNativeComponent` and nothing else.
+EP-9 owns `testConvergence` in `pgmq-migration/test/Main.hs`. It compares the four-entry 1.12
+checkpoint against `pgmq-migration/test/fixtures/pgmq-1.12.0.sql` and the full six-entry 1.13
+ledger against `vendor/pgmq/pgmq-extension/sql/pgmq.sql`. Each comparison permits exactly
+three local function-body deviations: `notify_queue_listeners()`,
+`enable_notify_insert(text,integer)`, and the version-appropriate three- or four-argument
+`create_partitioned`. Retain the body comparison and behavioral re-entry/crash tests; an
+allowlist alone does not prove the hardening survives. Ledger expectations derive from
+`nativeMigrationNames` and `testNativeComponent`.
 
-`pgmq-core/src/Pgmq/Types.hs` is shared by EP-14 and EP-15. EP-14 has landed
-`notifyChannelName` (defined next to `NotifyInsertThrottle`, exported under a
-"Notifications" heading, and re-exported from `pgmq-hasql`'s `Pgmq` umbrella in both of its
-`Pgmq.Types` export blocks). EP-15 is therefore the second lander: it replaces the derived
-`FromJSON QueueName` with validation and must preserve the helper and its umbrella
-re-exports. The reconciliation check is `cabal test all` — this repository has no
-`pgmq-core-test` suite.
+`pgmq-core/src/Pgmq/Types.hs` contains both EP-14's `notifyChannelName` and EP-15's validating
+`FromJSON QueueName`; both are complete and must survive later edits. MasterPlan 2 added
+`QueueMetrics.defaultPartitionLength :: Maybe Int64`: missing on 1.12 or inapplicable on
+ordinary queues is `Nothing`, not zero. This is distinct from EP-15 decoding a SQL NULL
+message body as JSON `null`. Grouped heads and existing partition creation work on 1.12 and
+1.13; explicit premake requires 1.13. Configuration premake is creation-only, as documented
+in the compatibility ADR and `docs/design/018-reconciliation-contract.md`.
 
-`pgmq-hasql/pgmq-hasql.cabal`, `pgmq-hasql/test/Main.hs`, and the package test tree are shared
-by all three plans. Each plan owns registration of its own test module. The final lander runs
-`cabal test all` and reconciles `other-modules` without dropping siblings.
+All three hardening plans registered their test modules. Later validation must retain those
+modules alongside the version matrix and real pg_partman tests. The acceptance commands are:
 
-`CHANGELOG.md` and package changelogs are release-owned artifacts. Each hardening plan records
-the exact entry it needs; MasterPlan 2 EP-12 consolidates those entries, bumps every internal
-bound, performs the full consumer rollout, and cuts 0.5.0.0.
+```bash
+PGMQ_REQUIRE_PARTMAN=1 PGMQ_TEST_SCHEMA_VERSION=1.13.0 cabal test all --test-show-details=direct
+PGMQ_TEST_SCHEMA_VERSION=1.12.0 cabal test pgmq-hasql --test-options='--pattern "GroupedHead"'
+PGMQ_TEST_SCHEMA_VERSION=1.12.0 cabal test pgmq-hasql --test-options='--pattern "Metrics"'
+```
+
+Run in the project partman development environment; migration tests must remain serial.
+These are ongoing regression requirements, not tests rerun for this documentation update.
+See `docs/releases/0.6.0.0-candidate.md` for recorded execution and consumer evidence.
+
+`CHANGELOG.md` and package changelogs already contain the published 0.5.0.0 hardening entries.
+MasterPlan 2 EP-12 owns the new 0.6.0.0 entries, consistent family bounds, and consumer
+validation. Preserve published history and avoid presenting the hardening as newly released
+in 0.6.0.0. Publication of that candidate is separate from this plan update.
 
 
 ## Progress
@@ -145,10 +162,18 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 - [x] EP-14 (2026-08-05): `notifyChannelName` exported from `Pgmq.Types` and the `Pgmq` umbrella; Haddock and design note 006 corrected; `enable_notify_insert` and `create_partitioned` advisory-locked and re-entrant; the concurrent-startup test goes from ~28% failures to zero.
 - [x] EP-15 (2026-08-05): Queue names rejected consistently at both entry paths; `FromJSON` validates via `parseQueueName`; mixed-case remediation (design note 016) preserves topic bindings and notification configuration, proven for the twin and no-twin cases with rerun idempotence by `MixedCaseRemediationSpec`.
 - [x] EP-15 (2026-08-05): `isTransient` whitelists 40001/40P01/55P03/57P01/57P02/57P03/53xxx, pinned in both directions (design note 017); SQL NULL bodies decode as JSON `null`, un-poisoning read batches (design note 014's NULL-cell section).
-- [ ] EP-12 in MasterPlan 2: all hardening changes consolidated into 0.5.0.0; every in-scope consumer bound and component updated and validated.
+- [x] (2026-09-10 reconciliation): hardening shipped in the 2026-08-06 family release 0.5.0.0, as recorded in the root and package changelogs.
+- [x] (2026-09-10 reconciliation): MasterPlan 2 EP-9/10/11 delivered PGMQ 1.12/1.13 support and preserved the hardening through migration 0006 and version-specific regression coverage.
+- [ ] External follow-through, MasterPlan 2 EP-12: finish the 0.6.0.0 candidate and in-scope consumer validation; this does not reopen EP-13/14/15.
 
 
 ## Surprises & Discoveries
+
+The dated July/August entries below retain execution-time observations. Their pending-release,
+vendor-version, and next-migration-number statements are historical, superseded by this refresh.
+
+- Reconciliation (2026-09-10): 0.5.0.0 shipped separately from grouped heads. Current source is the 0.6.0.0 candidate, and the native ledger reaches PGMQ 1.13 through six migrations.
+- Reconciliation (2026-09-10): upstream 1.13 replaces the partition function signature and loses the local parent guards unless migration 0006 runs. Convergence now checks both server versions with the corresponding function identity.
 
 - Verification (2026-07-23): all serious findings reproduced live on PostgreSQL 18.4 with the repo's own migration — including the full PGH-6 crash cycle (immediate shutdown truncates the throttle table; clean restart preserves it; notify demonstrably stalls; re-enable heals).
 - Verification (2026-07-23): PGH-4's "destroys the existing trigger" half is refuted — the function call is one statement, so the 23502 rolls back the internal trigger drop atomically; both trigger and throttle row verified intact after the failure.
@@ -180,6 +205,13 @@ bound, performs the full consumer rollout, and cuts 0.5.0.0.
 
 
 ## Decision Log
+
+- Decision: Treat EP-13/14/15 as shipped hardening, preserve their contracts under PGMQ 1.12/1.13, and leave 0.6.0.0 release ownership with MasterPlan 2 EP-12.
+  Rationale: Published 0.5.0.0 changelogs and the completed upgrade work supersede the original shared-release schedule. Follow the accepted compatibility ADR and version-specific convergence tests; no new child or ADR is needed.
+  Date: 2026-09-10
+
+Earlier entries preserve the original scheduling decisions; the September decision supersedes
+their future-0.5.0.0 release assumptions.
 
 - Decision: Fix NULL semantics in the SQL statements (COALESCE) and/or Haskell types per parameter, not by documenting the current behavior.
   Rationale: "Nothing = unbounded destructive operation" is indefensible as a contract regardless of documentation; the live repros show the blast radius.
@@ -228,16 +260,15 @@ fixed and pinned by tests:
 The durable rules live in design notes 014 (NULL-parameter contract, absence-is-not-
 failure, NULL-cell-is-data), 015 (notification delivery contract), 016 (queue-name
 validation and the mixed-case remediation), and 017 (transient classification). Release
-material for all three plans is staged in the root `CHANGELOG.md` under Unreleased
-(0.5.0.0).
+material for all three plans is published in the 0.5.0.0 root and package changelogs dated
+2026-08-06. The original deferred-release account is superseded: hardening shipped separately
+from grouped heads.
 
-What this MasterPlan deliberately did not do: ship. Per the Decision Log, MasterPlan 2
-EP-12 owns the coordinated 0.5.0.0 release, per-package changelogs, and the
-keiro/shibuya consumer rollout; its Milestone 6 was verified (by EP-15 M3) to carry the
-complete rollout matrix, including the shibuya `setVisibilityTimeoutAt` adaptation and
-the Mori inventory with rei's retained 0.4 pins. Until MasterPlan 2 completes, the
-hardening is on `master` but unreleased — revisit release ownership if the incoming
-service fleet needs it sooner.
+As of 2026-09-10, the current 0.6.0.0 candidate adds PGMQ 1.12/1.13 support while retaining
+these guarantees. MasterPlan 2 EP-9/10/11 are Complete; EP-12 still owns remaining candidate
+and consumer validation. Its [release evidence](../releases/0.6.0.0-candidate.md) distinguishes
+completed checks from remaining work. This documentation reconciliation does not claim a
+0.6.0.0 publication or a newly executed test run.
 
 Retrospective, at the initiative level. The decomposition by defect family held: no plan
 blocked another, and the three integration points that needed active management
@@ -299,3 +330,8 @@ pgmq-hs repository. Incorporated the validation findings for existing `Maybe Mes
 crash-listener lifecycle and libpq types, mixed-case topic-binding preservation, transient
 shutdown SQLSTATEs, complete consumer bounds, shared-file ownership, migration numbering, and
 upstream-version reconciliation. Assigned the single 0.5.0.0 release to MasterPlan 2 EP-12.
+
+2026-09-10: Reconciled the completed hardening with published 0.5.0.0 and the current
+PGMQ 1.12/1.13 work. Updated release ownership, six-entry migration history, the four-argument
+partition override, convergence checkpoints, regression requirements, and child-plan handoffs.
+Retained dated implementation evidence as history; no implementation or release was performed.

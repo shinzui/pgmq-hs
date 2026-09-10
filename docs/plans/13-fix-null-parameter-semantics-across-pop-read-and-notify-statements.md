@@ -6,6 +6,13 @@ kind: exec-plan
 created_at: 2026-07-23T23:12:20Z
 intention: intention_01kz9yszpmejztjbet6k4bvcf7
 master_plan: "docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md"
+provenance:
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T19:03:47Z
+      mode: "update"
+      note: "Refresh completed hardening status and PGMQ 1.12/1.13 migration and release handoffs."
 ---
 
 # Fix NULL parameter semantics across pop read and notify statements
@@ -17,6 +24,15 @@ change.
 
 
 ## Purpose / Big Picture
+
+Current status (2026-09-10): this child is Complete and its hardening shipped in 0.5.0.0
+on 2026-08-06. The implementation milestones and dated evidence below describe the historical
+work, not instructions to repeat it. MasterPlan 2 EP-9/10/11 subsequently delivered PGMQ
+1.12/1.13 support; EP-12 now owns the 0.6.0.0 candidate and remaining consumer validation.
+Preserve published 0.5.0.0 history. See
+[the compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md) and
+[release evidence](../releases/0.6.0.0-candidate.md) for current upgrade and release constraints.
+
 
 The pgmq-hs family (a Haskell client stack for PGMQ, the PostgreSQL Message Queue) exposes
 several optional parameters as `Maybe` fields whose documentation promises a sane default
@@ -50,6 +66,8 @@ directly.
 
 ## Progress
 
+- [x] (2026-09-10) Reconciled the completed 0.5.0.0 hardening with the PGMQ 1.12/1.13 upgrade and 0.6.0.0 release handoff. Documentation inspection only; no tests rerun.
+
 - [x] M1 (2026-08-05): `NullSemanticsSpec` (pgmq-hasql) and the `withNotifyInsert Nothing`
       reconcile test (pgmq-config) written and confirmed **red** against unfixed code,
       reproducing PGH-1 (pop drains queue), PGH-3 (read/readWithPoll lease whole queue),
@@ -80,6 +98,8 @@ directly.
 
 
 ## Surprises & Discoveries
+
+- Reconciliation (2026-09-10): published 0.5.0.0 and the six-entry native ledger supersede the historical release and migration-allocation assumptions below. PGMQ 1.13 needs migration 0006 to preserve partition re-entry after replacing the upstream function signature.
 
 Seeded from the 2026-07 pgmq-hs review verification (2026-07-23, PostgreSQL 18.4, repo's
 own migration):
@@ -200,6 +220,8 @@ M3 (2026-08-05):
 
 ## Decision Log
 
+- Decision (2026-09-10): preserve this shipped hardening as a regression baseline; EP-12 now prepares 0.6.0.0. The former future-0.5.0.0 release instructions are historical. The existing compatibility ADR governs the upgrade; no implementation is reopened.
+
 - Decision: Fix `pop`, `read`, `read_with_poll`, and `enable_notify_insert` NULL semantics
   in the **client statement text** with `COALESCE($n, default)`, keeping the Haskell
   `Maybe` fields, rather than re-creating the SQL functions server-side or making the
@@ -304,16 +326,12 @@ shaped like infrastructure failure. `pgmq-hasql/test/NullSemanticsSpec.hs` and
 place, and `docs/design/014-null-parameter-contract.md` states the rule for the next
 statement someone adds.
 
-What remains, all of it owned elsewhere. No version was bumped and nothing shipped: the
-five `.cabal` files still read 0.4.0.1 and the CHANGELOG entry sits under "Unreleased
-(0.5.0.0)". `docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md`
-owns the single coordinated bump, the changelog consolidation, the consumer-bound rollout,
-and the one-line shibuya-pgmq-adapter change the `Maybe Message` result requires
-(`Internal.hs` lines 198-206 assign `updated.visibilityTime` to an `IORef` and must now
-traverse the `Maybe`). keiro-pgmq needs no source change: its three
-`changeVisibilityTimeout` calls are all under `void $`. The server-side
-`COALESCE(throttle_interval_ms, 250)` guard for non-Haskell callers belongs to plan 14's
-migration, which re-creates `pgmq.enable_notify_insert` anyway.
+Release handoff is complete for this hardening: 0.5.0.0 shipped on 2026-08-06.
+The current five-package candidate is 0.6.0.0, owned by
+`docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md`.
+That plan tracks current consumer validation; do not infer all consumers upgraded merely
+from library publication. EP-14 landed the server-side NULL throttle guard in immutable
+migration 0003. The PGMQ 1.12/1.13 upgrades retain these client and notification contracts.
 
 Lessons. First, the most valuable artifact of milestone 1 was not the red tests but the
 error text they printed: `Failing row contains (cfg_test_43472, null, ...)` settled the
@@ -334,6 +352,13 @@ the audited upgrade. Server-side guards are for callers this repository does not
 
 
 ## Context and Orientation
+
+The current native manifest contains immutable 0001–0003 followed by 0004 (upstream 1.12),
+0005 (upstream 1.13), and 0006 (local four-argument partition re-entry preservation). The
+current vendor is 1.13.0; the tagged 1.12 fixture is
+`pgmq-migration/test/fixtures/pgmq-1.12.0.sql`. The original baseline descriptions below
+explain the completed fix. Use the compatibility ADR for current function identities and
+version-specific acceptance.
 
 This file is in the pgmq-hs repository. Ignore its `dist-newstyle/` build directory. It is a
 Cabal multi-package project; all commands in this plan run from the repository root unless
@@ -751,3 +776,7 @@ fix this plan's `Maybe` change requires.
 the three required pre-existing test updates for the `Maybe Message` API, moved durable
 contract documentation to `docs/design/`, removed stale migration-number reservations, and
 assigned release and consumer work to plan 12.
+
+2026-09-10: Refreshed status, release handoff, and migration context for completed 0.5.0.0
+hardening and the PGMQ 1.12/1.13 upgrade. Historical implementation evidence remains dated;
+current compatibility follows the existing ADR and release work remains with EP-12.
