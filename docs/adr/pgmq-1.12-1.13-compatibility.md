@@ -62,6 +62,14 @@ The upstream ALTER TYPE is not safe for arbitrary replay; idempotence comes from
 ledger. Successful historical payloads must never be rewritten to repair a deployed database.
 Production recovery remains an operator action, outside migration/configuration automation.
 
+SQL acceptance was verified with PostgreSQL 17.10 and pg_partman 5.4.3. The project-specific
+`partman` Nix shell supplies the extension and sets `PGMQ_REQUIRE_PARTMAN=1`. Tests install
+it into disposable databases and cover populated three-entry and 1.12-prefix upgrades,
+queue/archive estimates, preserved IDs/payloads after recovery, and concurrent re-entry.
+Both catalog checkpoints converge with exactly the three planned local body exceptions.
+The underlying SQL runner uses a transaction per migration, so queue-creation traffic must
+wait until the entire suffix is applied, including the local override in 0006.
+
 ## Alternatives
 
 Replacing the baseline breaks legacy checksum imports. Editing vendor SQL destroys provenance.

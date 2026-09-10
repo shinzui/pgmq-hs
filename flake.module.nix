@@ -24,6 +24,7 @@
 {
   perSystem = { system, pkgs, lib, config, ... }:
     let
+      partitionPostgres = pkgs.postgresql.withPackages (ps: [ ps.pg_partman ]);
       haskellPackages = pkgs.haskell.packages.ghc9124.override {
         overrides = import ./nix/haskell-overlay.nix { inherit pkgs; };
       };
@@ -73,6 +74,15 @@
       devShells.default = lib.mkForce (
         config.devShells."ghc9124".overrideAttrs (_: { shellHook = projectShellHook; })
       );
+
+      # Same compiler/tools, with pg_partman available to disposable test servers.
+      devShells.partman = config.devShells."ghc9124".overrideAttrs (old: {
+        nativeBuildInputs = [ partitionPostgres ] ++ (old.nativeBuildInputs or [ ]);
+        shellHook = ''
+          export PATH="${partitionPostgres}/bin:$PATH"
+          export PGMQ_REQUIRE_PARTMAN=1
+        '';
+      });
 
       packages = {
         pgmq-core = haskellPackages.pgmq-core;

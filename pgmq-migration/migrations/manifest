@@ -1,3 +1,6 @@
 0001-install-v1.11.0.sql
 0002-schema-management-comment.sql
 0003-notify-crash-safety-and-locking.sql
+0004-upgrade-v1.12.0.sql
+0005-upgrade-v1.13.0.sql
+0006-preserve-partitioned-reentry-v1.13.0.sql

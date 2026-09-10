@@ -10,7 +10,9 @@ module EphemeralDb
   )
 where
 
+import Control.Monad (filterM, when)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Text.IO qualified as TextIO
 import Database.PostgreSQL.Migrate
   ( defaultRunOptions,
     migrationPlan,
@@ -23,7 +25,10 @@ import EphemeralPg
   )
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as PoolConfig
+import Hasql.Session qualified as Session
 import Pgmq.Migration qualified as Migration
+import System.Directory (doesFileExist)
+import System.Environment (lookupEnv)
 
 -- | Run an action with a temporary PostgreSQL database that has pgmq schema installed
 withPgmqDb :: (Pool.Pool -> IO a) -> IO (Either StartError a)
@@ -35,9 +40,28 @@ withPgmqDb action = withCached $ \db -> do
             PoolConfig.staticConnectionSettings connSettings
           ]
   pool <- Pool.acquire poolConfig
-  component <- either (error . ("Invalid PGMQ migration component: " <>) . show) pure Migration.pgmqMigrations
-  plan <- either (error . ("Invalid PGMQ migration plan: " <>) . show) pure (migrationPlan (component :| []))
-  installResult <- runMigrationPlan defaultRunOptions connSettings plan
-  case installResult of
-    Left migrationErr -> error $ "Migration failed: " <> show migrationErr
-    Right _ -> action pool
+  version <- lookupEnv "PGMQ_TEST_SCHEMA_VERSION"
+  case version of
+    Just "1.12.0" -> do
+      paths <- filterM doesFileExist ["test/fixtures/pgmq-1.12.0.sql", "pgmq-config/test/fixtures/pgmq-1.12.0.sql"]
+      path <- case paths of
+        candidate : _ -> pure candidate
+        [] -> error "Missing packaged PGMQ 1.12.0 test fixture"
+      sql <- TextIO.readFile path
+      Pool.use pool (Session.script sql) >>= either (error . show) pure
+    Nothing -> installNative connSettings
+    Just "1.13.0" -> installNative connSettings
+    Just invalid -> error ("Invalid PGMQ_TEST_SCHEMA_VERSION: " <> invalid)
+  required <- (== Just "1") <$> lookupEnv "PGMQ_REQUIRE_PARTMAN"
+  -- Required runs fail for absent or unusable pg_partman, not just missing metadata.
+  partman <- Pool.use pool (Session.script "CREATE SCHEMA IF NOT EXISTS partman; CREATE EXTENSION IF NOT EXISTS pg_partman SCHEMA partman")
+  case partman of
+    Left err -> when required (error ("PGMQ_REQUIRE_PARTMAN=1: " <> show err))
+    Right () -> pure ()
+  action pool
+  where
+    installNative connSettings = do
+      component <- either (error . ("Invalid PGMQ migration component: " <>) . show) pure Migration.pgmqMigrations
+      plan <- either (error . ("Invalid PGMQ migration plan: " <>) . show) pure (migrationPlan (component :| []))
+      installResult <- runMigrationPlan defaultRunOptions connSettings plan
+      either (error . ("Migration failed: " <>) . show) (const (pure ())) installResult

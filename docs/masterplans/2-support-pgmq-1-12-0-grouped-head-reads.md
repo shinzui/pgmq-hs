@@ -17,6 +17,11 @@ provenance:
       at: 2026-09-10T17:02:21Z
       mode: "update"
       note: "Correct prior unknown attribution: the 2026-09-10 PGMQ planning refresh was authored by gpt-6-astra, verified from this session turn_context metadata."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T17:24:05Z
+      mode: "implement"
+      note: "Implement the released SQL upgrade and coordinate dependent API work."
 ---
 # Support pgmq 1.12 and 1.13: grouped reads, partition controls, and metrics
 
@@ -108,7 +113,7 @@ enough to justify more milestones, but does not require another coordination lay
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 9 | Vendor PGMQ 1.12/1.13 and preserve native upgrade contracts | docs/plans/9-vendor-pgmq-1-12-0-and-add-the-native-schema-migration.md | None | None | Not Started |
+| 9 | Vendor PGMQ 1.12/1.13 and preserve native upgrade contracts | docs/plans/9-vendor-pgmq-1-12-0-and-add-the-native-schema-migration.md | None | None | Complete |
 | 10 | Add grouped heads, premake, and compatible metrics to pgmq-hasql | docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md | EP-9 | None | Not Started |
 | 11 | Expose grouped heads and partition controls through effects and configuration | docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md | EP-10 | None | Not Started |
 | 12 | Expose the complete API and prepare the 0.6.0.0 release | docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md | EP-9, EP-10, EP-11 | None | Not Started |
@@ -225,8 +230,8 @@ are recorded, not automatically brought into scope.
 
 - [x] (2026-09-10) Revalidated both upstream release tags, inspected the complete extension SQL diff and partition documentation, and checked the current Hackage family release.
 - [x] (2026-09-10) Rebased all four children onto completed MasterPlans 3/4 and the three-entry native ledger; recorded the durable upgrade and compatibility decision.
-- [ ] EP-9: vendor 1.13.0 and preserve a tagged 1.12 comparison fixture; append upstream upgrades and the explicit local re-entry override.
-- [ ] EP-9: prove fresh/checkpoint/legacy convergence, immutable history, migrated identities, data-preserving recovery, and required pg_partman execution.
+- [x] (2026-09-10) EP-9: vendored 1.13.0 and preserved a tagged 1.12 comparison fixture; appended upstream upgrades and the explicit local re-entry override.
+- [x] (2026-09-10) EP-9: proved fresh/checkpoint/legacy convergence, immutable history, migrated identities, data-preserving recovery, and required pg_partman execution.
 - [ ] EP-10: grouped-head sessions, premake statement/session, nullable metrics and compatible projections implemented.
 - [ ] EP-10: grouped, polling, metrics and partition-control acceptance passes on the documented versions.
 - [ ] EP-11: plain/traced effects and declarative premake implemented through the shared reconciler.
@@ -237,6 +242,14 @@ are recorded, not automatically brought into scope.
 
 ## Surprises & Discoveries
 
+
+EP-9 implementation: the locked Nix package set supplies PostgreSQL 17.10 and pg_partman
+5.4.3 through the new `partman` shell. All 11 migration tests pass with required partition
+execution; both schema comparisons need exactly the planned body exceptions. The three
+client fixtures now share version-selection semantics and package the exact 1.12 snapshot.
+EP-10 must resolve the expected native 1.13 seven-column metrics decoder failure; all other
+native hasql cases and the full effect/config suites pass. Notification crash testing now
+selects its one observation column explicitly so it can validate the server upgrade independently.
 
 The original July plan correctly found the two grouped functions, but its no-tag claim is now
 historical: 1.12.0 tags the exact old SHA. The 1.13 release notes put the partition changes under
@@ -271,6 +284,11 @@ inspect actual package sources and distinguish direct consumers from project-lev
 ## Decision Log
 
 
+On 2026-09-10 during EP-9 implementation, establish `nix develop .#partman` as the shared
+required-extension test entry point. Keep the metrics-dependent hasql failure visible for
+EP-10 while validating notification crash safety through a scalar observation query. The
+new version fixtures and packaged SQL snapshot are ready for both downstream child plans.
+
 On 2026-09-10, replace the pre-release pin with the released v1.13.0 tag, retain a separate
 1.12 checkpoint, and cover every extension-side change from both releases. The four existing
 plan identities remain stable; scope expands inside the layers that own the affected behavior.
@@ -298,14 +316,17 @@ superseded by this revision.
 ## Outcomes & Retrospective
 
 
-The planning refresh is complete. No implementation is claimed: all four children remain Not
-Started. The coordinated outcome is now full 1.12/1.13 support with real partition verification,
-not only grouped reads. Future completion evidence must include the version/partition matrix,
-consumer results, migration provenance, and remaining deliberate upstream deviations.
+EP-9 is complete: native SQL reaches 1.13 through immutable, provenance-checked upgrades,
+with populated partition recovery and notification regressions verified. EP-10 is next and
+owns the direct APIs and compatible metrics decoder. EP-11 and EP-12 remain Not Started;
+no release or consumer rollout is claimed. Full matrix and consumer gates remain in EP-12.
 
 
 ## Revision Note
 
+
+2026-09-10 implementation: completed EP-9 and its SQL/partition acceptance; recorded the
+versioned fixtures, required-extension environment and metrics decoder handoff to EP-10.
 
 2026-09-10: Refreshed against released v1.12.0/v1.13.0 and published pgmq-hs 0.5.0.0.
 Added premake, nullable default-partition metrics, existing-queue identity migration, re-entry

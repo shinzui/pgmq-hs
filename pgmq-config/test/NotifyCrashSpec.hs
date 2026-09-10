@@ -144,7 +144,8 @@ crashCycle qn ref = do
   bracket (acquirePool db1) Pool.release $ \pool -> do
     throttlesAfterCrash <- listThrottleNames pool
     triggers <- runSession pool (Session.statement (queueTableName qn) insertTriggerCount)
-    metrics <- runSession pool (Sessions.queueMetrics qn)
+    -- Keep the crash regression independent of the expanding metrics record.
+    queueLength <- runSession pool (Session.statement (queueNameToText qn) queueLengthStatement)
 
     let channel = notifyChannelName qn
     notified <- withListener db1 channel $ \conn -> do
@@ -160,7 +161,7 @@ crashCycle qn ref = do
           obsChannel = channel,
           obsThrottlesAfterCrash = throttlesAfterCrash,
           obsTriggersAfterCrash = triggers,
-          obsQueueLengthAfterCrash = metrics ^. #queueLength,
+          obsQueueLengthAfterCrash = queueLength,
           obsNotifyAfterCrash = LibPQ.notifyRelname <$> notified,
           obsThrottlesAfterReconcile = throttlesAfterReconcile
         }
@@ -235,6 +236,13 @@ queueTableName :: QueueName -> Text
 queueTableName qn = "q_" <> T.toLower (queueNameToText qn)
 
 -- | How many insert-notification triggers exist on the given @pgmq@ table.
+queueLengthStatement :: Statement Text Int64
+queueLengthStatement =
+  preparable
+    "SELECT queue_length FROM pgmq.metrics($1)"
+    (E.param (E.nonNullable E.text))
+    (D.singleRow (D.column (D.nonNullable D.int8)))
+
 insertTriggerCount :: Statement Text Int64
 insertTriggerCount = preparable sql encoder decoder
   where

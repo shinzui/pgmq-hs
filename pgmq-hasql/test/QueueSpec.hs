@@ -12,8 +12,9 @@ import Hasql.Statement (Statement, preparable)
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Types qualified as StmtTypes
 import Pgmq.Types (Queue (..), parseQueueName)
+import System.Environment (lookupEnv)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 import TestUtils
   ( assertRight,
     assertSession,
@@ -90,25 +91,33 @@ testListQueues p = testCase "listQueues returns all created queues" $ do
 testCreatePartitionedQueueIsReentrant :: Pool.Pool -> TestTree
 testCreatePartitionedQueueIsReentrant p =
   testCase "createPartitionedQueue is re-entrant (needs pg_partman)" $ do
+    stock <- (== Just "1.12.0") <$> lookupEnv "PGMQ_TEST_SCHEMA_VERSION"
+    required <- (== Just "1") <$> lookupEnv "PGMQ_REQUIRE_PARTMAN"
     available <- assertSession p (Session.statement () pgPartmanAvailable)
-    if not available
-      then putStrLn "    SKIPPED: pg_partman is not available in this PostgreSQL installation"
-      else do
-        qName <- assertRight $ parseQueueName "test_partitioned_reentry"
-        let request =
-              StmtTypes.CreatePartitionedQueue
-                { StmtTypes.queueName = qName,
-                  StmtTypes.partitionInterval = "10000",
-                  StmtTypes.retentionInterval = "100000"
-                }
-        assertSession p (Sessions.createPartitionedQueue request)
-        assertSession p (Sessions.createPartitionedQueue request)
-        cleanupQueue p qName
+    if stock
+      then putStrLn "    SKIPPED: local partition re-entry is a native-ledger contract"
+      else
+        if not available
+          then
+            if required
+              then assertFailure "PGMQ_REQUIRE_PARTMAN=1 but pg_partman is not installed"
+              else putStrLn "    SKIPPED: pg_partman is not installed in this PostgreSQL database"
+          else do
+            qName <- assertRight $ parseQueueName "test_partitioned_reentry"
+            let request =
+                  StmtTypes.CreatePartitionedQueue
+                    { StmtTypes.queueName = qName,
+                      StmtTypes.partitionInterval = "10000",
+                      StmtTypes.retentionInterval = "100000"
+                    }
+            assertSession p (Sessions.createPartitionedQueue request)
+            assertSession p (Sessions.createPartitionedQueue request)
+            cleanupQueue p qName
 
 pgPartmanAvailable :: Statement () Bool
 pgPartmanAvailable = preparable sql E.noParams decoder
   where
-    sql = "select exists (select 1 from pg_available_extensions where name = 'pg_partman')"
+    sql = "select exists (select 1 from pg_extension where extname = 'pg_partman')"
     decoder = D.singleRow (D.column (D.nonNullable D.bool))
 
 testCreateUnloggedQueue :: Pool.Pool -> TestTree

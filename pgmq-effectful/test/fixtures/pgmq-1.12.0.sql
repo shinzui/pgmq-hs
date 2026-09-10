@@ -1,0 +1,1 @@
+../../../pgmq-migration/test/fixtures/pgmq-1.12.0.sql

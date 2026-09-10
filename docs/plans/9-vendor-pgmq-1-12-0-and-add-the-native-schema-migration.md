@@ -18,6 +18,11 @@ provenance:
       at: 2026-09-10T17:02:21Z
       mode: "update"
       note: "Correct prior unknown attribution: the 2026-09-10 PGMQ planning refresh was authored by gpt-6-astra, verified from this session turn_context metadata."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T17:24:05Z
+      mode: "implement"
+      note: "Vendor tagged SQL, append migrations, and validate upgrade contracts."
 ---
 # Vendor PGMQ 1.12/1.13 and preserve native upgrade contracts
 
@@ -49,15 +54,23 @@ to [EP-11](11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.m
 ## Progress
 
 
-- [ ] Milestone 1: vendor released v1.13.0, preserve a v1.12.0 test snapshot and verify source provenance.
-- [ ] Milestone 2: append 1.12, 1.13 and local re-entry migrations without changing existing payloads.
-- [ ] Milestone 3: update provenance/history tests and compare fresh schemas at both version checkpoints.
-- [ ] Milestone 4: provide required pg_partman and schema-version test modes; prove existing-queue identity conversion, spill recovery and re-entry.
-- [ ] Milestone 5: document upgrade/recovery behavior and record passing migration validation.
+- [x] (2026-09-10) Milestone 1: vendored released v1.13.0, preserved a byte-exact v1.12.0 test snapshot and verified source provenance.
+- [x] (2026-09-10) Milestone 2: appended 1.12, 1.13 and local re-entry migrations; original three payload digests unchanged.
+- [x] (2026-09-10) Milestone 3: provenance/history tests and both catalog convergence comparisons pass, including comparator mutation checks.
+- [x] (2026-09-10) Milestone 4 SQL acceptance: PostgreSQL 17.10 / pg_partman 5.4.3 passed populated prefix upgrades, identities, premake, recovery and concurrent re-entry.
+- [x] (2026-09-10) Milestone 4 fixture acceptance: all three clients reject invalid schema versions and required-but-unavailable pg_partman; all four sdists contain regular-file, byte-exact 1.12 fixtures.
+- [x] (2026-09-10) Milestone 5: documented upgrade/recovery behavior; required migration, notification crash and effect/config validation passes. EP-10 owns the remaining metrics decoder mismatch.
 
 
 ## Surprises & Discoveries
 
+
+Implementation: the locked Nix package set already provides pg_partman 5.4.3. A dedicated
+`partman` shell can prepend `postgresql.withPackages` without changing generated Nix wiring.
+Both catalog comparisons pass without any additional deviations. The initial full-family
+run exposed only metrics shape failures: one hasql NULL-semantics test and the shared crash
+fixture used the old seven-column decoder. The crash fixture now selects only queue_length
+so notification crash acceptance does not depend on EP-10's new decoder.
 
 September 10 research verified v1.12.0 at `08ace4087dbf00e51704c5a3d9df2e15fd566127` and
 v1.13.0 at `32c075bb6dbed66a303d1a792393c93e36c09a97`. The former is the old pre-release
@@ -80,6 +93,12 @@ loop actually updates existing partitioned queue tables.
 ## Decision Log
 
 
+On 2026-09-10 during implementation, use a project-specific `partman` shell from the
+existing locked PostgreSQL package set. Share pristine 1.12 fixture bytes through repository
+symlinks that Cabal materializes as regular source-distribution files; keep fixture loading
+local to each client test helper. Use an explicit scalar SQL observation in the notification
+crash test to separate server durability acceptance from EP-10's metrics record work.
+
 The July 14 decisions to preserve the baseline checksum, canary, and legacy 1.11 validator
 remain. The August 5 choice to allocate from the live manifest remains; prior 0003 examples
 and the no-tag rationale are superseded.
@@ -99,9 +118,53 @@ The durable decision is [the 1.12/1.13 ADR](../adr/pgmq-1.12-1.13-compatibility.
 ## Outcomes & Retrospective
 
 
-Planning refreshed on 2026-09-10; implementation has not started. Record exact upstream hashes,
-migration names/checksums, server/pg_partman versions, convergence differences, and test output
-here when implemented. A missing pg_partman environment is incomplete acceptance, not success.
+EP-9 is complete. The SQL implementation passes all 11 migration tests, including real
+partition behavior, on PostgreSQL 17.10 / pg_partman 5.4.3. The vendor update is commit
+`9137048`. Required native runs also pass all 30 effectful and 20 config tests, including
+the real SIGQUIT crash and subsequent notification. Client 1.12 mode passes 73 hasql,
+30 effectful and 20 config tests; local partition re-entry is explicitly skipped in stock
+mode, and the notification-race group runs only on the native ledger. Dedicated crash and
+foreign-queue fixtures still test their own native installations.
+
+The native hasql suite's sole remaining failure is the expected seven-versus-eight-column
+metrics decoder in `pop with qty = Nothing`; EP-10 owns that decoder. The remaining native
+hasql tests pass, including partition re-entry and 200 concurrent notification-enable pairs.
+This is a recorded cross-plan incompatibility, not a full-family green result.
+
+The v1.12 fixture SHA-256 is
+`be087bfcb0ec5e65abb76610249750f2ec8dc757956125a1b40430ce95fc7f0f`.
+New migration SHA-256 digests, in manifest order:
+
+```text
+0004-upgrade-v1.12.0.sql adbd78cfa6f6d093417627ce4ab608a5930d43caf4b7b16d9773a23ff9e3effd
+0005-upgrade-v1.13.0.sql e494ff99e02ff6f4e886ee257421145cb510ad4f950835480896437a7fab41d2
+0006-preserve-partitioned-reentry-v1.13.0.sql 63f34f86679639dd422346767c48e1965e48055869b56c4dc5cbb56744009033
+```
+
+The repeatable required-extension command is:
+
+```bash
+nix develop .#partman --command cabal test pgmq-migration:pgmq-migration-test --test-show-details=direct
+```
+
+The schema comparator has exactly the planned version-specific body exceptions and compares
+all signatures/defaults. Prefix upgrade tests use the actual migration ledger; procedures
+recover queue and archive defaults in separate top-level requests and preserve ID/payload sets.
+
+Additional validation commands:
+
+```bash
+PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-hasql pgmq-effectful pgmq-config --test-show-details=direct
+nix develop .#partman --command cabal test pgmq-config pgmq-effectful --test-show-details=direct
+nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct --test-options='-p "! /pop with qty = Nothing/"'
+cabal sdist pgmq-migration pgmq-hasql pgmq-effectful pgmq-config --output-directory=/tmp/pgmq-ep9-sdist
+nix fmt
+git diff --check
+```
+
+Direct test-executable negative runs also proved invalid-version failure for each client
+and missing-required-partman failure for each client and the migration suite. The ordinary
+migration run passes with an explicit optional partition skip; it is not the partition evidence.
 
 
 ## Context and Orientation
@@ -429,6 +492,11 @@ contracts described above and in the ADR.
 
 ## Revision Note
 
+
+2026-09-10 implementation: completed all five milestones; recorded tagged payload hashes,
+required-partman acceptance, client fixture validation, source-distribution contents and the
+expected metrics decoder handoff to EP-10. Updated the ADR and replaced obsolete per-version
+module instructions with the actual immutable manifest workflow.
 
 2026-09-10: Replaced obsolete pre-release/three-migration instructions with the released
 1.12/1.13 chain, populated upgrade coverage, versioned convergence, and a separate local
