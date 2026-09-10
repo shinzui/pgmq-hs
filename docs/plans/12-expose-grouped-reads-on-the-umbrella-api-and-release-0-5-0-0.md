@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-10T16:47:52Z
       mode: "update"
       note: "Refresh for released PGMQ 1.12/1.13, partition controls and metrics, safe native upgrades, and the 0.6.0.0 release."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T17:02:22Z
+      mode: "update"
+      note: "Correct prior unknown attribution: the 2026-09-10 PGMQ planning refresh was authored by gpt-6-astra, verified from this session turn_context metadata."
 ---
 # Expose the complete API and prepare the 0.6.0.0 release
 
@@ -373,3 +378,7 @@ feature behavior. No new production dependency is introduced by the release plan
 upstream tags. Removed already-completed hardening gates, added all 1.13 APIs/record migrations,
 required real partition and source-distribution validation, and replaced stale consumer bounds
 with current discovery and candidate-based verification. Kept the existing plan path stable.
+
+2026-09-10 (provenance correction): The session's recorded model for the planning refresh was
+`gpt-6-astra`. Added a corrective revision entry with the verified model and `codex-cli`
+harness; retained the earlier `unknown` entry to preserve append-only provenance history.

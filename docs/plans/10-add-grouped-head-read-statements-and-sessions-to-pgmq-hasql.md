@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-10T16:47:51Z
       mode: "update"
       note: "Refresh for released PGMQ 1.12/1.13, partition controls and metrics, safe native upgrades, and the 0.6.0.0 release."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T17:02:21Z
+      mode: "update"
+      note: "Correct prior unknown attribution: the 2026-09-10 PGMQ planning refresh was authored by gpt-6-astra, verified from this session turn_context metadata."
 ---
 # Add grouped heads, premake, and compatible metrics to pgmq-hasql
 
@@ -347,3 +352,7 @@ EP-12 owns the final 0.6.0.0 family bounds.
 nullable metrics and compatible projections. Corrected the old API location and migration
 preflight, strengthened grouped-head discrimination and polling coverage, and specified both
 server versions and mandatory partition validation.
+
+2026-09-10 (provenance correction): The session's recorded model for the planning refresh was
+`gpt-6-astra`. Added a corrective revision entry with the verified model and `codex-cli`
+harness; retained the earlier `unknown` entry to preserve append-only provenance history.

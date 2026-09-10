@@ -13,6 +13,11 @@ provenance:
       at: 2026-09-10T16:47:51Z
       mode: "update"
       note: "Refresh for released PGMQ 1.12/1.13, partition controls and metrics, safe native upgrades, and the 0.6.0.0 release."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T17:02:21Z
+      mode: "update"
+      note: "Correct prior unknown attribution: the 2026-09-10 PGMQ planning refresh was authored by gpt-6-astra, verified from this session turn_context metadata."
 ---
 # Expose grouped heads and partition controls through effects and configuration
 
@@ -308,3 +313,7 @@ OpenTelemetry and test machinery; consult Mori sources before changing dependenc
 premake through the already-extracted shared reconciler, and replaced stale build/tracing
 assumptions with real interpreter, version and partition acceptance. Preserved the existing
 creation API and creation-only reconciliation boundary.
+
+2026-09-10 (provenance correction): The session's recorded model for the planning refresh was
+`gpt-6-astra`. Added a corrective revision entry with the verified model and `codex-cli`
+harness; retained the earlier `unknown` entry to preserve append-only provenance history.

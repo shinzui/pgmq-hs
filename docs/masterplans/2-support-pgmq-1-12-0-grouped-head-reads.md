@@ -12,6 +12,11 @@ provenance:
       at: 2026-09-10T16:47:51Z
       mode: "update"
       note: "Refresh for released PGMQ 1.12/1.13, partition controls and metrics, safe native upgrades, and the 0.6.0.0 release."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T17:02:21Z
+      mode: "update"
+      note: "Correct prior unknown attribution: the 2026-09-10 PGMQ planning refresh was authored by gpt-6-astra, verified from this session turn_context metadata."
 ---
 # Support pgmq 1.12 and 1.13: grouped reads, partition controls, and metrics
 
@@ -306,3 +311,7 @@ consumer results, migration provenance, and remaining deliberate upstream deviat
 Added premake, nullable default-partition metrics, existing-queue identity migration, re-entry
 preservation, real partition recovery tests, and 1.12 client compatibility. Replaced obsolete
 migration counts and release dependencies throughout all children; retained stable file paths.
+
+2026-09-10 (provenance correction): The session's recorded model for the planning refresh was
+`gpt-6-astra`. Added a corrective revision entry with the verified model and `codex-cli`
+harness; retained the earlier `unknown` entry to preserve append-only provenance history.
