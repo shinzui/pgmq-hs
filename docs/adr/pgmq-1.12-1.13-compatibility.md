@@ -46,8 +46,8 @@ both adapters. Like partition and retention intervals, premake applies only when
 queue. Existing queues are neither reconfigured nor reported as having their premake checked.
 This preserves the boundary in [design note 018](../design/018-reconciliation-contract.md).
 
-Prepare the next lockstep release as 0.6.0.0. The exported QueueMetrics, PartitionConfig and
-ReconcileOps changes require migration guidance; preserve all published 0.5.0.0 changelogs.
+Prepare the next lockstep release as 0.6.0.0. The exported QueueMetrics and PartitionConfig changes require migration guidance;
+ReconcileOps is an internal backend record, so its new operation affects internal wiring only; preserve all published 0.5.0.0 changelogs.
 
 ## Consequences and verification
 
@@ -85,6 +85,14 @@ on the same connection. The current pinned driver (`mori://hasql/hasql`) can rep
 26000 on repeats after its first SQLSTATE 42883 because the failed prepare remains cached.
 Compatibility tests use fresh pools for these failure cases. This does not alter the server
 version floor or introduce fallback behavior.
+
+High-level acceptance keeps one reconciliation policy: both adapters select the legacy call
+for Nothing and the explicit call for Just. Tests replace the creation function with an error after creating
+a partitioned queue, then request a different premake and require a clean SkippedQueue with
+unchanged parent settings. This proves the creation-only boundary without adding production
+queries against pg_partman. Plain and traced interpreter tests share behavioral cases, while
+traced cases additionally verify Consumer/receive labels for both grouped-head variants and
+the existing Internal partition-creation span.
 
 ## Alternatives
 

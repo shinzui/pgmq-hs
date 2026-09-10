@@ -27,6 +27,11 @@ provenance:
       at: 2026-09-10T17:42:32Z
       mode: "implement"
       note: "Coordinate EP-10 direct client implementation and version-matrix validation."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T18:20:29Z
+      mode: "implement"
+      note: "Coordinate EP-11 effects and declarative premake implementation."
 ---
 # Support pgmq 1.12 and 1.13: grouped reads, partition controls, and metrics
 
@@ -120,7 +125,7 @@ enough to justify more milestones, but does not require another coordination lay
 |---|-------|------|-----------|-----------|--------|
 | 9 | Vendor PGMQ 1.12/1.13 and preserve native upgrade contracts | docs/plans/9-vendor-pgmq-1-12-0-and-add-the-native-schema-migration.md | None | None | Complete |
 | 10 | Add grouped heads, premake, and compatible metrics to pgmq-hasql | docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md | EP-9 | None | Complete |
-| 11 | Expose grouped heads and partition controls through effects and configuration | docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md | EP-10 | None | Not Started |
+| 11 | Expose grouped heads and partition controls through effects and configuration | docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md | EP-10 | None | Complete |
 | 12 | Expose the complete API and prepare the 0.6.0.0 release | docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md | EP-9, EP-10, EP-11 | None | Not Started |
 
 Statuses are Not Started, In Progress, Complete, or Cancelled. The filenames retain their
@@ -219,8 +224,8 @@ existing three-argument operation; `Just n` calls the new explicit operation. Ex
 `ReconcileOps` and both adapters, not two copies of the reconciliation algorithm.
 Premake applies on creation only, just like partition and retention intervals; an existing
 partitioned queue is skipped without changing or claiming to reconcile those settings.
-The config record and backend record changes, plus the metrics record extension, require a
-breaking package release.
+The public config and metrics record extensions require a breaking package release.
+ReconcileOps is internal; its additional operation changes only built-in adapter wiring.
 
 **Release — EP-12 only.** All five libraries move 0.5.0.0→0.6.0.0 with consistent family
 bounds. `pgmq-bench` keeps its version; update its bounds if necessary. Preserve all published
@@ -239,13 +244,21 @@ are recorded, not automatically brought into scope.
 - [x] (2026-09-10) EP-9: proved fresh/checkpoint/legacy convergence, immutable history, migrated identities, data-preserving recovery, and required pg_partman execution.
 - [x] (2026-09-10) EP-10: grouped-head sessions, premake statement/session, nullable metrics and compatible projections implemented.
 - [x] (2026-09-10) EP-10: grouped, polling, metrics and partition-control acceptance passes on the documented versions.
-- [ ] EP-11: plain/traced effects and declarative premake implemented through the shared reconciler.
-- [ ] EP-11: tracing, nullable metrics and config creation/skip semantics verified.
+- [x] (2026-09-10) EP-11: plain/traced effects and declarative premake implemented through the shared reconciler.
+- [x] (2026-09-10) EP-11: tracing, nullable metrics and config creation/skip semantics verified.
 - [ ] EP-12: umbrella-only API tests, complete operator/API docs and 0.6.0.0 changelogs prepared.
 - [ ] EP-12: required version/partition tests, package builds and in-scope consumer validation green; release candidate committed.
 
 
 ## Surprises & Discoveries
+
+
+EP-11: both effect interpreters and configuration adapters pass the required-partman version
+matrix (native: 38 effectful/26 config; 1.12 selection: 9 effectful/6 config). One initial
+unbounded-concurrency config fixture timed out starting PostgreSQL; -j2 passed all cases.
+An erroring creation function proves existing-queue premake changes issue no creation call.
+ReconcileOps is internal, contrary to the old public-backend migration assumption. EP-12
+now describes two public record migrations, and consumes the new effectful user guide.
 
 
 EP-10 implementation: 88 native 1.13 tests and 14 selected 1.12 tests pass with required
@@ -296,6 +309,14 @@ inspect actual package sources and distinguish direct consumers from project-lev
 ## Decision Log
 
 
+On 2026-09-10 during EP-11 implementation, preserve the planned operation signatures and
+creation-only policy. Share plain/traced behavioral cases, with additional trace assertions;
+use isolated databases for metrics_all and creation-call sentinels. Bound the recorded
+high-level matrix to two test workers to avoid excessive disposable PostgreSQL starts.
+Keep ReconcileOps internal and correct the release handoff rather than inventing a public
+backend API. The compatibility ADR records these lasting boundaries.
+
+
 On 2026-09-10 during EP-10 implementation, keep the planned direct API contract unchanged.
 Isolate database-wide metrics acceptance and unsupported-signature failures at the fixture
 level. The existing compatibility ADR now records these constraints for downstream testing.
@@ -332,12 +353,12 @@ superseded by this revision.
 ## Outcomes & Retrospective
 
 
-EP-9 and EP-10 are complete. Native SQL reaches 1.13 through immutable upgrades, and direct
-clients can use grouped heads, explicit premake and truthful nullable partition estimates.
-The direct layer passes both server-version gates with real pg_partman; dependent libraries
-and test/benchmark binaries compile. EP-11 is next: effects, tracing and declarative premake.
-EP-12 remains Not Started and owns umbrella exports, release preparation and consumer gates.
-No release or consumer rollout is claimed.
+EP-9, EP-10 and EP-11 are complete. Native SQL reaches 1.13 through immutable upgrades;
+direct and effectful clients can use grouped heads, explicit premake and nullable partition
+estimates. Both configuration adapters apply optional premake only at creation and preserve
+existing queue settings. Native and 1.12 high-level tests pass with real pg_partman.
+All family libraries, test binaries and benchmarks compile. EP-12 is the sole remaining
+child, owning umbrella exports, release preparation and consumer validation. No release or consumer rollout is claimed.
 
 
 ## Revision Note
@@ -358,3 +379,7 @@ harness; retained the earlier `unknown` entry to preserve append-only provenance
 2026-09-10 EP-10 implementation: completed direct grouped-head/premake/metrics APIs and the
 required-partman version matrix; recorded mutation evidence, downstream build success,
 metrics fixture isolation and the unchanged interface handoff to EP-11.
+
+2026-09-10 EP-11 implementation: completed effects, traced labels, declarative premake and
+required-partman version acceptance; documented source migration, corrected ReconcileOps
+visibility in the release handoff, and recorded the two-worker fixture constraint.

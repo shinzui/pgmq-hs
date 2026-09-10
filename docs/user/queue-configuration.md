@@ -70,9 +70,26 @@ partitionedQueue :: QueueName -> PartitionConfig -> QueueConfig
 let pc = PartitionConfig
       { partitionInterval = "daily"
       , retentionInterval = "7 days"
+      , premake = Nothing
       }
     cfg = partitionedQueue myQueue pc
 ```
+
+`premake = Nothing` uses the existing three-argument creation call, preserving the
+server default of four premade partitions on both PGMQ 1.12 and 1.13. Set
+`premake = Just 2` to request two premade partitions for both queue and archive;
+this requires PGMQ 1.13 and real pg_partman. Zero and negative counts are server
+errors, and an explicit count on 1.12 fails rather than being ignored.
+
+Partition interval, retention interval, and premake apply only when creating a
+missing queue, through either the direct or effectful adapter. Changing any of
+these settings for an existing partitioned queue reports `SkippedQueue`; its
+settings are neither checked nor changed. Manage existing partition settings
+separately through pg_partman.
+
+When migrating record constructions to the next package release, add
+`premake = Nothing` to preserve the previous behavior. Positional constructions
+become `PartitionConfig "daily" "7 days" Nothing`.
 
 ## Modifiers
 

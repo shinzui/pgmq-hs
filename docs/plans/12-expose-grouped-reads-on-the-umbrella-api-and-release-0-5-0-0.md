@@ -18,6 +18,11 @@ provenance:
       at: 2026-09-10T17:02:22Z
       mode: "update"
       note: "Correct prior unknown attribution: the 2026-09-10 PGMQ planning refresh was authored by gpt-6-astra, verified from this session turn_context metadata."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T18:28:22Z
+      mode: "update"
+      note: "Propagate EP-11 finding that ReconcileOps is internal; correct release migration guidance."
 ---
 # Expose the complete API and prepare the 0.6.0.0 release
 
@@ -36,8 +41,9 @@ default-partition metrics. Declarative configuration can set premake on newly cr
 
 All five packages already released 0.5.0.0 with MasterPlans 3 and 4's hardening/reconciliation
 changes. This initiative prepares **0.6.0.0**, retaining those changes and describing only new
-behavior in new changelog entries. QueueMetrics, PartitionConfig and ReconcileOps record
-extensions require source migration guidance. The previous plan to release 0.5.0.0 is obsolete.
+behavior in new changelog entries. The public QueueMetrics and PartitionConfig record
+extensions require source migration guidance. ReconcileOps is an internal backend record.
+The previous plan to release 0.5.0.0 is obsolete.
 
 Completion includes public API compile tests, version/partition validation, operator guidance
 and builds of the existing in-scope consumers. A release here is a committed repository
@@ -62,6 +68,12 @@ Completed MasterPlans 3 and 4 are protected baselines, not work to repeat.
 ## Surprises & Discoveries
 
 
+EP-11 verified that ReconcileOps is listed under other-modules, not exposed-modules.
+Release migration guidance therefore covers two public record extensions. Its additional
+operation is internal wiring, not a new public backend contract. EP-11 also supplies
+`docs/user/effectful-grouped-reads.md` for integration into the final documentation.
+
+
 On September 10, all five Hackage preferred-version endpoints list 0.5.0.0 as the latest
 normal release. Upstream pgmq-hs tag v0.5.0.0 resolves to
 `fc13d7a432dbc0cf0ad4cd3616e5d7d28fdf5abe`. The root changelog explicitly says grouped-head
@@ -77,6 +89,11 @@ shipped with 0.5.0.0. Do not automatically repeat them or rewrite the published 
 
 
 ## Decision Log
+
+
+2026-09-10 EP-11 handoff: keep ReconcileOps internal and limit public record migration
+guidance to QueueMetrics and PartitionConfig. This corrects visibility assumptions without
+changing the planned release version or expanding the public backend surface.
 
 
 Retain the July 14 all-six umbrella export decision and the single release-owner decision.
@@ -145,7 +162,7 @@ and readGroupedHeadWithPoll, plus ReadGrouped(..) and ReadGroupedWithPoll(..).
 Add createPartitionedQueueWithPremake beside the existing partition creation operation.
 Existing CreatePartitionedQueue(..) and QueueMetrics(..) exports must expose the usable
 record constructors and new metric field. Verify config exports include the expanded
-PartitionConfig and shared-backend interface where already public.
+PartitionConfig. ReconcileOps remains internal; do not expose it for this release.
 
 Write Haddocks explaining the absolute-head rule and visibility leases. Avoid claiming
 expiry advances to the next message, or that the algorithm guarantees exactly-once processing.
@@ -179,8 +196,8 @@ both upstream upgrades, identity conversion, metrics type change, separate local
 preservation and unchanged legacy import. pgmq-core records a coordinated bump if unchanged.
 
 Breaking-change guidance must tell users constructing QueueMetrics to supply the new nullable
-field, users constructing PartitionConfig to supply premake = Nothing or Just n, and custom
-ReconcileOps backends to implement the new explicit creation operation. Existing
+field and users constructing PartitionConfig to supply premake = Nothing or Just n.
+ReconcileOps is internal, so no external backend migration is required. Existing
 CreatePartitionedQueue records need no extra field. Explain 1.12's unavailable metric and the
 1.13 requirement for explicit premake. Do not describe the already-published Maybe Message,
 queue validation or notification changes as newly introduced here.
@@ -336,7 +353,7 @@ released behavior is regression-tested.
 
 Users can import the two umbrellas and reach all six grouped reads, explicit premake, the
 unchanged legacy creation record and nullable default-partition metrics. Config examples
-compile and describe the true creation-only behavior. The three public record changes have
+compile and describe the true creation-only behavior. The two public record changes have
 concrete source migration examples.
 
 All five libraries have consistent 0.6.0.0 versions/bounds, while pgmq-bench retains its own
@@ -382,3 +399,6 @@ with current discovery and candidate-based verification. Kept the existing plan 
 2026-09-10 (provenance correction): The session's recorded model for the planning refresh was
 `gpt-6-astra`. Added a corrective revision entry with the verified model and `codex-cli`
 harness; retained the earlier `unknown` entry to preserve append-only provenance history.
+
+2026-09-10 EP-11 handoff: corrected the public-record migration count and backend visibility
+after inspecting the Cabal module list; retained EP-12 as Not Started.

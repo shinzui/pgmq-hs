@@ -56,7 +56,7 @@ operations emit correctly labelled Consumer spans, and metrics preserve Nothing/
 - [x] (2026-09-10) Milestone 1: grouped-head and explicit-premake effects added and wired through both interpreters.
 - [x] (2026-09-10) Milestone 2: PartitionConfig and the shared reconciler carry optional creation-time premake through both adapters.
 - [x] (2026-09-10) Milestone 3: plain/traced operations, nullable metrics, and config creation/skip semantics verified on the version matrix.
-- [ ] Milestone 4: docs and compatibility notes complete; all high-level package tests pass.
+- [x] (2026-09-10) Milestone 4: docs and compatibility notes complete; all high-level package tests pass.
 
 
 ## Surprises & Discoveries
@@ -92,6 +92,13 @@ makes that operation return promptly, so both grouped SQL labels can be tested c
 ## Decision Log
 
 
+2026-09-10: retain ReconcileOps as an internal implementation boundary; only the public
+PartitionConfig field needs config source-migration guidance. Reuse one behavioral test
+matrix for plain and traced interpreters, with trace-specific assertions, and disposable
+databases for metrics_all and the erroring creation sentinel. Use -j2 in recorded high-level
+acceptance to bound database startup pressure; do not add a production retry workaround.
+
+
 Retain July 14's reuse of grouped parameter types, existing receiveOp convention, and EP-12
 ownership of umbrella exports. On 2026-09-10, add the explicit premake operation symmetrically
 to both interpreters and propagate the expanded metrics result unchanged.
@@ -109,8 +116,27 @@ are part of the new 0.6.0.0 release.
 ## Outcomes & Retrospective
 
 
-Not implemented. Record executed interpreter/config tests, exact pg_partman environment,
-version compatibility results, and source migration examples when complete.
+The implementation is committed as 3d329bb. Both interpreters expose grouped heads and
+explicit premake; the shared reconciler carries Nothing/Just to the correct operation only
+for missing queues. Metrics retain their nullable field in both interpreters. Native 1.13
+passes 38 effectful and 26 configuration tests, including crash recovery and foreign queues.
+The 1.12 selection passes 9 effectful cases (8 new feature cases plus the existing
+compatibility-error classification case) and 6 configuration cases. Required pg_partman
+execution uses nix develop .#partman (PostgreSQL 17.10, pg_partman 5.4.3), with -j2 to
+bound concurrent disposable database startup.
+
+The deliberate wrong trace label failed at db.operation and was restored. Configuration
+skip tests replace the creation function with one that always raises, proving that existing
+queues issue no creation call while retaining both parent settings. No production retry,
+version probe or partition-settings reconciliation was added.
+
+Source migration and operational semantics are documented in
+[queue configuration](../user/queue-configuration.md) and
+[effectful grouped reads](../user/effectful-grouped-reads.md). Add premake = Nothing to
+existing PartitionConfig constructions. ReconcileOps is internal; EP-12's release guidance
+has been corrected accordingly. Umbrella exports and 0.6.0.0 release preparation remain
+EP-12's work. The final family build with tests and benchmarks enabled succeeds;
+only existing benchmark unused-binding/import warnings remain. Formatting and diff checks pass.
 
 
 ## Context and Orientation
@@ -212,7 +238,7 @@ Do not change the existing-queue branch, query pg_partman's settings in producti
 premake drift actions, or reconfigure existing partitions. Document the scope explicitly.
 A new config field means source code constructing PartitionConfig must be migrated; the internal
 ReconcileOps record needs matching wiring in both built-in adapters. It is not exposed
-for custom external backends. Record both for EP-12.
+for custom external backends. Record this distinction for EP-12.
 
 Acceptance: pgmq-config builds through both adapters and the shared engine has one dispatch
 decision. Existing queue reconciliation issues no creation call when only premake differs.
@@ -251,7 +277,7 @@ and both adapters have observable tests for creation-only semantics.
 ### Milestone 4 — Documentation and full verification
 
 
-Update high-level package README/examples and `docs/user/queue-configuration.md` to show
+Update the root README with the effectful guide link, add docs/user/effectful-grouped-reads.md, and update `docs/user/queue-configuration.md` to show
 PartitionConfig with an explicit premake field, explain Nothing versus Just, version requirements,
 and the creation-only boundary. Update design note 018's deliberate non-checks to include
 premake while preserving its existing architectural rationale. Use the new ADR for the
@@ -292,6 +318,34 @@ Intention: intention_01kxgh9geke2dayhx57qp6g9ye
 
 
 ## Validation and Acceptance
+
+
+Executed acceptance commands from the repository root:
+
+```bash
+PGMQ_REQUIRE_PARTMAN=1 PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-effectful pgmq-config --test-options='-j2' --test-show-details=direct
+PGMQ_REQUIRE_PARTMAN=1 PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-effectful pgmq-config --test-options='--pattern compatibility -j2' --test-show-details=direct
+PGMQ_REQUIRE_PARTMAN=1 PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-config --test-options='--pattern compatibility -j2' --test-show-details=direct
+```
+
+Final compilation and formatting also passed:
+
+```bash
+nix develop .#partman --command cabal build all --enable-tests --enable-benchmarks
+nix fmt
+git diff --check
+```
+
+The last compatibility command revalidated the stronger erroring-function skip proof after replacing the
+earlier rename-based proof. The deliberate mutation command selected exactly one test:
+
+```bash
+PGMQ_REQUIRE_PARTMAN=1 nix develop .#partman --command cabal test pgmq-effectful --test-options='--pattern "GroupedHead and partition compatibility traced.heads"' --test-show-details=direct
+```
+
+With the trace descriptor temporarily changed to pgmq.read_grouped_rr, this failed with
+expected pgmq.read_grouped_head versus actual pgmq.read_grouped_rr. The final native run
+above passed after restoration.
 
 
 Both interpreters handle all three new operations, and telemetry labels agree with the invoked
@@ -341,4 +395,8 @@ harness; retained the earlier `unknown` entry to preserve append-only provenance
 2026-09-10 implementation: completed effect/reconciler wiring and behavioral version gates;
 added shared plain/traced feature cases and isolated real-partman config tests. The config
 skip proof replaces creation with an erroring function so cached prepared calls cannot hide
-an accidental creation attempt. Documentation and final family build are being finalized.
+an accidental creation attempt. Documentation now records the source migration, tracing and version contracts.
+
+2026-09-10 completion: all four milestones are complete; final family compilation, native
+regressions, 1.12 acceptance and formatting pass. Durable findings are distilled into the
+compatibility ADR and EP-12 retains sole ownership of remaining release work.

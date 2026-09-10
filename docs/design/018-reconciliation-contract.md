@@ -61,7 +61,10 @@ the API supports it in place; otherwise report and stop.**
 
 ## Deliberate non-checks
 
-Partition interval and retention interval are not compared for partitioned queues.
+Partition interval, retention interval and premake are not compared for partitioned queues.
+All three are creation-time settings. `PartitionConfig.premake = Nothing` uses the legacy
+creation operation; `Just n` uses the explicit PGMQ 1.13 operation. Both adapters share
+this dispatch in the missing-queue branch of the reconciliation engine.
 `pgmq.list_queues()` reports only two booleans per queue (partitioned, unlogged), so
 observing partition settings would mean querying pg_partman's `part_config` table — a
 dependency surface this library does not open. `DetectedQueueTypeDrift` therefore compares
