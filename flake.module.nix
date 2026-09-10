@@ -9,8 +9,8 @@
 #
 # It also carries this project's dev-shell customizations, relocated here so the
 # seihou-managed ./nix/haskell.nix stays pristine and upgrades cleanly:
-#   * `haskellProject.extraDevPackages` — the one extra dev tool (xz) beyond the
-#     module's stock set (the module already ships zlib/just/pkg-config/postgres
+#   * `haskellProject.extraDevPackages` — the extra dev tools (xz, git) beyond
+#     the module's stock set (the module already ships zlib/just/pkg-config/postgres
 #     (+dev)/openssl.dev/jq/process-compose for a postgresql+process-compose
 #     project).
 #   * a `devShells.default` override that replaces the stock postgres shellHook
@@ -66,7 +66,16 @@
     {
       # Extra dev tools beyond the module's stock set (threaded into the shell by
       # the seihou-managed ./nix/haskell.nix via haskellProject.extraDevPackages).
-      haskellProject.extraDevPackages = [ pkgs.xz ];
+      #
+      # git is not decoration. The shell sets DEVELOPER_DIR to the nix Apple SDK,
+      # which carries no git, and PATH still ends with /usr/bin — so a bare `git`
+      # resolves to Apple's xcrun shim and dies with `error: tool 'git' not found`.
+      # An interactive user never sees it: their ~/.nix-profile/bin supplies a real
+      # git ahead of /usr/bin. The mori automation daemon has no such profile on
+      # PATH, so `nix develop --command ./scripts/record-release.sh` failed there
+      # and the v0.6.0.0 release fact went unrecorded. Providing git in the shell
+      # itself makes the two environments agree.
+      haskellProject.extraDevPackages = [ pkgs.xz pkgs.git ];
 
       # Default dev shell = the stock ghc9124 shell with this project's postgres
       # shellHook. Rebuilt from config.devShells.ghc9124 (not overridden here, so
