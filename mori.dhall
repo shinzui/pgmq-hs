@@ -158,13 +158,7 @@ in  Schema.Project::{ project =
       , pkgRef "shinzui" "pg-migrate" "pg-migrate-import-hasql-migration"
       ]
     , docs =
-      [ Schema.DocRef::{ key = "readme"
-        , kind = Schema.DocKind.Reference
-        , audience = Schema.DocAudience.User
-        , description = Some "Project overview and usage examples"
-        , location = Schema.DocLocation.LocalFile "./README.md"
-        }
-      , Schema.DocRef::{ key = "otel-instrumentation"
+      [ Schema.DocRef::{ key = "otel-instrumentation"
         , kind = Schema.DocKind.Guide
         , audience = Schema.DocAudience.User
         , description = Some "OpenTelemetry instrumentation guide"
