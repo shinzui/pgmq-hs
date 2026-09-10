@@ -1,651 +1,310 @@
 ---
 id: 11
 slug: add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful
-title: "Add grouped-head read effects and traced spans to pgmq-effectful"
+title: "Expose grouped heads and partition controls through effects and configuration"
 kind: exec-plan
 created_at: 2026-07-14T14:55:11Z
 intention: "intention_01kxgh9geke2dayhx57qp6g9ye"
 master_plan: "docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md"
+provenance:
+  revisions:
+    - model: "unknown"
+      harness: "codex"
+      at: 2026-09-10T16:47:51Z
+      mode: "update"
+      note: "Refresh for released PGMQ 1.12/1.13, partition controls and metrics, safe native upgrades, and the 0.6.0.0 release."
 ---
+# Expose grouped heads and partition controls through effects and configuration
 
-# Add grouped-head read effects and traced spans to pgmq-effectful
 
-This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
-Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
+This ExecPlan is a living document. Keep Progress, Surprises & Discoveries, Decision Log,
+and Outcomes & Retrospective current.
 
 
 ## Purpose / Big Picture
 
-`pgmq` is a message queue built into PostgreSQL: a queue is a table, and every queue
-operation is a PostgreSQL function such as `pgmq.send(...)` or `pgmq.read(...)`. This
-repository, `pgmq-hs`, is a Haskell client. It has two layers a user might program against:
 
-- `pgmq-hasql` — the direct layer. You call a function, it runs SQL, you get a result.
-- `pgmq-effectful` — the same operations expressed as an *effect*. "Effectful" is a Haskell
-  library for writing code against an abstract capability (here: "this code can use a message
-  queue") and deciding later how that capability is actually provided. The benefit is that the
-  same application code can run against a real database, or against a traced interpreter that
-  emits OpenTelemetry spans for every queue operation, without the application code changing.
+Give effectful and declarative clients the complete PGMQ 1.12/1.13 capability added by
+[EP-10](10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md). A caller can
+read one absolute head per FIFO group, use its polling variant, create a partitioned queue
+with an explicit premake count, and receive nullable default-partition estimates through
+either interpreter. A startup queue configuration can request premake for newly created queues.
 
-pgmq 1.12.0 adds two new operations, and a companion plan
-(`docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md`) has already
-made them available in `pgmq-hasql`. This plan brings them to `pgmq-effectful`, so that users
-of the effect layer get them too — including automatic distributed tracing.
+An effect is a description of an operation whose interpreter decides how to run it. Here both
+interpreters use pgmq-hasql; the traced one also emits OpenTelemetry spans. Declarative queue
+configuration is implemented by one shared reconciliation algorithm parameterized by operations,
+with direct and effectful adapters. Extend those existing boundaries.
 
-The two operations, briefly. Messages in pgmq can carry a JSON header named `x-pgmq-group`;
-all messages sharing a value in that header form a **FIFO group** ("first in, first out"),
-and pgmq guarantees they are consumed in order. `readGroupedHead` returns the single oldest
-message from each of up to `qty` *distinct* groups — never two from the same group — which
-lets a fleet of workers each take the head of a different group so all groups progress in
-parallel while order inside each group is preserved. `readGroupedHeadWithPoll` does the same
-but waits (**long polling**) for up to `maxPollSeconds` when the queue is empty, rather than
-returning empty immediately, so an idle worker can block on the database instead of spinning.
-
-After this plan, a user writing effectful code can call `readGroupedHead someQuery` in any
-`Eff` context that has the `Pgmq` effect, and — if they run it under the *traced* interpreter
-— automatically get an OpenTelemetry span for the operation, with the same attributes as
-every other pgmq read. You will see it working by running a test that asserts a span named
-`receive <queue>` is emitted with the attribute `db.operation = "pgmq.read_grouped_head"`.
-
-**This plan depends on
-`docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md` being
-complete.** The interpreters in this package are thin wrappers that call the session
-functions that plan adds. Without them, this package will not compile. Confirm before you
-start:
-
-```bash
-grep -n "readGroupedHead" pgmq-hasql/src/Pgmq/Hasql/Sessions.hs
-```
-
-That must print the exports and definitions of `readGroupedHead` and
-`readGroupedHeadWithPoll`. If it prints nothing, implement plan 10 first.
+Success means the same configuration creates both pg_partman parents with the requested count
+through either adapter, a later reconcile leaves existing partition settings alone, grouped
+operations emit correctly labelled Consumer spans, and metrics preserve Nothing/Just results.
 
 
 ## Progress
 
-- [ ] Milestone 1: `ReadGroupedHead` and `ReadGroupedHeadWithPoll` constructors added to the `Pgmq` effect GADT in `pgmq-effectful/src/Pgmq/Effectful/Effect.hs`, with smart constructors and exports; `cabal build pgmq-effectful` fails only with the expected non-exhaustive-pattern warnings from the two interpreters.
-- [ ] Milestone 2: plain interpreter arms added in `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs`; `cabal build pgmq-effectful` succeeds.
-- [ ] Milestone 3: traced interpreter arms added in `pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs` emitting Consumer spans with `db.operation` set to the new SQL function names; `cabal build pgmq-effectful` succeeds.
-- [ ] Milestone 4: `TracedInterpreterSpec` test added asserting the span name, span kind, and attributes emitted by `readGroupedHead`; `cabal test pgmq-effectful` passes.
-- [ ] Milestone 5: `nix fmt` clean, `cabal build all && cabal test all` green.
+
+- [ ] Milestone 1: grouped-head and explicit-premake effects added and wired through both interpreters.
+- [ ] Milestone 2: PartitionConfig and the shared reconciler carry optional creation-time premake through both adapters.
+- [ ] Milestone 3: plain/traced operations, nullable metrics, and config creation/skip semantics verified on the version matrix.
+- [ ] Milestone 4: docs and compatibility notes complete; all high-level package tests pass.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+
+MasterPlan 4 has already extracted `Pgmq.Config.Reconcile` and shipped it in 0.5.0.0.
+Adding premake separately to the two adapters would duplicate policy and miss the shared
+`ReconcileOps` contract. Its creation-only boundary must survive this extension.
+
+The existing traced partition arm positionally matches the three-field CreatePartitionedQueue.
+EP-10 deliberately preserves that record, so its arity does not change. The new operation
+carries the explicit Int32 separately. Metrics effects already return the shared QueueMetrics;
+they need no new GADT constructor to expose the appended field.
+
+The former plan skipped polling trace tests on timing grounds. A message already available
+makes that operation return promptly, so both grouped SQL labels can be tested cheaply.
 
 
 ## Decision Log
 
-- Decision: Reuse the existing `ReadGrouped` and `ReadGroupedWithPoll` parameter types for the new effect constructors rather than introducing new ones.
-  Rationale: This mirrors the decision already taken in `pgmq-hasql` (see `docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md`), and it mirrors what the existing code already does — `ReadGroupedRoundRobin :: ReadGrouped -> Pgmq m (Vector Message)` reuses the same type as `ReadGrouped :: ReadGrouped -> Pgmq m (Vector Message)`. The new SQL functions take exactly the same arguments and return exactly the same row type. A structurally identical duplicate type would be a burden for users and a second thing to keep in sync, for no added type safety.
-  Date: 2026-07-14
 
-- Decision: Emit the new operations as OpenTelemetry Consumer spans via the existing `receiveOp` helper, with `db.operation` set to `"pgmq.read_grouped_head"` and `"pgmq.read_grouped_head_with_poll"`.
-  Rationale: These are message-receive operations, exactly like every other pgmq read. The traced interpreter already has a `receiveOp` helper that sets span kind `Consumer` and `messaging.operation = "receive"`, and derives the span *name* from the operation and destination (`"receive my-queue"`), not from the SQL function. The SQL function name lands in the `db.operation` attribute. Following that convention keeps every pgmq read comparable in a trace viewer, which is the point of having a convention. It also means no changes at all are needed to `pgmq-effectful/src/Pgmq/Effectful/Telemetry.hs` — every attribute key involved is already defined there.
-  Date: 2026-07-14
+Retain July 14's reuse of grouped parameter types, existing receiveOp convention, and EP-12
+ownership of umbrella exports. On 2026-09-10, add the explicit premake operation symmetrically
+to both interpreters and propagate the expanded metrics result unchanged.
 
-- Decision: Do not re-export the new functions from the umbrella module `pgmq-effectful/src/Pgmq/Effectful.hs` in this plan.
-  Rationale: No grouped-read function is exported from `Pgmq.Effectful` today; all four existing ones are reachable only via `Pgmq.Effectful.Effect`. That gap is being closed deliberately, for all six grouped reads at once, by `docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md`. Doing part of it here would leave the umbrella API half-migrated.
-  Date: 2026-07-14
+On 2026-09-10, add `premake :: Maybe Int32` to PartitionConfig. Nothing calls the legacy
+three-argument operation; Just n calls the explicit 1.13 operation. No optional SQL NULL is
+bound, no custom value is silently discarded, and existing queue settings are never changed
+or falsely reported as checked. Extend the shared engine and both adapters together.
+
+The durable boundary is documented in [the compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md)
+and [the reconciliation contract](../design/018-reconciliation-contract.md). The record changes
+are part of the new 0.6.0.0 release.
 
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+
+Not implemented. Record executed interpreter/config tests, exact pg_partman environment,
+version compatibility results, and source migration examples when complete.
 
 
 ## Context and Orientation
 
-### Where you are
 
-The repository root is `/Users/shinzui/Keikaku/bokuno/libraries/pgmq-hs-project/pgmq-hs`.
-All paths are relative to it and all commands run from there. Enter the development shell
-first, which provides GHC 9.12.4, `cabal`, and the PostgreSQL binaries the tests need:
-
-```bash
-nix develop
-```
-
-### How an operation is added to `pgmq-effectful`
-
-The package has three moving parts, and adding an operation means touching all three. There
-is a helpful property here: the two interpreters `case` exhaustively over the effect type, so
-**once you add a constructor in step 1, the compiler will tell you exactly what is missing in
-steps 2 and 3.** You cannot forget one.
-
-1. **The effect** — `pgmq-effectful/src/Pgmq/Effectful/Effect.hs` defines a GADT (a data type
-   whose constructors each declare their own result type) named `Pgmq`. Each constructor is
-   one queue operation. Alongside it, each constructor gets a one-line "smart constructor"
-   that a user actually calls.
-
-2. **The plain interpreter** — `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs` maps each
-   constructor to the corresponding `pgmq-hasql` session and runs it on a connection pool.
-
-3. **The traced interpreter** — `pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs`
-   does the same, but wraps each session in an OpenTelemetry span.
-
-Two more modules exist and **need no changes**, which is worth knowing so you do not go
-looking: `pgmq-effectful/src/Pgmq/Effectful/Telemetry.hs` is about propagating trace context
-*through message headers* and re-exporting attribute keys — all the keys we need are already
-there. `pgmq-effectful/src/Pgmq/Effectful/Traced.hs` is a small helper module about that same
-header propagation, unrelated to adding operations.
-
-### The exact code you are copying
-
-**In `pgmq-effectful/src/Pgmq/Effectful/Effect.hs`.** The GADT constructors (lines 168-173):
+Run from the repository root inside `nix develop` and EP-9's required-partman environment.
+This plan starts only after EP-10 has implemented these session names:
 
 ```haskell
-  -- FIFO Read (pgmq 1.8.0+)
-  ReadGrouped :: ReadGrouped -> Pgmq m (Vector Message)
-  ReadGroupedWithPoll :: ReadGroupedWithPoll -> Pgmq m (Vector Message)
-  -- Round-robin FIFO Read (pgmq 1.9.0+)
-  ReadGroupedRoundRobin :: ReadGrouped -> Pgmq m (Vector Message)
-  ReadGroupedRoundRobinWithPoll :: ReadGroupedWithPoll -> Pgmq m (Vector Message)
+readGroupedHead :: ReadGrouped -> Session (Vector Message)
+readGroupedHeadWithPoll :: ReadGroupedWithPoll -> Session (Vector Message)
+createPartitionedQueueWithPremake :: CreatePartitionedQueue -> Int32 -> Session ()
 ```
 
-Note that the constructor `ReadGrouped` and the *type* `ReadGrouped` share a name — that is
-fine and intentional in Haskell (constructors and types live in different namespaces), and
-the existing code relies on it. The smart constructors (lines 305-311):
+ReadGrouped has queueName, visibilityTimeout and qty; ReadGroupedWithPoll adds maxPollSeconds
+and pollIntervalMs. CreatePartitionedQueue retains queueName, partitionInterval and
+retentionInterval. QueueMetrics now includes `defaultPartitionLength :: Maybe Int64`.
 
-```haskell
--- | Round-robin FIFO read (pgmq 1.9.0+)
-readGroupedRoundRobin :: (Pgmq :> es) => ReadGrouped -> Eff es (Vector Message)
-readGroupedRoundRobin = send . ReadGroupedRoundRobin
+`pgmq-effectful/src/Pgmq/Effectful/Effect.hs` owns the Pgmq GADT and smart constructors.
+`Interpreter.hs` runs the sessions. `Interpreter/Traced.hs` uses `withTracedOp` and operation
+descriptors; grouped reads use `receiveOp` with Consumer kind. Span names are
+`receive <queue>` while the SQL function name is emitted in `db.operation` and
+`db.operation.name`. Partition creation follows the existing `pgmq.create_partitioned`
+operation descriptor. `Telemetry.hs` and `Traced.hs` handle propagation/attribute utilities
+and need no new keys for this work.
 
--- | Round-robin FIFO read with polling (pgmq 1.9.0+)
-readGroupedRoundRobinWithPoll :: (Pgmq :> es) => ReadGroupedWithPoll -> Eff es (Vector Message)
-readGroupedRoundRobinWithPoll = send . ReadGroupedRoundRobinWithPoll
-```
+`pgmq-effectful/test/PlainInterpreterSpec.hs` and `TracedInterpreterSpec.hs` test the two
+interpreters. The traced test helpers include setupTracer, mkUniqueQueue, withSemconvOptIn,
+singleSpan, assertAttrText and assertSpanKindConsumer; use the existing error-handling wrapper
+and current test structure rather than copying stale line-number snippets.
 
-`(Pgmq :> es)` reads as "the effect list `es` includes the `Pgmq` effect". `send` is
-`effectful`'s way of turning a constructor into a usable action.
+`pgmq-config/src/Pgmq/Config/Types.hs` defines PartitionConfig and its two existing Text
+fields. `Config/Reconcile.hs` defines ReconcileOps and the only reconciliation algorithm.
+`Config.hs` supplies the direct operations; `Config/Effectful.hs` supplies the effectful
+ones. In `reconcileQueue`'s missing-queue branch the engine constructs CreatePartitionedQueue
+from PartitionConfig. Existing queues are handled before that branch and skipped when their
+three-way shape agrees. Partition interval and retention settings are not observed or repaired;
+premake follows that same boundary.
 
-**In `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs`.** `runPgmq` is one big
-`interpret $ \_ -> \case` with one arm per constructor (lines 126-131):
-
-```haskell
-  -- FIFO Read (pgmq 1.8.0+)
-  ReadGrouped query -> runSession pool $ Sessions.readGrouped query
-  ReadGroupedWithPoll query -> runSession pool $ Sessions.readGroupedWithPoll query
-  -- Round-robin FIFO Read (pgmq 1.9.0+)
-  ReadGroupedRoundRobin query -> runSession pool $ Sessions.readGroupedRoundRobin query
-  ReadGroupedRoundRobinWithPoll query -> runSession pool $ Sessions.readGroupedRoundRobinWithPoll query
-```
-
-`runSession` is a local helper that takes a connection from the pool, runs the session, and
-converts any database failure into the package's `PgmqRuntimeError` type.
-
-**In `pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs`** (lines 241-254):
-
-```haskell
-  -- FIFO Read (Consumer spans)
-  ReadGrouped query@(Types.ReadGrouped qn _ _) ->
-    withTracedOp config pool (receiveOp "pgmq.read_grouped" qn) $
-      Sessions.readGrouped query
-  ReadGroupedWithPoll query@(Types.ReadGroupedWithPoll qn _ _ _ _) ->
-    withTracedOp config pool (receiveOp "pgmq.read_grouped_with_poll" qn) $
-      Sessions.readGroupedWithPoll query
-  -- Round-robin FIFO Read (Consumer spans)
-  ReadGroupedRoundRobin query@(Types.ReadGrouped qn _ _) ->
-    withTracedOp config pool (receiveOp "pgmq.read_grouped_rr" qn) $
-      Sessions.readGroupedRoundRobin query
-  ReadGroupedRoundRobinWithPoll query@(Types.ReadGroupedWithPoll qn _ _ _ _) ->
-    withTracedOp config pool (receiveOp "pgmq.read_grouped_rr_with_poll" qn) $
-      Sessions.readGroupedRoundRobinWithPoll query
-```
-
-Read that carefully, because the pattern-match idiom is the only subtle thing in this plan.
-`query@(Types.ReadGrouped qn _ _)` binds the whole record to `query` (to pass to the session)
-*and* positionally destructures it to pull out the queue name as `qn` (to pass to the span
-helper). The underscores are the fields the span does not need. `Types` is the qualified
-alias for `Pgmq.Hasql.Statements.Types`. **The number of underscores must match the number of
-fields in the record** — three fields for `ReadGrouped` (`queueName`, `visibilityTimeout`,
-`qty`), five for `ReadGroupedWithPoll` (those three plus `maxPollSeconds` and
-`pollIntervalMs`). Get this wrong and GHC will tell you, but the error mentions arity rather
-than field names, so it is worth knowing in advance.
-
-### How tracing works here, in plain terms
-
-OpenTelemetry is a standard for recording what a program did as a tree of timed **spans**.
-Each span has a *name*, a *kind* (is this program producing a message, consuming one, serving
-a request…), and a set of key/value **attributes**. A trace viewer shows them as a timeline.
-
-The traced interpreter builds spans through helpers already defined in
-`pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs`. The one that matters:
-
-```haskell
-receiveOp fn qn = (queueOp fn OTel.Consumer qn) {opMessagingKind = Just "receive"}
-```
-
-So `receiveOp "pgmq.read_grouped_head" queueName` yields an operation description that
-produces a span with:
-
-- **kind** `Consumer` — this program is consuming a message.
-- **attribute** `messaging.operation` = `"receive"`.
-- **attribute** `messaging.system` = `"pgmq"`.
-- **attribute** `messaging.destination.name` = the queue name.
-- **attribute** `db.system` = `"postgresql"`.
-- **attribute** `db.operation` = the string you passed in — this is where
-  `"pgmq.read_grouped_head"` lands.
-- **name** = `"receive <queue name>"` — note carefully: the span name is derived from the
-  messaging operation and the destination, **not** from the SQL function. So a
-  `readGroupedHead` on queue `orders` produces a span named `receive orders`, exactly like a
-  plain `readMessage` on `orders` would. The two are told apart by the `db.operation`
-  attribute. This surprises people; it is the existing convention and this plan follows it.
-
-The only thing you supply is that SQL function name string. All the rest is already built.
-
-### How the tests work
-
-`pgmq-effectful/test/EphemeralDb.hs` starts a throwaway PostgreSQL server (via `ephemeral-pg`)
-and installs the pgmq schema by running this repository's own migrations from the
-`pgmq-migration` package. No external database is involved and nothing you run touches a real
-one. This is the transitive reason plan 9 must land before plan 10 before this plan: the SQL
-function has to exist in the test database.
-
-`pgmq-effectful/test/Main.hs` runs three specs. The relevant one is
-`pgmq-effectful/test/TracedInterpreterSpec.hs`, which captures emitted spans in memory and
-asserts on them. Its existing receive test is your copy target (lines 111-150), and shows every
-helper you need:
-
-```haskell
-              s <- singleSpan receiveSpans "receive"
-              actualSpanName <- spanName s
-              assertEqual
-                "span name carries destination"
-                ("receive " <> queueNameToText queue)
-                actualSpanName
-              assertSpanKindConsumer s
-              assertAttrText s "messaging.system" "pgmq"
-              assertAttrText s "messaging.operation" "receive"
-              assertAttrText s "messaging.destination.name" (queueNameToText queue)
-              assertAttrText s "db.system" "postgresql"
-              assertAttrText s "db.operation" "pgmq.read",
-```
-
-Available helpers in that file: `setupTracer`, `mkUniqueQueue`, `withSemconvOptIn`,
-`spansWithFirstWord`, `singleSpan`, `assertAttrText`, `assertSpanKindConsumer`, `assertRight`.
-
-Note that **no grouped read has any test in `pgmq-effectful` today** — the string "Grouped"
-does not appear in either spec. The test you add in Milestone 4 will be the first, so the plan
-specifies it in full rather than pointing at a sibling.
+`pgmq-config/test/ConfigSpec.hs` and the existing fake/backend tests are the natural test sites.
+Find all PartitionConfig and ReconcileOps constructions, including tests, examples and benchmarks.
+[NULL semantics](../design/014-null-parameter-contract.md) explains why Nothing cannot simply
+be passed as SQL NULL; [reconciliation](../design/018-reconciliation-contract.md) explains why
+premake must not add an unadvertised update to an existing queue.
 
 
 ## Plan of Work
 
-### Milestone 1 — Add the effect constructors
 
-**Scope.** Add two constructors to the `Pgmq` GADT, their smart constructors, and their
-exports, in `pgmq-effectful/src/Pgmq/Effectful/Effect.hs`. At the end of this milestone the
-package will **not** compile cleanly — and that is the point. Both interpreters `case`
-exhaustively over the GADT, so GHC will now report non-exhaustive patterns (or, since the
-package builds with `-Wall`, incomplete-pattern warnings) naming precisely the two arms you
-must add in Milestones 2 and 3. Read those messages; they are your checklist.
+### Milestone 1 — Effects and both interpreters
 
-Add to the export list, after the existing round-robin block (which reads
-`-- ** Round-Robin FIFO Read (pgmq 1.9.0+)` / `readGroupedRoundRobin,` /
-`readGroupedRoundRobinWithPoll,`):
+
+Add exports and these constructors/smart constructors in Effect.hs:
 
 ```haskell
-    -- ** Grouped-Head FIFO Read (pgmq 1.12.0+)
-    readGroupedHead,
-    readGroupedHeadWithPoll,
-```
+-- Constructors inside Pgmq:
+ReadGroupedHead :: ReadGrouped -> Pgmq m (Vector Message)
+ReadGroupedHeadWithPoll :: ReadGroupedWithPoll -> Pgmq m (Vector Message)
+CreatePartitionedQueueWithPremake :: CreatePartitionedQueue -> Int32 -> Pgmq m ()
 
-Add to the GADT, after `ReadGroupedRoundRobinWithPoll`:
-
-```haskell
-  -- Grouped-head FIFO Read (pgmq 1.12.0+)
-  ReadGroupedHead :: ReadGrouped -> Pgmq m (Vector Message)
-  ReadGroupedHeadWithPoll :: ReadGroupedWithPoll -> Pgmq m (Vector Message)
-```
-
-Add the smart constructors, after `readGroupedRoundRobinWithPoll`:
-
-```haskell
--- | Grouped-head FIFO read (pgmq 1.12.0+)
--- Returns the oldest visible message from each of up to @qty@ distinct message
--- groups, at most one message per group. Groups are identified by the
--- @x-pgmq-group@ message header. A group whose head message is currently held by
--- another reader is skipped rather than yielding its second message, which is
--- what preserves ordering within a group.
---
--- Note that @qty@ bounds the number of /groups/ read from, not the number of
--- messages taken from one group.
+-- Smart constructors:
 readGroupedHead :: (Pgmq :> es) => ReadGrouped -> Eff es (Vector Message)
-readGroupedHead = send . ReadGroupedHead
-
--- | Grouped-head FIFO read with long polling (pgmq 1.12.0+)
--- As 'readGroupedHead', but waits up to @maxPollSeconds@ (re-checking every
--- @pollIntervalMs@) for a message to become available instead of returning empty
--- immediately. The wait happens inside PostgreSQL, so a database connection is
--- held for the duration.
 readGroupedHeadWithPoll :: (Pgmq :> es) => ReadGroupedWithPoll -> Eff es (Vector Message)
-readGroupedHeadWithPoll = send . ReadGroupedHeadWithPoll
+createPartitionedQueueWithPremake :: (Pgmq :> es) => CreatePartitionedQueue -> Int32 -> Eff es ()
 ```
 
-The types `ReadGrouped`, `ReadGroupedWithPoll`, `Vector`, and `Message` are already imported
-by this module. No import changes are needed.
+Use send with the matching constructor. Plain arms delegate to the exact EP-10 sessions.
+Traced grouped arms call receiveOp with `pgmq.read_grouped_head` and
+`pgmq.read_grouped_head_with_poll`, using the queue name from the existing argument record.
+The explicit-premake arm delegates to the new session and reuses the original partition
+creation descriptor and SQL label. No new metric effects or operation labels are needed.
 
-**Acceptance.** `cabal build pgmq-effectful` reports incomplete-pattern problems in
-`Interpreter.hs` and `Interpreter/Traced.hs` naming `ReadGroupedHead` and
-`ReadGroupedHeadWithPoll`, and no other errors. Copy those messages into Surprises &
-Discoveries if they are not what you expected.
+Keep the old createPartitionedQueue effect and its three-field match unchanged. Exhaustiveness
+warnings identify missing arms, but are not necessarily compilation errors unless warnings
+are promoted; finish both interpreters before recording a clean milestone. Add Haddocks for
+the version floor, head leases, polling connection occupation, explicit premake and NULL metric
+meaning. A long polling span accurately records its wait.
 
-### Milestone 2 — Wire the plain interpreter
+Acceptance: pgmq-effectful builds without incomplete-pattern warnings, all existing effect
+names remain, and both interpreters execute the new operations.
 
-**Scope.** Add two arms to `runPgmq` in `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs`,
-after the round-robin arms:
 
-```haskell
-  -- Grouped-head FIFO Read (pgmq 1.12.0+)
-  ReadGroupedHead query -> runSession pool $ Sessions.readGroupedHead query
-  ReadGroupedHeadWithPoll query -> runSession pool $ Sessions.readGroupedHeadWithPoll query
-```
+### Milestone 2 — Carry premake through the shared reconciler
 
-`Sessions.readGroupedHead` and `Sessions.readGroupedHeadWithPoll` are the functions added by
-`docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md`. If GHC says
-they do not exist, that plan is not complete — stop and finish it.
 
-**Acceptance.** `cabal build pgmq-effectful` now reports incomplete patterns only in
-`Interpreter/Traced.hs`.
+Append `premake :: !(Maybe Int32)` to PartitionConfig in Config/Types.hs. Keep the existing
+partitionedQueue smart constructor shape, which takes that record. Update all repository
+construction examples to set Nothing unless they deliberately request a custom count.
 
-### Milestone 3 — Wire the traced interpreter
+Extend ReconcileOps with
+`createPartitionedQueueWithPremake :: StmtTypes.CreatePartitionedQueue -> Int32 -> m ()`.
+Wire it in Config.hs to the direct session and in Config/Effectful.hs to the new effect.
+In the shared missing-partitioned-queue branch, construct the same three-field query as
+before; Nothing uses the existing operation, Just n the new one. Do not bind a nullable
+premake parameter or perform a version probe on every call. An explicit option on 1.12
+remains an unsupported-operation database error; omitting it stays compatible.
 
-**Scope.** Add two arms to the traced interpreter in
-`pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs`, after the round-robin arms. This is
-the one place where you supply something genuinely new rather than copying: the SQL function
-name that becomes the `db.operation` attribute.
+Do not change the existing-queue branch, query pg_partman's settings in production, add
+premake drift actions, or reconfigure existing partitions. Document the scope explicitly.
+A new config field means source code constructing PartitionConfig must be migrated; a new
+ReconcileOps field means custom backends must implement it. Record both for EP-12.
 
-```haskell
-  -- Grouped-head FIFO Read (Consumer spans)
-  ReadGroupedHead query@(Types.ReadGrouped qn _ _) ->
-    withTracedOp config pool (receiveOp "pgmq.read_grouped_head" qn) $
-      Sessions.readGroupedHead query
-  ReadGroupedHeadWithPoll query@(Types.ReadGroupedWithPoll qn _ _ _ _) ->
-    withTracedOp config pool (receiveOp "pgmq.read_grouped_head_with_poll" qn) $
-      Sessions.readGroupedHeadWithPoll query
-```
+Acceptance: pgmq-config builds through both adapters and the shared engine has one dispatch
+decision. Existing queue reconciliation issues no creation call when only premake differs.
 
-Mind the underscore counts: three fields for `Types.ReadGrouped`, five for
-`Types.ReadGroupedWithPoll`. See Context and Orientation for why.
 
-The module's header documentation (lines 26-51) enumerates the span kinds and names the
-interpreter emits. Add the two new operations to that list so the documentation does not
-quietly go stale — it is the first thing a user reads to find out what tracing they get.
+### Milestone 3 — Verify public behavior, not just exhaustive matches
 
-**A note on tracing a long poll.** `readGroupedHeadWithPoll` can legitimately hold its span
-open for the full `maxPollSeconds`. In a trace viewer that appears as a long Consumer span
-that did nothing, which looks like a stall but is not. Nothing in the code needs to change for
-this — the span duration is honest — but mention it in the Haddock so the first person to see
-a five-second `receive` span in production does not go hunting for a bug.
 
-**Acceptance.** `cabal build pgmq-effectful` succeeds with no warnings.
+In PlainInterpreterSpec, execute both grouped functions and explicit premake and assert their
+results or parent settings; propagate invalid premake as the existing PgmqRuntimeError rather
+than swallowing it. Test metrics and allQueueMetrics retain Nothing for ordinary queues and
+Just values for 1.13 partitioned queues; repeat the available metrics/grouped selections on
+the 1.12 fixture.
 
-### Milestone 4 — Test that the span is actually emitted
+In TracedInterpreterSpec, seed available grouped messages and test both grouped variants
+without waiting out a long timeout. Assert returned IDs, span name receive <queue>, Consumer
+kind, queue attribute, and both db.operation keys under the semantic-convention mode that
+emits them. Match the correct SQL label for each variant. Test explicit premake through the
+traced interpreter with real pg_partman, asserting the existing creation span convention.
+Ensure metrics retain the same nullable result under tracing. A deliberate wrong label must
+fail its assertion.
 
-**Scope.** Add a test to `pgmq-effectful/test/TracedInterpreterSpec.hs` asserting that
-`readGroupedHead`, run under the traced interpreter, emits the span we expect. This is the
-first grouped-read test in the package.
+For config, exercise both adapters with a new queue and premake Nothing, then another with
+Just 2. Real pg_partman must report the effective setting on queue and archive parents.
+Reconcile the existing queue again after changing only the requested premake: expect
+SkippedQueue, unchanged parent settings and no create call. A shared-engine fake/backend
+test can assert exact operation dispatch, but cannot replace the database proof.
+Explicit zero/negative counts fail on new queues; they are not silently changed to 4.
+On 1.12, Nothing succeeds and Just fails clearly. Preserve other reconciliation behavior,
+including foreign queues, FIFO reporting, notify crash recovery and throttle drift.
 
-The behaviour under test is not "does the read work" — plan 10 already proved that at the
-`pgmq-hasql` layer, and re-proving it here would be redundant. What is unproven, and what
-this test must establish, is that **the traced interpreter attaches the right telemetry to
-this specific operation**. The failure mode being guarded against is a copy-paste slip: an arm
-that runs `Sessions.readGroupedHead` but labels the span `"pgmq.read_grouped_rr"`, which would
-silently mislabel every trace in production while every functional test still passed.
+Acceptance: the high-level suites pass, including a required-partman run with actual execution,
+and both adapters have observable tests for creation-only semantics.
 
-So the assertion that carries the weight is on `db.operation`.
 
-Model the test on the existing receive test (lines 111-150). Create a unique queue with
-`mkUniqueQueue`, send a message carrying an `x-pgmq-group` header, call `readGroupedHead`
-under the traced interpreter with `qty = 1`, then assert against the captured span:
+### Milestone 4 — Documentation and full verification
 
-- the span name is `"receive " <> queueNameToText queue` (**not** the function name — see
-  Context and Orientation);
-- the span kind is `Consumer` (`assertSpanKindConsumer`);
-- `messaging.system` is `"pgmq"`;
-- `messaging.operation` is `"receive"`;
-- `messaging.destination.name` is the queue name;
-- `db.system` is `"postgresql"`;
-- **`db.operation` is `"pgmq.read_grouped_head"`** — the assertion with teeth.
 
-Also assert the read actually returned the message, so the test cannot pass against an
-interpreter arm that emits a correct span while running the wrong session or no session at all.
+Update high-level package README/examples and `docs/user/queue-configuration.md` to show
+PartitionConfig with an explicit premake field, explain Nothing versus Just, version requirements,
+and the creation-only boundary. Update design note 018's deliberate non-checks to include
+premake while preserving its existing architectural rationale. Use the new ADR for the
+cross-layer compatibility decision. Leave final changelogs, versions and umbrellas to EP-12.
 
-Testing the polling variant's span as well is optional and, on balance, not worth it: it would
-add real wall-clock time to the suite to assert one different string, and the arm is
-structurally identical. Skip it, and say so here rather than leaving a reader wondering
-whether it was an oversight.
-
-**Acceptance.** `cabal test pgmq-effectful` passes. Then prove the test bites: temporarily
-change the traced arm's function name string to `"pgmq.read_grouped_rr"`, re-run, and confirm
-the `db.operation` assertion fails. Restore it, and record the observed failure in Surprises &
-Discoveries.
-
-### Milestone 5 — Format and verify the whole project
-
-**Scope.** No new behaviour. The project uses `treefmt` behind a pre-commit hook; committing
-unformatted code makes the hook rewrite the files and fail the commit, forcing you to stage
-and commit again. Run `nix fmt` first and save the round trip.
-
-**Acceptance.** `nix fmt` makes no further changes; `cabal build all` and `cabal test all`
-are green.
+Acceptance: all family packages compile, pgmq-effectful and pgmq-config suites pass, required
+partition tests run, and docs do not imply existing queue settings are reconciled.
 
 
 ## Concrete Steps
 
-All commands run from `/Users/shinzui/Keikaku/bokuno/libraries/pgmq-hs-project/pgmq-hs`
-inside `nix develop`.
 
-**Before starting, confirm the prerequisite:**
+Run from the repository root in the development environment:
 
 ```bash
-grep -n "readGroupedHead" pgmq-hasql/src/Pgmq/Hasql/Sessions.hs
+rg -n 'readGroupedHead|createPartitionedQueueWithPremake' pgmq-hasql/src/Pgmq/Hasql/Sessions.hs
+rg -n 'PartitionConfig|ReconcileOps' pgmq-config pgmq-bench docs/user
+cabal build pgmq-effectful pgmq-config
+cabal test pgmq-effectful pgmq-config --test-show-details=direct
+PGMQ_TEST_SCHEMA_VERSION=1.12.0 cabal test pgmq-effectful --test-options='--pattern "GroupedHead"'
+PGMQ_REQUIRE_PARTMAN=1 PGMQ_TEST_SCHEMA_VERSION=1.13.0 cabal test pgmq-effectful pgmq-config --test-show-details=direct
+cabal build all
+git diff --check
 ```
 
-Expected: several lines, including the export entries and the two definitions. If empty,
-implement `docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md` first.
+Use the exact pg_partman environment entry command recorded by EP-9. Name a 1.12-compatible
+metrics/config test group and record its executed command/count. Do not run native-only
+crash/re-entry assertions on stock upstream fixtures and mistake their expected differences
+for regressions. Do not accept a zero-test pattern match as verification.
 
-**Milestone 1** — edit `pgmq-effectful/src/Pgmq/Effectful/Effect.hs`, then:
-
-```bash
-cabal build pgmq-effectful
-```
-
-Expect failure. The useful part of the output looks like:
+Format and commit scoped files with a Conventional Commit and these trailers:
 
 ```text
-Pgmq/Effectful/Interpreter.hs:93:16: warning: [GHC-62161] [-Wincomplete-patterns]
-    Pattern match(es) are non-exhaustive
-    In a case alternative:
-        Patterns of type ‘Pgmq (Eff localEs) a’ not matched:
-            ReadGroupedHead _
-            ReadGroupedHeadWithPoll _
-```
-
-That listing is your to-do list for Milestones 2 and 3.
-
-**Milestone 2** — edit `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs`, then rebuild. The
-same warning should now name only `Interpreter/Traced.hs`.
-
-**Milestone 3** — edit `pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs`, then:
-
-```bash
-cabal build pgmq-effectful
-```
-
-Expect a clean build with no warnings.
-
-**Milestone 4** — edit `pgmq-effectful/test/TracedInterpreterSpec.hs`, then:
-
-```bash
-cabal test pgmq-effectful
-```
-
-To iterate on just the new test, `tasty` accepts a pattern filter:
-
-```bash
-cabal test pgmq-effectful --test-options='--pattern "GroupedHead"'
-```
-
-**Milestone 5:**
-
-```bash
-nix fmt
-cabal build all
-cabal test all
-```
-
-Commit:
-
-```bash
-git add -A
-git commit -m "$(cat <<'EOF'
-feat(pgmq-effectful): add grouped-head read effects for pgmq 1.12.0
-
-Add ReadGroupedHead and ReadGroupedHeadWithPoll to the Pgmq effect,
-wired through both the plain and traced interpreters. The traced arms
-emit Consumer spans via the existing receiveOp helper, so the operations
-carry the same messaging attributes as every other pgmq read, with
-db.operation distinguishing them.
-
-Both constructors reuse the existing ReadGrouped/ReadGroupedWithPoll
-parameter types, as the round-robin constructors already do.
-
-The traced test asserts db.operation is "pgmq.read_grouped_head", which
-is what catches a copy-paste slip that would otherwise mislabel every
-trace in production while all functional tests still passed.
-
 MasterPlan: docs/masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md
 ExecPlan: docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md
 Intention: intention_01kxgh9geke2dayhx57qp6g9ye
-EOF
-)"
 ```
 
 
 ## Validation and Acceptance
 
-The plan is complete when all of the following hold.
 
-**The effect exposes the two operations with these exact signatures**, from
-`Pgmq.Effectful.Effect`:
+Both interpreters handle all three new operations, and telemetry labels agree with the invoked
+SQL functions. Grouped-head polling has a trace assertion with available messages. Existing
+metrics effects preserve the expanded nullable result.
 
-```haskell
-readGroupedHead :: (Pgmq :> es) => ReadGrouped -> Eff es (Vector Message)
-readGroupedHeadWithPoll :: (Pgmq :> es) => ReadGroupedWithPoll -> Eff es (Vector Message)
-```
-
-**Both interpreters handle them.** The compiler enforces this — the `case` in each
-interpreter is exhaustive over the GADT, so a clean `cabal build pgmq-effectful` with no
-incomplete-pattern warnings *is* the proof. There is nothing further to check by hand.
-
-**The traced interpreter emits a correctly-labelled span.** This is the substantive claim of
-the plan and the thing Milestone 4's test proves. Running `readGroupedHead` on queue `q` under
-the traced interpreter emits exactly one span with name `receive q`, kind `Consumer`, and
-attributes `messaging.system = "pgmq"`, `messaging.operation = "receive"`,
-`messaging.destination.name = q`, `db.system = "postgresql"`, and
-`db.operation = "pgmq.read_grouped_head"`.
-
-**The test cannot pass for the wrong reason.** Verify rather than assume: change the traced
-arm's function-name string to `"pgmq.read_grouped_rr"`, re-run `cabal test pgmq-effectful`,
-and confirm the `db.operation` assertion fails. Restore the string. Paste the failure into
-Surprises & Discoveries. Without this check you have not established that the span assertion
-is doing anything.
-
-**Nothing else regressed.** `cabal build all` and `cabal test all` are green; `nix fmt`
-reports no changes.
-
-**The diff is confined to the expected files.** `git diff --stat` should show only
-`pgmq-effectful/src/Pgmq/Effectful/Effect.hs`,
-`pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs`,
-`pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs`, and
-`pgmq-effectful/test/TracedInterpreterSpec.hs`. If
-`pgmq-effectful/src/Pgmq/Effectful/Telemetry.hs` appears, re-read the Decision Log — every
-attribute key you need is already exported from it.
+Both config adapters pass Nothing through the old creation operation and Just through explicit
+premake on new queues. Repeating reconciliation or changing premake on an existing queue
+leaves settings intact and reports SkippedQueue. The required-partman run proves the configured
+value reached both parent tables. Updated examples compile with the new record fields.
 
 
 ## Idempotence and Recovery
 
-**Every change is additive.** Two new GADT constructors, two new interpreter arms each, one
-new test. Nothing existing is modified or removed, so there is no state to migrate and no way
-to leave the repository in a half-broken state that a `git checkout -- <file>` will not undo.
 
-**The intermediate state is a broken build, by design.** After Milestone 1 the package does
-not compile cleanly. That is not a mistake; it is the exhaustiveness checker handing you the
-list of remaining work. Do not try to make it build by deleting the constructors — just carry
-on to Milestone 2.
-
-**The tests are safe to run repeatedly.** Each spins up its own throwaway PostgreSQL server
-via `ephemeral-pg`; no external or production database is contacted. Queues are created with
-unique names via `mkUniqueQueue`, so repeated and concurrent runs do not collide.
-
-**If the build fails with "Variable not in scope: Sessions.readGroupedHead",** the
-prerequisite plan is not in place. Confirm with the `grep` in Concrete Steps and implement
-`docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md` first.
-
-**If a test fails with "function pgmq.read_grouped_head does not exist",** the SQL migration
-is missing or stale — that is plan 9's territory. The migration SQL is embedded into the
-`pgmq-migration` library at compile time and can go stale in an incremental build; force a
-rebuild:
-
-```bash
-cabal build pgmq-migration --ghc-options=-fforce-recomp
-cabal test pgmq-effectful
-```
-
-**If the traced test sees no spans at all,** that is a test-harness problem rather than a
-problem with your interpreter arm. The spec captures spans in memory via `setupTracer` and
-some assertions depend on `withSemconvOptIn`, which sets the `OTEL_SEMCONV_STABILITY_OPT_IN`
-environment variable that the traced interpreter reads to decide which generation of attribute
-names to emit. Compare your test against the existing receive test (lines 111-150) and make
-sure you wrapped it the same way.
+Use isolated queues and EP-9's disposable/versioned fixtures. Partial config execution retains
+its established retry behavior: completed operations remain, later runs skip existing queues.
+Do not introduce automatic repair of failed creation or changes to existing pg_partman settings.
+Restore only intentional test mutations; preserve unrelated edits. Missing extension support
+must fail required mode. Diagnose missing session names as an incomplete EP-10 handoff.
 
 
 ## Interfaces and Dependencies
 
-**No new package dependencies.** Everything is already a dependency of `pgmq-effectful` or its
-test suite: `effectful-core` supplies `Eff`, `Effect`, `(:>)`, `send`, and `interpret`;
-`pgmq-hasql` supplies the sessions; `hs-opentelemetry-api` supplies the span and attribute
-machinery; `vector` supplies `Vector`; `tasty` / `tasty-hunit` supply the test framework;
-`ephemeral-pg` supplies the throwaway database.
 
-**Modules you will change:**
+EP-10 owns ReadGrouped, ReadGroupedWithPoll, unchanged CreatePartitionedQueue, expanded
+QueueMetrics and the session signatures. EP-11 owns the new effect operations, optional
+PartitionConfig field, ReconcileOps extension, adapters and high-level tests. EP-12 owns
+umbrella re-exports of all grouped functions, explicit premake and the updated types.
 
-- `pgmq-effectful/src/Pgmq/Effectful/Effect.hs` — two GADT constructors, two smart
-  constructors, two export entries.
-- `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs` — two `case` arms.
-- `pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs` — two `case` arms, plus the module
-  header's list of emitted spans.
-- `pgmq-effectful/test/TracedInterpreterSpec.hs` — one test, registered in `tests`.
+No new production library dependency is expected. Use the existing effectful, Hasql,
+OpenTelemetry and test machinery; consult Mori sources before changing dependency APIs.
 
-**Modules you must NOT change, and why:** `pgmq-effectful/src/Pgmq/Effectful/Telemetry.hs`
-already exports every attribute key the new spans use (`messaging_system`,
-`messaging_operation`, `messaging_destination_name`, `db_system`, `db_operation`, and their
-stable-convention counterparts). `pgmq-effectful/src/Pgmq/Effectful/Traced.hs` is about trace
-context propagation through message headers, which is unrelated.
-`pgmq-effectful/src/Pgmq/Effectful.hs` (the umbrella) is intentionally deferred to
-`docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md`.
 
-**What this plan consumes** — supplied by
-`docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md`, and this
-package will not compile without it:
+## Revision Note
 
-```haskell
-Pgmq.Hasql.Sessions.readGroupedHead :: ReadGrouped -> Session (Vector Message)
-Pgmq.Hasql.Sessions.readGroupedHeadWithPoll :: ReadGroupedWithPoll -> Session (Vector Message)
-```
 
-**What this plan hands to the next one.**
-`docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md` re-exports
-these from `Pgmq.Effectful`:
-
-```haskell
-Pgmq.Effectful.Effect.readGroupedHead :: (Pgmq :> es) => ReadGrouped -> Eff es (Vector Message)
-Pgmq.Effectful.Effect.readGroupedHeadWithPoll :: (Pgmq :> es) => ReadGroupedWithPoll -> Eff es (Vector Message)
-```
-
-The names and types above are a contract with plan 12. If you rename them, update that plan
-before you commit.
+2026-09-10: Expanded effects work to explicit premake and nullable metrics, added declarative
+premake through the already-extracted shared reconciler, and replaced stale build/tracing
+assumptions with real interpreter, version and partition acceptance. Preserved the existing
+creation API and creation-only reconciliation boundary.
