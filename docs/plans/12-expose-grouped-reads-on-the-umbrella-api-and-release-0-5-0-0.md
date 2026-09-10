@@ -23,6 +23,11 @@ provenance:
       at: 2026-09-10T18:28:22Z
       mode: "update"
       note: "Propagate EP-11 finding that ReconcileOps is internal; correct release migration guidance."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T18:35:57Z
+      mode: "implement"
+      note: "Implement public exports and coordinated release candidate validation."
 ---
 # Expose the complete API and prepare the 0.6.0.0 release
 
@@ -58,14 +63,35 @@ Completed MasterPlans 3 and 4 are protected baselines, not work to repeat.
 ## Progress
 
 
-- [ ] Milestone 1: umbrella modules export the complete grouped/premake API and compile-only tests prove reachability.
-- [ ] Milestone 2: all five library versions and family bounds move to 0.6.0.0; new changelog entries describe the real changes.
-- [ ] Milestone 3: operator/API documentation explains both server versions, metrics estimates and partition recovery.
+- [x] (2026-09-10) Added complete grouped/premake umbrella exports and registered compile witnesses.
+- [x] (2026-09-10) Milestone 1: both witnesses compile; removing readGroupedHead from a temporary umbrella copy fails with not-in-scope, and restoring it compiles.
+- [x] (2026-09-10) Milestone 2 source edits: all five versions/family bounds are 0.6; six new changelog entries preserve published history byte-for-byte.
+- [x] (2026-09-10) Milestone 2 validation: all libraries, tests and benchmark compile with the 0.6 family.
+- [x] (2026-09-10) Milestone 3: reconciled README, configuration guidance and a source-upgrade guide with existing operator recovery documentation.
 - [ ] Milestone 4: required version/partition matrix and source distributions pass; in-scope consumers build against the candidate.
 - [ ] Milestone 5: release candidate committed with complete evidence and unchanged published history.
 
 
 ## Surprises & Discoveries
+
+Native acceptance passes 12 core, 88 hasql, 38 effectful, 26 config and 11 migration tests.
+The 1.12 selection passes 14 hasql, 9 effectful and 6 config tests. Required pg_partman
+executes on PostgreSQL 17.10 / pg_partman 5.4.3. Passing -j2 to the migration suite was an
+invalid harness choice: its cases share/reset a single database. Serial -j1 passes all 11,
+both locally and from sdists. High-level suites retain their documented two-worker setting.
+
+The Shibuya all-project run passed all 161 adapter examples but exposed two hasql test
+fixture problems: five-digit random queue names collided, returning another test's body,
+and Unicode shrinking generated NUL rejected by PostgreSQL jsonb (22P05). Increase the
+fixture suffix to Word64 and exclude NUL from generated strings; retain Unicode coverage.
+These are test-data corrections, not production behavior or dependency workarounds.
+
+The existing dist-newstyle package index triggers a Cabal 3.16 assertion during configure.
+A separate dist-release directory gets past configuration and is compiling the candidate;
+no dependency bounds or production code were changed to hide the assertion. Consumer
+inventory found additional real Cabal users behind project-only registry references.
+Keiro needs one PartitionConfig constructor update plus bounds in multiple components.
+Its unrelated working-tree plan edits were present before this session and remain untouched.
 
 
 EP-11 verified that ReconcileOps is listed under other-modules, not exposed-modules.
@@ -402,3 +428,6 @@ harness; retained the earlier `unknown` entry to preserve append-only provenance
 
 2026-09-10 EP-11 handoff: corrected the public-record migration count and backend visibility
 after inspecting the Cabal module list; retained EP-12 as Not Started.
+
+2026-09-10 EP-12 implementation: public exports, release metadata and documentation prepared;
+recorded package-integrity evidence and started native, extracted-package and consumer builds.

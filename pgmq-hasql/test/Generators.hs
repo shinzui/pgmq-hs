@@ -14,6 +14,7 @@ import Data.Aeson (Value (..))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Scientific (fromFloatDigits)
+import Data.Text qualified as Text
 import Data.Vector qualified as V
 import Hedgehog (Gen)
 import Hedgehog.Gen qualified as Gen
@@ -86,7 +87,8 @@ genString :: Gen Value
 genString = do
   len <- Gen.int (Range.linear 0 100)
   txt <- Gen.text (Range.singleton len) Gen.unicode
-  pure $ String txt
+  -- PostgreSQL jsonb cannot represent NUL, including while shrinking failures.
+  pure $ String (Text.filter (/= '\0') txt)
 
 genJsonArray :: Gen Value
 genJsonArray = do

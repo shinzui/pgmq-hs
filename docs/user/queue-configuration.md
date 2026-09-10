@@ -205,3 +205,6 @@ Every underlying pgmq operation is idempotent:
 - `pgmq.create_fifo_index()` uses `CREATE INDEX IF NOT EXISTS`
 
 You can safely call `ensureQueues` on every application startup without guards or version checks.
+
+For the coordinated family upgrade and both public record migrations, see
+[upgrading to 0.6](pgmq-0.6-upgrade.md).

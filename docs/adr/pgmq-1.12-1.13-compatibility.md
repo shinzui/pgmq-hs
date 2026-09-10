@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for implementation, 2026-09-10. Implementation is tracked by
+Accepted, 2026-09-10. Implementation is tracked by
 [MasterPlan 2](../masterplans/2-support-pgmq-1-12-0-grouped-head-reads.md).
 This repository has no profiled ADR bundle; this record follows its existing plain-Markdown
 decision convention and introduces no OKF metadata.
@@ -70,6 +70,11 @@ Both catalog checkpoints converge with exactly the three planned local body exce
 The underlying SQL runner uses a transaction per migration, so queue-creation traffic must
 wait until the entire suffix is applied, including the local override in 0006.
 
+Migration acceptance shares a connection and resets a single database, so run that suite
+serially (-j1); the two-worker client recommendation must not be applied globally.
+Property-test queue identifiers need enough entropy for hundreds of concurrent/shrinking
+cases, and JSON round-trip generators must exclude NUL, which PostgreSQL jsonb cannot store.
+
 Metrics tests need a stable database-wide catalog: `metrics_all()` enumerates metadata and
 then queries queue tables, so a concurrent drop can produce SQLSTATE 42P01. Give each metrics
 case its own disposable database rather than sharing unrelated queue-creation/drop fixtures.
@@ -93,6 +98,15 @@ unchanged parent settings. This proves the creation-only boundary without adding
 queries against pg_partman. Plain and traced interpreter tests share behavioral cases, while
 traced cases additionally verify Consumer/receive labels for both grouped-head variants and
 the existing Internal partition-creation span.
+
+Both public umbrellas expose all six grouped operations and both grouped argument records,
+plus old/new partition creation and the nullable metric. Compile witnesses import only the
+owning umbrella so a missing export cannot be masked by internal-module imports. The release
+keeps all five libraries and internal bounds in the 0.6 family while preserving published
+0.5 change history. Consumer validation uses temporary project overrides with concrete local
+candidate packages; those machine-local paths must never become committed source pins.
+Registry project-only edges are discovery hints, not proof that Cabal dependencies are absent.
+See [release evidence](../releases/0.6.0.0-candidate.md) for the actual retained consumer states.
 
 ## Alternatives
 

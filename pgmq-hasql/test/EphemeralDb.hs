@@ -20,7 +20,7 @@ import Control.Monad (filterM, when)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text qualified as T
 import Data.Text.IO qualified as TextIO
-import Data.Word (Word32)
+import Data.Word (Word64)
 import Database.PostgreSQL.Migrate
   ( defaultRunOptions,
     migrationPlan,
@@ -100,7 +100,8 @@ withTestFixture p action = do
 -- | Generate a random queue name for test isolation
 generateTestQueueName :: IO QueueName
 generateTestQueueName = do
-  suffix <- randomRIO (10000 :: Word32, 99999)
+  -- Property tests allocate hundreds of queues; a five-digit namespace collides.
+  suffix <- randomRIO (0 :: Word64, maxBound)
   case parseQueueName ("test_queue_" <> T.pack (show suffix)) of
     Left err -> error $ "Failed to generate queue name: " <> show err
     Right name -> pure name

@@ -1,5 +1,13 @@
 # Revision history for pgmq-config
 
+## 0.6.0.0 -- Unreleased
+
+Breaking: `PartitionConfig` adds `premake :: Maybe Int32`. Supply `Nothing` for the existing
+server default (4), or `Just n` for an explicit count of at least 1 on PGMQ 1.13+.
+Both pool and effect adapters forward the choice through the shared internal `ReconcileOps`.
+Premake is creation-only: existing queue settings are neither changed nor checked for drift.
+`ReconcileOps` remains internal; no external backend migration is required.
+
 ## 0.5.0.0 -- 2026-08-06
 
 The reconciler told three lies about what it had done, and could be taken down at startup

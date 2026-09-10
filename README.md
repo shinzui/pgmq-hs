@@ -2,7 +2,9 @@
 
 Haskell client for [pgmq](https://github.com/tembo-io/pgmq)
 
-**Requires pgmq 1.11.0+** for full functionality (or use `pgmq-migration` to install the schema without the extension).
+**PGMQ 1.12/1.13 supported**: grouped-head reads require 1.12; explicit premake and default-partition estimates require 1.13. `pgmq-migration` installs the complete 1.13 native schema.
+
+See [upgrading to 0.6](docs/user/pgmq-0.6-upgrade.md) for the two record changes, public grouped APIs, compatibility matrix, and partition recovery.
 
 The API may evolve before 1.0.
 
@@ -148,9 +150,9 @@ main = do
 idempotent — every migration reports `AlreadyApplied`.
 
 The component is named `pgmq`, has no dependencies, and contains the exact vendored PGMQ
-1.11 baseline `0001-install-v1.11.0` followed by the additive schema marker
-`0002-schema-management-comment`. Compose it with other components by placing it in their
-dependency-ordered plan.
+1.11 baseline `0001-install-v1.11.0`, schema marker 0002, local hardening 0003,
+upstream 1.12/1.13 upgrades 0004/0005, and local partition re-entry preservation 0006.
+Compose it with other components in their dependency-ordered plan.
 
 ### Importing Existing Installations
 
@@ -213,7 +215,7 @@ main = do
   either (fail . show) print importReport
 
   -- 2. Now run the native plan. The baseline is AlreadyApplied and is not replayed;
-  --    only the 0002 canary is AppliedNow.
+  --    pending migrations 0002 through 0006 are AppliedNow.
   runReport <- runMigrationPlan defaultRunOptions connectionSettings plan
   either (fail . show) print runReport
 ```

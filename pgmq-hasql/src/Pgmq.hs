@@ -3,6 +3,7 @@ module Pgmq
     createQueue,
     dropQueue,
     createPartitionedQueue,
+    createPartitionedQueueWithPremake,
     createUnloggedQueue,
     detachArchive, -- DEPRECATED: no-op, will be removed in pgmq 2.0
 
@@ -40,6 +41,20 @@ module Pgmq
     pop,
     queueMetrics,
     allQueueMetrics,
+
+    -- * FIFO / Grouped Reads
+
+    -- | Head reads (PGMQ 1.12+) lease at most one absolute head per group.
+    -- An invisible head blocks its group; expiry makes that same head eligible.
+    -- Polling occupies a database connection. Leases do not guarantee exactly-once processing.
+    readGrouped,
+    readGroupedWithPoll,
+    readGroupedRoundRobin,
+    readGroupedRoundRobinWithPoll,
+    readGroupedHead,
+    readGroupedHeadWithPoll,
+    ReadGrouped (..),
+    ReadGroupedWithPoll (..),
 
     -- * Topic Routing (pgmq 1.11.0+)
 
@@ -143,6 +158,7 @@ import Pgmq.Hasql.Sessions
     bindTopic,
     changeVisibilityTimeout,
     createPartitionedQueue,
+    createPartitionedQueueWithPremake,
     createQueue,
     createUnloggedQueue,
     deleteAllMessagesFromQueue,
@@ -159,6 +175,12 @@ import Pgmq.Hasql.Sessions
     listTopicBindingsForQueue,
     pop,
     queueMetrics,
+    readGrouped,
+    readGroupedHead,
+    readGroupedHeadWithPoll,
+    readGroupedRoundRobin,
+    readGroupedRoundRobinWithPoll,
+    readGroupedWithPoll,
     readMessage,
     readWithPoll,
     sendMessage,
@@ -192,6 +214,8 @@ import Pgmq.Hasql.Statements.Types
     MessageQuery (..),
     PopMessage (..),
     QueueMetrics (..),
+    ReadGrouped (..),
+    ReadGroupedWithPoll (..),
     ReadMessage (..),
     ReadWithPollMessage (..),
     SendMessage (..),

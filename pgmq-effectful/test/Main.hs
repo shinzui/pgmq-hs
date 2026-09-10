@@ -7,6 +7,7 @@ import EphemeralDb (withPgmqPool)
 import PlainInterpreterSpec qualified
 import Test.Tasty (defaultMain, testGroup)
 import TracedInterpreterSpec qualified
+import UmbrellaExportsSpec ()
 
 main :: IO ()
 main = do

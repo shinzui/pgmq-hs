@@ -1,5 +1,13 @@
 # Revision history for pgmq-effectful
 
+## 0.6.0.0 -- Unreleased
+
+Add grouped-head reads and polling to plain/traced interpreters, with Consumer/receive spans.
+Add explicit premake creation (PGMQ 1.13+) using the existing partition-creation span convention.
+Expose all six grouped reads, their argument records, and explicit premake from `Pgmq.Effectful`.
+The re-exported `QueueMetrics` adds nullable `defaultPartitionLength`; metrics pass through
+unchanged. Users constructing this record must supply the new field.
+
 ## 0.5.0.0 -- 2026-08-06
 
 ### Breaking Changes

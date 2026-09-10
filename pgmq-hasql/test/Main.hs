@@ -20,6 +20,7 @@ import SchemaSpec qualified
 import System.Environment (lookupEnv)
 import Test.Tasty (defaultMain, testGroup)
 import TopicSpec qualified
+import UmbrellaExportsSpec ()
 
 main :: IO ()
 main = do

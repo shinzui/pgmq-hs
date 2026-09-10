@@ -1,5 +1,15 @@
 # Revision history for pgmq-hasql
 
+## 0.6.0.0 -- Unreleased
+
+Add grouped-head reads and polling (PGMQ 1.12+), and expose all six grouped reads and their
+argument records from `Pgmq`. Add `createPartitionedQueueWithPremake` (PGMQ 1.13+), retaining
+the existing three-field `CreatePartitionedQueue` and three-argument operation.
+
+Breaking: `QueueMetrics` adds `defaultPartitionLength :: Maybe Int64`. Record constructors
+must supply the field. Both metrics APIs work on 1.12 and 1.13: `Nothing` means unavailable
+or inapplicable, while `Just n` estimates queue-plus-archive default-partition rows.
+
 ## 0.5.0.0 -- 2026-08-06
 
 ### Breaking Changes

@@ -32,6 +32,11 @@ provenance:
       at: 2026-09-10T18:20:29Z
       mode: "implement"
       note: "Coordinate EP-11 effects and declarative premake implementation."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-10T18:35:57Z
+      mode: "implement"
+      note: "Coordinate final release plan and consumer acceptance."
 ---
 # Support pgmq 1.12 and 1.13: grouped reads, partition controls, and metrics
 
@@ -126,7 +131,7 @@ enough to justify more milestones, but does not require another coordination lay
 | 9 | Vendor PGMQ 1.12/1.13 and preserve native upgrade contracts | docs/plans/9-vendor-pgmq-1-12-0-and-add-the-native-schema-migration.md | None | None | Complete |
 | 10 | Add grouped heads, premake, and compatible metrics to pgmq-hasql | docs/plans/10-add-grouped-head-read-statements-and-sessions-to-pgmq-hasql.md | EP-9 | None | Complete |
 | 11 | Expose grouped heads and partition controls through effects and configuration | docs/plans/11-add-grouped-head-read-effects-and-traced-spans-to-pgmq-effectful.md | EP-10 | None | Complete |
-| 12 | Expose the complete API and prepare the 0.6.0.0 release | docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md | EP-9, EP-10, EP-11 | None | Not Started |
+| 12 | Expose the complete API and prepare the 0.6.0.0 release | docs/plans/12-expose-grouped-reads-on-the-umbrella-api-and-release-0-5-0-0.md | EP-9, EP-10, EP-11 | None | In Progress |
 
 Statuses are Not Started, In Progress, Complete, or Cancelled. The filenames retain their
 historical titles for stable references; the titles and content above describe the current work.
@@ -246,11 +251,18 @@ are recorded, not automatically brought into scope.
 - [x] (2026-09-10) EP-10: grouped, polling, metrics and partition-control acceptance passes on the documented versions.
 - [x] (2026-09-10) EP-11: plain/traced effects and declarative premake implemented through the shared reconciler.
 - [x] (2026-09-10) EP-11: tracing, nullable metrics and config creation/skip semantics verified.
-- [ ] EP-12: umbrella-only API tests, complete operator/API docs and 0.6.0.0 changelogs prepared.
+- [x] (2026-09-10) EP-12: umbrella-only API tests, complete operator/API docs and 0.6.0.0 changelogs prepared.
 - [ ] EP-12: required version/partition tests, package builds and in-scope consumer validation green; release candidate committed.
 
 
 ## Surprises & Discoveries
+
+EP-12: native and extracted-package suites pass 175 cases; the 1.12 selection passes 29.
+Migration cases share a resettable database and require serial execution; the client -j2
+recommendation is not global. Consumer validation exposed hasql test-fixture queue-name
+collisions and unsupported NUL generation during shrinking; the fixtures now use Word64
+suffixes and valid PostgreSQL JSON text. The scoped Shibuya adapter passes 161 examples;
+Keiro validation remains in progress.
 
 
 EP-11: both effect interpreters and configuration adapters pass the required-partman version
@@ -383,3 +395,6 @@ metrics fixture isolation and the unchanged interface handoff to EP-11.
 2026-09-10 EP-11 implementation: completed effects, traced labels, declarative premake and
 required-partman version acceptance; documented source migration, corrected ReconcileOps
 visibility in the release handoff, and recorded the two-worker fixture constraint.
+
+2026-09-10 EP-12: completed public API/release preparation and versioned package acceptance;
+consumer and final extracted-artifact checks are in progress.
