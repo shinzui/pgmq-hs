@@ -6,9 +6,23 @@
 # local ./nix/haskell-overlay.nix (which provides the local pgmq-* packages and
 # the git-pinned hasql / hs-opentelemetry / ephemeral-pg dependencies). It does
 # NOT use the shared haskell-nix registry.
+#
+# It also carries this project's dev-shell customizations, relocated here so the
+# seihou-managed ./nix/haskell.nix stays pristine and upgrades cleanly:
+#   * `haskellProject.extraDevPackages` — the one extra dev tool (xz) beyond the
+#     module's stock set (the module already ships zlib/just/pkg-config/postgres
+#     (+dev)/openssl.dev/jq/process-compose for a postgresql+process-compose
+#     project).
+#   * a `devShells.default` override that replaces the stock postgres shellHook
+#     with this project's own (data under ./.dev/db, a libpq keyword connection
+#     string, and the local benchmark config include). The stock module exposes
+#     no shellHook option, so we rebuild `default` from the stock `ghc9124`
+#     shell via overrideAttrs — inheriting the module's live package set (no
+#     drift) and only swapping the hook. `nix develop .#ghc9124` remains the
+#     plain fleet shell.
 { inputs, ... }:
 {
-  perSystem = { system, pkgs, ... }:
+  perSystem = { system, pkgs, lib, config, ... }:
     let
       haskellPackages = pkgs.haskell.packages.ghc9124.override {
         overrides = import ./nix/haskell-overlay.nix { inherit pkgs; };
@@ -22,8 +36,44 @@
             export HOME=$(mktemp -d)
           '';
         });
+
+      # Project-specific dev-shell shellHook. overrideAttrs replaces the whole
+      # shellHook string, so we re-add mkDevShell's `export LANG` (its only
+      # built-in hook line) and the pre-commit installation ourselves.
+      projectShellHook = ''
+        export LANG=en_US.UTF-8
+        ${config.pre-commit.installationScript}
+
+        # Database paths - all relative to project root
+        export PGHOST="$PWD/.dev/db"
+        export PGDATA="$PGHOST/data"
+        export PGLOG="$PGHOST/postgres.log"
+        export PGDATABASE=pgmq_dev
+
+        # Connection string for application use (libpq key-value format for Unix sockets)
+        export PG_CONNECTION_STRING="host=$PGHOST dbname=$PGDATABASE"
+
+        # Initialize database cluster on first entry
+        if [ ! -d $PGDATA ]; then
+          mkdir -p $PGHOST
+          initdb --auth=trust --no-locale --encoding=UTF8
+          # Include benchmark config for local development
+          echo "include = '$PWD/config/postgresql-benchmark.conf'" >> $PGDATA/postgresql.conf
+        fi
+      '';
     in
     {
+      # Extra dev tools beyond the module's stock set (threaded into the shell by
+      # the seihou-managed ./nix/haskell.nix via haskellProject.extraDevPackages).
+      haskellProject.extraDevPackages = [ pkgs.xz ];
+
+      # Default dev shell = the stock ghc9124 shell with this project's postgres
+      # shellHook. Rebuilt from config.devShells.ghc9124 (not overridden here, so
+      # no recursion) to inherit the module's live package set.
+      devShells.default = lib.mkForce (
+        config.devShells."ghc9124".overrideAttrs (_: { shellHook = projectShellHook; })
+      );
+
       packages = {
         pgmq-core = haskellPackages.pgmq-core;
         pgmq-hasql = haskellPackages.pgmq-hasql;
