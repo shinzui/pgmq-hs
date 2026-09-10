@@ -7,11 +7,8 @@ packages:
   pgmq-bench
 
 with-compiler: ghc-9.12.4
-
 test-show-details: direct
-
 tests: True
-
 benchmarks: True
 
 package pg-migrate
