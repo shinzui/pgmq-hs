@@ -1,0 +1,2 @@
+# The tagged upstream fixture is byte-exact, including two trailing spaces.
+pgmq-migration/test/fixtures/pgmq-1.12.0.sql -text whitespace=-blank-at-eol

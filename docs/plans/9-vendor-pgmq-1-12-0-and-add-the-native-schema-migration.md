@@ -72,6 +72,10 @@ run exposed only metrics shape failures: one hasql NULL-semantics test and the s
 fixture used the old seven-column decoder. The crash fixture now selects only queue_length
 so notification crash acceptance does not depend on EP-10's new decoder.
 
+The pristine 1.12 fixture contains two upstream trailing spaces. A file-specific
+`.gitattributes` rule disables end-of-line conversion and trailing-space diagnostics only
+for that fixture, preserving its verified bytes while keeping ordinary patch checks strict.
+
 September 10 research verified v1.12.0 at `08ace4087dbf00e51704c5a3d9df2e15fd566127` and
 v1.13.0 at `32c075bb6dbed66a303d1a792393c93e36c09a97`. The former is the old pre-release
 pin, now tagged. The latter is the released target, not upstream main.
