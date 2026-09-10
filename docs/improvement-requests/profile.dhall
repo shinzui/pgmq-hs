@@ -1,6 +1,6 @@
 --| Cross-repository improvement-request profile.
 let Profiles =
-      https://raw.githubusercontent.com/shinzui/okf-profiles/v0.10.0/package.dhall
-        sha256:c6882a5cb6ece28027f5f9d219d323cff64f131b97ecbf536ed54d77263f5edf
+      https://raw.githubusercontent.com/shinzui/okf-profiles/v0.12.0/package.dhall
+        sha256:97867b2364b6f9604ad6678ba246b704e1e16054c1ecebecc64db4e92c33b754
 
 in  Profiles.coordination.improvementRequests
