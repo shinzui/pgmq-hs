@@ -124,6 +124,31 @@ For EACH package, in dependency order (pgmq-core → pgmq-hasql → pgmq-migrati
 
 The Hackage URLs follow the pattern: `https://hackage.haskell.org/package/<pkg>-<version>`
 
+### 7. Create the GitHub release
+
+Every release MUST have a matching GitHub release on the `origin` remote
+(`github.com/shinzui/pgmq-hs`); a pushed tag alone is not a release.
+
+1. Confirm the tag is on the remote: `git ls-remote --tags origin | grep v<version>`.
+2. Check the release does not already exist: `gh release view v<version>`.
+3. Write the release notes to a scratch file, built from the changelog entries for this
+   version:
+   - Open with the root `CHANGELOG.md` summary paragraph for the version, prefixed with
+     "All packages share the <version> version."
+   - Then `### Breaking Changes`, `### New Features`, `### Bug Fixes`, `### Other Changes`
+     — same categories and wording as the changelogs, attributed per package
+     (`* **pgmq-hasql**: ...`). Include only categories that have entries.
+   - Link any upgrade guide by absolute URL pinned to the tag, e.g.
+     `https://github.com/shinzui/pgmq-hs/blob/v<version>/docs/user/<guide>.md` — relative
+     repo paths do not resolve in release notes.
+   - Close with a `### Hackage` table of the five package URLs for this version.
+4. Create it:
+   `gh release create v<version> --title "v<version>" --notes-file <file> --verify-tag --latest`
+5. Report the release URL.
+
+Run this after the Hackage uploads succeed, so the notes' Hackage links resolve. If an
+upload failed and the release was aborted, do not create the GitHub release.
+
 After all packages are published, present a summary:
 
 | Package | Version | Hackage URL |
@@ -134,11 +159,14 @@ After all packages are published, present a summary:
 | pgmq-effectful | X.Y.Z.W | https://hackage.haskell.org/package/pgmq-effectful-X.Y.Z.W |
 | pgmq-config | X.Y.Z.W | https://hackage.haskell.org/package/pgmq-config-X.Y.Z.W |
 
+Plus the GitHub release URL: `https://github.com/shinzui/pgmq-hs/releases/tag/vX.Y.Z.W`
+
 ## Important
 
 - Always ask the user to confirm the version bump and changelogs before committing.
 - Always publish in dependency order: pgmq-core → pgmq-hasql → pgmq-migration → pgmq-effectful → pgmq-config.
 - Never skip `cabal check`, tests, or `nix build`.
+- A release is not complete until the GitHub release exists (step 7), not merely the git tag.
 - If any step fails (including `nix build`), stop and report the error rather than continuing.
 - If a Hackage upload fails for one package, do NOT continue uploading subsequent packages that depend on it.
 - Run `nix fmt` before committing to ensure proper formatting.
