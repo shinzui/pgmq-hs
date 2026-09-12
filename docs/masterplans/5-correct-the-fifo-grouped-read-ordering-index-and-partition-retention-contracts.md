@@ -10,275 +10,213 @@ provenance:
     model: "claude-opus-5[1m]"
     harness: "claude-code"
     at: 2026-09-12T14:23:07Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-12T15:04:18Z
+      mode: "update"
+      note: "Validated against repository SQL, tests and ADRs; corrected native/stock scope, ledger coordination, index evidence and retention contracts."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-12T15:04:18Z
+      verdict: "comments"
+      note: "Repository review findings applied in this revision; SQL regressions and performance measurements remain explicit implementation acceptance work."
 ---
 
 # Correct the FIFO grouped-read ordering, index, and partition-retention contracts
 
-This MasterPlan is a living document. The sections Progress, Surprises & Discoveries,
-Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
-If durable project context changes, update or create ADRs in docs/adr/ in the same change.
-
+This MasterPlan is a living document. Keep Progress, Surprises & Discoveries, Decision Log,
+and Outcomes & Retrospective current. This revision validates and updates the plan; it does
+not implement the SQL changes.
 
 ## Vision & Scope
 
-PGMQ's grouped reads and its FIFO index are the ordering primitives underneath every FIFO
-consumer of this repository — `mori://shinzui/keiro` (package `keiro-pgmq`) and
-`mori://shinzui/shibuya-pgmq-adapter`. The July 2026 keiro-pgmq review catalogued seven findings
-against that stack as
+
+Give native PGMQ installations a defined grouped-read result order, measure and improve the
+optional FIFO index where evidence supports it, and document partition retention accurately.
+The motivating findings are PGQ-2, PGQ-5, and the server-documentation half of PGQ-4 from
 `mori://shinzui/keiro/masterplans/17-harden-keiro-pgmq-fifo-ordering-dlq-operator-paths-and-provisioning-surfaced-by-the-2026-07-pgmq-review`.
-Three of them are defects in *this* repository's SQL and documentation rather than in keiro's
-Haskell, and keiro relocated them here on 2026-09-12 (see that MasterPlan's Decision Log and the
-Surprises entry it recorded the same day). This MasterPlan owns them. The four findings that live
-in `keiro-pgmq/src` stay with keiro.
+Consumer processing, DLQ handling and retention policy remain owned by that project, including
+`mori://shinzui/keiro/plans/116-enforce-fifo-group-ordering-under-failure-and-batched-consumption`,
+`mori://shinzui/keiro/plans/117-preserve-headers-on-dlq-redrive-and-make-archive-and-purge-visibility-safe`,
+and `mori://shinzui/keiro/plans/118-correct-partitioned-retention-semantics-and-the-fifo-index`.
 
-The three relocated defects, all re-verified against the vendored PGMQ 1.13.0 in
-`vendor/pgmq/pgmq-extension/sql/pgmq.sql` on 2026-09-12:
+Repository validation on 2026-09-12 confirms the underlying concerns. In
+`vendor/pgmq/pgmq-extension/sql/pgmq.sql`, `read_grouped` and `read_grouped_head` end in
+unordered `UPDATE ... RETURNING`; `read_grouped_rr` already ends in an ordered SELECT.
+The FIFO helper creates a GIN index on headers, which does not index the extracted group-key
+expression used by grouped reads. This does not prove every node is a sequential scan:
+existing message-ID and visibility indexes can still participate. A replacement index's
+benefit and remaining full-backlog work must be measured rather than assumed.
 
-- **PGQ-2 — grouped reads have no defined return order.** `pgmq.read_grouped` (vendored SQL from
-  line 381) ends in `UPDATE pgmq.%I m SET ... FROM selected_messages sm WHERE m.msg_id = sm.msg_id
-  RETURNING ...`. The `ORDER BY msg_id` inside the `selected_messages` CTE does not constrain the
-  `UPDATE`'s output, so the batch a client receives is in plan-dependent order. `read_grouped_head`
-  (line 245) has the same shape. A consumer that trusts row order to be send order — which
-  "FIFO" invites — is trusting the planner. `read_grouped_rr` already carries a
-  `selection_order` column for exactly this reason, so the repository is internally inconsistent.
-- **PGQ-5 — the FIFO index cannot serve the grouped-read predicates.**
-  `pgmq._create_fifo_index_if_not_exists` (line 1547) executes
-  `CREATE INDEX IF NOT EXISTS %I ON pgmq.%I USING GIN (headers)`. A jsonb GIN index serves the
-  containment and existence operator classes (`@>`, `?`, `?|`, `?&`). Every grouped read instead
-  executes `COALESCE(headers->>'x-pgmq-group', '_default_fifo_group')` extraction equality, a
-  `GROUP BY` on that expression, and `MIN(msg_id)` per group. None of that can use a GIN index on
-  `headers`, so the grouped reads stay full table scans no matter how many times
-  `pgmq.create_fifo_index` is called — while that function's own comment advertises "a GIN index on
-  the headers column to improve FIFO read performance" and
-  [`docs/design/008-fifo-read.md`](../design/008-fifo-read.md) repeats the claim as "FIFO index for
-  better performance". At fleet polling cadence against a large backlog this is an O(N)-per-poll
-  tax the documentation says is already paid.
-- **PGQ-4 (upstream half) — partitioned retention silently drops unprocessed work.**
-  `pgmq.create_partitioned` writes `retention_keep_table = false` into pg_partman's `part_config`
-  for the queue table (vendored line 1449) and for the archive table (line 1519). pg_partman
-  therefore *drops whole partitions* once they age past `retention_interval`, with no regard for
-  whether their messages were read, and the same rule expires archived rows. A consumer outage or
-  backlog longer than the retention interval is bulk message loss. Nothing in this repository's
-  documentation says so.
+Both the vendored `create_partitioned` and local migration 0006 set
+`retention_keep_table = false` for queue and archive parents. Maintenance can therefore
+destroy unread and in-flight rows in eligible partitions. Time partitioning uses
+`enqueued_at` for queues and `archived_at` for archives; numeric partitioning uses `msg_id`
+for both. Retention is partition-level maintenance, not a per-message expiry timer or
+acknowledgement policy. An outage can cause loss, but does not guarantee deletion at an
+exact elapsed interval. Operator overrides and failed or unscheduled maintenance affect
+what happens.
 
-After this initiative: both grouped reads return each batch in a documented, deterministic order;
-`pgmq.create_fifo_index` builds an index the grouped-read predicates actually use, proven by
-`EXPLAIN` against a seeded queue rather than asserted; the FIFO reconciliation surface still
-reports index state truthfully after that change; and
-[`docs/design/008-fifo-read.md`](../design/008-fifo-read.md) states the real ordering contract —
-including that strict per-group FIFO under a batch larger than one message wants PGMQ 1.12's
-`read_grouped_head`, not `read_grouped` — alongside the destructive retention semantics.
+The scope is the append-only native migration ledger, focused SQL/client regression tests,
+index upgrade instructions, and current user documentation and Haddocks. The native fixes
+are not automatically installed by upgrading a Haskell client or a stock PGMQ extension.
+Clients must continue to work with stock PGMQ 1.12 and 1.13. Ordering means ascending
+message IDs within a selected group, not concurrent producer commit order or exactly-once
+processing. Head reads lease at most one head per group; successful processing, lease renewal,
+and acknowledgement remain consumer responsibilities.
 
-In scope: local override migrations on top of the vendored 1.13.0 install, their tests in
-`pgmq-migration/test/Main.hs`, the `listFifoIndexQueueNames`/`pgmq-config` consequences of any
-index rename, corrections to `docs/design/008-fifo-read.md` and the user-facing docs under
-`docs/user/`, and an upstream patch prepared for the PGMQ project but not submitted.
-
-Out of scope: the four findings that stay with keiro MasterPlan 17 — DLQ redrive header
-preservation and DLQ archive/purge visibility safety (`mori://shinzui/keiro/plans/117-preserve-headers-on-dlq-redrive-and-make-archive-and-purge-visibility-safe`),
-and the `Job`/`JobTuning` ordering enforcement plus keiro's own haddock corrections and
-`mkPartitionSpec` guardrail (`mori://shinzui/keiro/plans/116-enforce-fifo-group-ordering-under-failure-and-batched-consumption`
-and `mori://shinzui/keiro/plans/118-correct-partitioned-retention-semantics-and-the-fifo-index`).
-Also out of scope: changing `read_grouped`'s batch-filling semantics or its visibility rules;
-adding a grouped-head read strategy to `mori://shinzui/shibuya-pgmq-adapter` (keiro's decision,
-recorded in its MasterPlan 17); refusing or rewriting a caller's `retention_interval`; and
-publishing to Hackage.
-
+Out of scope: changing grouped-read selection, locking or visibility rules; automatic index
+replacement across all existing queues during migration/startup; queue retention policy
+validation; downstream implementation; Hackage publication; submitting upstream patches.
+Prepare reviewable upstream patch artifacts only if SQL changes are implemented. The working
+tree declares family version 0.6.0.0; this review does not certify registry publication or
+choose new dependency bounds. Release planning must verify Hackage and upstream tags first.
 
 ## Decomposition Strategy
 
-Three child plans, split by the artifact each one changes and by the evidence each one must
-produce.
 
-EP-1 (`docs/plans/19-give-the-grouped-reads-a-deterministic-return-order.md`) owns PGQ-2: a local
-override of `pgmq.read_grouped` and `pgmq.read_grouped_head` (and their `_with_poll` siblings,
-which share the bodies) that carries the selection order through to the returned rows, plus the
-test that pins it. Its evidence is a deterministic multi-row batch.
+Keep three functional work streams: ordered result delivery, measured index provisioning,
+and accurate operator/consumer contracts. EP-1 is a small semantic correction with row-order
+regressions. EP-2 starts with a performance experiment, then implements only a justified index
+and explicit upgrade path. EP-3 documents the outcomes, including a negative index experiment.
 
-EP-2 (`docs/plans/20-replace-the-fifo-gin-index-with-one-the-grouped-reads-can-use.md`) owns
-PGQ-5: a local override of `pgmq._create_fifo_index_if_not_exists` that builds a btree expression
-index on the grouped-read key, the decision about whether that index keeps the existing
-`q_<queue>_fifo_idx` name, and whatever `pgmq-hasql`/`pgmq-config` must change so FIFO index state
-is still reported truthfully. Its evidence is an `EXPLAIN` plan that changes from a sequential scan
-to an index scan on a seeded queue.
+EP-1 owns migration 0007; EP-2 owns a separate 0008 if its experiment justifies a migration.
+Do not combine their payloads or edit a previously applied file, even before publication.
+EP-2's complete implementation follows EP-1 because its ledger acceptance applies that prefix;
+its isolated performance experiment may be done earlier. EP-3 may draft retention and existing
+server semantics independently, with final integration against both SQL outcomes. This avoids
+making an inconclusive performance result block a known documentation correction.
 
-EP-3 (`docs/plans/21-state-the-fifo-ordering-and-partitioned-retention-contracts-truthfully.md`)
-owns the documentation truth: PGQ-4's upstream half and the corrections to
-`docs/design/008-fifo-read.md` that EP-1 and EP-2 make necessary. Its evidence is prose, so it runs
-last and describes what actually shipped rather than what was planned.
-
-Alternatives considered. Folding EP-1 and EP-2 into one plan because they share migration `0007`
-was rejected: one changes the body of a hot read function and the other changes DDL plus a
-catalog-matching statement in `pgmq-hasql`, so they carry different risk and different acceptance
-evidence, and coupling them would serialize a one-line ordering fix behind an index-naming
-decision. Splitting EP-3's two halves (ordering contract, retention contract) into separate plans
-was rejected: both are edits to the same two documents, and a reader needs them in one pass.
-Deferring PGQ-2 entirely on the grounds that `read_grouped_head` returns at most one row per group
-was rejected: `read_grouped` remains supported and its multi-row batches are still returned in
-undefined order, and keiro's drain path uses it today.
-
-ADR and design-note context, per the exec-plan skill's
-[ADR workflow](../../agents/skills/exec-plan/ADR.md):
-
-- [`docs/adr/pgmq-1.12-1.13-compatibility.md`](../adr/pgmq-1.12-1.13-compatibility.md) — fixes the
-  upgrade and compatibility boundaries for the 1.12/1.13 work; every migration here appends to the
-  ledger it describes and must keep the 1.11 predecessor validator unchanged.
-- [`docs/design/012-vendor-upstream-pgmq-sql.md`](../design/012-vendor-upstream-pgmq-sql.md) — the
-  vendoring policy that makes a local override migration (not an edit to vendored SQL) the only
-  legitimate way to change upstream function bodies here.
-- [`docs/design/008-fifo-read.md`](../design/008-fifo-read.md) — the FIFO contract note that
-  currently carries both false claims; EP-3 owns its correction.
-- [`docs/design/018-reconciliation-contract.md`](../design/018-reconciliation-contract.md) — the
-  truthful-reporting contract EP-2 must not break when the FIFO index changes shape or name.
-- [`docs/design/015-notification-delivery-contract.md`](../design/015-notification-delivery-contract.md)
-  and migration `0003-notify-crash-safety-and-locking.sql` — the precedent for how a local override
-  is written, headed, and registered in the convergence test's exceptions.
-
-Candidate ADR at completion: the FIFO delivery contract for this repository — which grouped read
-guarantees what, in which order rows arrive, what the FIFO index does and does not accelerate, and
-that partitioned retention is destructive to unprocessed work.
-
+Read the accepted [compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md), which preserves
+1.12 client support, immutable historical migrations, the original 1.11 predecessor validator,
+and serial migration testing. [Vendoring policy](../design/012-vendor-upstream-pgmq-sql.md)
+requires pristine vendor bytes and separate local overrides.
+[Reconciliation policy](../design/018-reconciliation-contract.md) promises index existence
+reporting and no automatic conversion of existing resources. The new
+[FIFO scope ADR](../adr/fifo-native-overrides-and-index-upgrade-boundary.md) records the
+native/extension distinction and explicit index-repair boundary. The existing
+[FIFO design note](../design/008-fifo-read.md) is stale implementation-era guidance;
+EP-3 corrects it and current capability pages rather than treating it as authoritative SQL.
 
 ## Exec-Plan Registry
+
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Give the grouped reads a deterministic return order | docs/plans/19-give-the-grouped-reads-a-deterministic-return-order.md | None | None | Not Started |
-| 2 | Replace the FIFO GIN index with one the grouped reads can use | docs/plans/20-replace-the-fifo-gin-index-with-one-the-grouped-reads-can-use.md | None | EP-1 | Not Started |
-| 3 | State the FIFO ordering and partitioned-retention contracts truthfully | docs/plans/21-state-the-fifo-ordering-and-partitioned-retention-contracts-truthfully.md | EP-1, EP-2 | None | Not Started |
-
-Status values: Not Started, In Progress, Complete, Cancelled.
-
+| 2 | Replace the FIFO GIN index with one the grouped reads can use | docs/plans/20-replace-the-fifo-gin-index-with-one-the-grouped-reads-can-use.md | EP-1 (ledger integration; experiment independent) | None | Not Started |
+| 3 | State the FIFO ordering and partitioned-retention contracts truthfully | docs/plans/21-state-the-fifo-ordering-and-partitioned-retention-contracts-truthfully.md | None | EP-1, EP-2; final integration required | Not Started |
 
 ## Dependency Graph
 
-EP-1 and EP-2 can proceed in parallel. Neither needs anything the other produces; the soft
-dependency is file coordination only. Both append to the native migration ledger, whose next free
-number is `0007` (the ledger currently ends at
-`pgmq-migration/migrations/0006-preserve-partitioned-reentry-v1.13.0.sql`). Whichever plan lands
-first creates `0007`; the second either appends its `CREATE OR REPLACE` statements to that file if
-it is not yet released, or takes `0008`. Both plans must state which they did and update
-`pgmq-migration/migrations/manifest` accordingly.
 
-EP-3 hard-depends on both because it documents shipped behavior: it cannot state the ordering
-guarantee before EP-1 defines it, and it cannot describe the FIFO index before EP-2 decides its
-shape and name. EP-3's PGQ-4 retention half has no dependency and may be drafted earlier, but it
-lands as one documentation change.
-
+EP-1 → EP-2 is the native-ledger implementation order. EP-2's experiment has no code dependency
+on EP-1. EP-1 and EP-2 both integrate with EP-3: documentation may land with explicit current
+behavior and must be reconciled before initiative completion. If EP-2 finds no worthwhile
+candidate, record a completed experiment with no DDL change, update its title/registry scope,
+and document the limitation. Do not mark the index performance objective achieved without evidence.
 
 ## Integration Points
 
-**`pgmq-migration/migrations/0007-*.sql` and `.../manifest` (EP-1, EP-2).** The shared local
-override migration. Follow the header convention of
-`pgmq-migration/migrations/0003-notify-crash-safety-and-locking.sql`: a numbered list of the
-deliberate divergences from upstream and why each exists, with every function re-created under its
-original signature so the file is a drop-in replacement. Never edit
-`0001-install-v1.11.0.sql` or the vendored SQL under `vendor/pgmq/`. Adding a file means adding one
-line to `manifest`.
 
-**`pgmq-migration/test/Main.hs` (EP-1, EP-2).** Three coordinated edits, and the reason a naive
-migration turns the suite red:
+**Native ledger and packaging.** EP-1 owns 0007 and the initial convergence-test refactor;
+EP-2 appends 0008 and extends only latest-state exceptions. Both update
+`pgmq-migration/migrations/manifest`, the explicit names in `testNativeComponent`, and test
+acceptance in `pgmq-migration/test/Main.hs`. Migration SQL is already included by the Cabal
+`migrations/*.sql` glob. Preserve 0001–0006 and all upstream fixtures.
 
-1. `testNativeComponent` (around line 321) is the one place the ledger is spelled out; append the
-   new migration name to its list.
-2. `testConvergence` runs `take (if latest then 6 else 4) names` (line 158) — the `6` is the
-   current ledger length and must grow with it.
-3. `testConvergence` compares a migrated database against a fresh vendored install and subtracts an
-   `exceptions` list of deliberately divergent keys (line 168). Every function body a local
-   override changes needs an entry — `body:read_grouped(text, integer, integer)` and
-   `body:read_grouped_head(text, integer, integer)` for EP-1,
-   `body:_create_fifo_index_if_not_exists(text)` for EP-2 — or the test fails on a correct change.
-   The suite also asserts each exception key is *present* in both snapshots, so a typo fails loudly
-   rather than silently excusing a real difference.
+**Convergence assertions.** EP-1 keeps the four-entry 1.12 checkpoint and uses all manifest
+entries for latest state instead of extending the hardcoded six. New local-body exceptions
+apply only to latest state. The test currently also deletes the normalized `read_grouped_head` body to prove missing
+functions are detected; after excluding that body, deletion is a no-op and the sentinel fails.
+Move the missing/altered-body sentinel pair to an unexcepted function or run it against raw
+snapshots. Otherwise a correct ordering override breaks the test. EP-2 adds only its helper body exception if it ships a helper override.
+Signatures and results must remain compared even when bodies are excepted.
 
-**`pgmq-hasql/src/Pgmq/Hasql/Statements/QueueObservability.hs` (EP-2 owns, EP-3 documents).**
-`listFifoIndexQueueNames` (line 44) identifies FIFO indexes by matching `indexname ~ '^q_.*_fifo_idx$'`
-in `pg_indexes`, and `pgmq-config`'s reconciler consumes it to decide `CreatedFifoIndex` vs
-`SkippedFifoIndex` (`pgmq-config/src/Pgmq/Config/Reconcile.hs:74` and `:172`). Two viable designs,
-and EP-2 owns the choice: keep the `q_<queue>_fifo_idx` name — in which case the override must
-`DROP INDEX` the old GIN index before creating the btree one, because `CREATE INDEX IF NOT EXISTS`
-is a no-op against an existing index of the same name — or take a new name, in which case this
-statement and the reconciler's reporting must recognise both, and an existing queue's stale GIN
-index needs an explicit disposition. EP-1 must not touch this file.
+**Index creation and reporting.** EP-2 owns `_create_fifo_index_if_not_exists`, its tests,
+and explicit legacy-upgrade procedure. Keep `q_<queue>_fifo_idx` and the published existence
+meaning of `listFifoIndexQueueNames :: Statement () [Text]`. An existing legacy GIN index
+remains present, so `SkippedFifoIndex` is truthful about existence, not performance. Explicit
+native `create_fifo_index` may upgrade an exact known legacy definition after the operator
+chooses to do so; ordinary reconciliation must not silently trigger replacement. Stock
+extension installs must converge after two reconciliations without repeated creation reports.
+There is no `pgmq.create_fifo` queue-creation function. The only public creation entry points
+are `create_fifo_index` and `create_fifo_indexes_all`.
 
-**`docs/design/008-fifo-read.md` (EP-3 owns).** EP-1 and EP-2 record what the note must say in
-their own Decision Logs but do not edit it; a single owner keeps the contract from being described
-twice in two voices.
+**Documentation and shared changelogs.** EP-3 owns `docs/design/008-fifo-read.md`, affected
+user guides, capability records and public Haddocks. EP-1 and EP-2 supply measured results and
+migration names in their plans. EP-1 starts the root Unreleased entry; EP-2 appends its distinct
+item; EP-3 consolidates without overwriting either. Each SQL child updates
+`pgmq-migration/CHANGELOG.md`; changed client packages receive their own entries. EP-3 owns the
+final ADR and design-policy cross-reference updates, including convergence exception counts.
 
-**Release.** The family is released at 0.6.0.0 and `keiro-pgmq` is bounded `>=0.6 && <0.7`, which
-already admits an additive 0.6.1.0. A migration-only change is additive server behavior with no
-Haskell API change, so EP-1 targets 0.6.1.0. EP-2 targets 0.6.1.0 as well unless its index-naming
-decision changes a published type or the documented meaning of `listFifoIndexQueueNames`'s result,
-in which case it states the higher bump and records that keiro must move its bound — tracked on the
-keiro side by MasterPlan 17, not here.
-
-**Upstream.** These are defects in the PGMQ project's SQL (`mori://pgmq/pgmq`), not only in this
-vendor copy. Each of EP-1 and EP-2 prepares an upstream patch against the tagged source and
-records it in the plan; neither submits one.
-
+**Upstream artifacts.** EP-1 owns `docs/upstream-patches/grouped-read-ordering.patch`; EP-2
+owns `docs/upstream-patches/fifo-index.patch` if justified. Base patches on verified source from
+`mori://pgmq/pgmq/repos/pgmq-upstream`, initially the vendored v1.13.0 tag, and record the exact
+base commit and applicability. Upstream project-relative source path
+`pgmq-extension/sql/pgmq.sql` has an artifact-level URI pending. Never rewrite a released
+upstream upgrade script as if existing installations would replay it; prepare a prospective
+upgrade artifact in the patch and explain its intended release integration.
 
 ## Progress
 
-- [ ] EP-1: `read_grouped` and `read_grouped_head` (with their `_with_poll` siblings) return rows in a defined order via a local override migration; the migration ledger, convergence exceptions, and `testNativeComponent` list are updated together.
-- [ ] EP-1: A multi-row grouped-read batch is asserted to arrive in send order; the 1.11 predecessor validator and fresh-install convergence still pass.
-- [ ] EP-2: `_create_fifo_index_if_not_exists` builds a btree expression index on the grouped-read key; the old GIN index's disposition and the index name are decided and recorded.
-- [ ] EP-2: `EXPLAIN` evidence captured before and after against a seeded queue, showing the grouped-read probe moving off a sequential scan; FIFO index reporting still truthful through `pgmq-config`.
-- [ ] EP-3: `docs/design/008-fifo-read.md` states the real ordering contract, the head-read guidance for strict per-group FIFO, and what the FIFO index does and does not accelerate.
-- [ ] EP-3: Partitioned retention documented as dropping whole partitions of unprocessed messages, for both the queue and the archive table, wherever this repository describes `create_partitioned`.
-- [ ] Family released with the migration(s); ADR distillation pass done (the FIFO delivery contract candidate).
 
+- [x] 2026-09-12: Validated all four plans against SQL, ledger tests, client/reconciler code, and relevant ADR/design context; corrected the decomposition and children.
+- [ ] EP-1: Ordered native base reads and polling/client regressions, with unchanged selection semantics.
+- [ ] EP-1: Latest convergence and historical checkpoints pass, including comparator sentinels and predecessor imports.
+- [ ] EP-2: Reproducible full-query/index experiment completed; measured benefit or negative result recorded.
+- [ ] EP-2: If justified, separate index migration, explicit legacy upgrade, retry/partition tests and stock-client compatibility verified.
+- [ ] EP-3: Current ordering, index, native/extension and time/numeric retention contracts documented and validated.
+- [ ] Final integration: changelogs, upstream patch artifacts, ADR distillation and release-readiness notes complete; publication excluded.
 
 ## Surprises & Discoveries
 
-- Relocation (2026-09-12): the keiro-side plans that originally owned this work assumed a
-  pgmq-hs 0.4.1.0/0.4.2.0 release train and migration number `0003`. Both are dead: the family
-  shipped 0.6.0.0 on 2026-09-10 and the ledger already holds six entries, so the next free number
-  is `0007`. Recorded here so neither child plan inherits the stale numbers.
-- Relocation (2026-09-12): PGMQ 1.12.0's `read_grouped_head`, already exposed by this repository at
-  0.6.0.0 as `readGroupedHead`/`readGroupedHeadWithPoll`, changes how PGQ-2 should be read. It
-  returns at most one message per group and computes each group's head as `MIN(msg_id)` regardless
-  of visibility, so cross-group row order cannot affect per-group FIFO for that function — but its
-  `RETURNING` is equally unordered, and `read_grouped` remains supported and still hands out
-  multi-row batches in planner order. EP-1 therefore covers both functions, and EP-3 documents head
-  reads as the primitive to reach for when strict per-group order must survive a batch larger than
-  one.
 
+The original four files record `claude-opus-5[1m]` creation and no review entries. Repository
+review found valid SQL concerns but missing local context: the comparator sentinel would fail
+once the head body was excluded; exceptions were incorrectly requested at the historical
+1.12 checkpoint; `create_fifo` does not exist; current user guides already expose grouped
+heads; capability pages still describe obsolete exports and constructor shapes.
+
+Changing name-based detection to reject GIN on every server would make a stock extension
+recreate or attempt to create its own GIN repeatedly and report creation on every startup.
+Overriding the helper alone also does not replace any already-created index. Therefore
+provisioning, physical upgrade and existence reporting must be specified separately.
+
+A group-expression btree might improve selective joins without avoiding full group aggregation.
+Neither index-only execution nor removal of O(N) work has been demonstrated in this review.
+No performance transcript, SQL regression result, release status or publication is inferred.
 
 ## Decision Log
 
-- Decision: Take ownership of PGQ-2, PGQ-5, and PGQ-4's upstream half from keiro MasterPlan 17;
-  leave PGQ-1, PGQ-3, PGQ-6, PGQ-7, and PGQ-4's keiro half with keiro.
-  Rationale: The three relocated findings are defects in this repository's SQL and documentation,
-  reachable by every FIFO consumer, not just keiro. The four that stay are in
-  `keiro-pgmq/src/Keiro/PGMQ/Job.hs` and `.../Dlq.hs` — code that does not exist here, so
-  relocating them would have left them unimplementable. This mirrors the relocation of keiro
-  MasterPlan 21 into
-  `docs/masterplans/3-harden-the-pgmq-hs-family-surfaced-by-the-2026-07-review.md`, which that
-  MasterPlan's out-of-scope list deliberately stopped short of by naming keiro plans 116 and 118 as
-  the owners of exactly these findings.
-  Date: 2026-09-12
 
-- Decision: Fix the defective function bodies with local override migrations appended to the native
-  ledger, never by editing the vendored upstream SQL.
-  Rationale: [`docs/design/012-vendor-upstream-pgmq-sql.md`](../design/012-vendor-upstream-pgmq-sql.md)
-  makes the vendor tree a byte-exact mirror of an upstream tag, and migrations `0003` and `0006`
-  already establish the override pattern with `CREATE OR REPLACE` under the original signature.
-  Editing an applied migration would desynchronize existing databases.
-  Date: 2026-09-12
+2026-09-12: Preserve the three concerns relocated from the canonical downstream MasterPlan
+cited in Vision, but ground contracts in this repository's supported server modes and existing
+ADR. This prevents a consumer-specific guarantee becoming an unsupported library promise.
 
-- Decision: Prepare an upstream patch for each SQL defect against `mori://pgmq/pgmq` and record it
-  in the owning plan, but do not submit it.
-  Rationale: The defects are upstream's, so a fix that only lives in this vendor copy leaves every
-  other PGMQ user exposed and leaves this repository carrying overrides indefinitely. Submission is
-  a separate, explicitly authorized step.
-  Date: 2026-09-12
+2026-09-12: Use separate ordered migration files and latest-only convergence exceptions,
+including repair of the comparator sentinel. Applied migration immutability is stronger than
+release immutability; publication is not permission to rewrite a database's history.
 
-- Decision: Three child plans split by artifact and evidence type, with documentation last.
-  Rationale: Deterministic ordering is proven by a row-order assertion, the index by an `EXPLAIN`
-  plan, and the contracts by prose that must describe what shipped rather than what was intended.
-  Date: 2026-09-12
+2026-09-12: Preserve FIFO existence reporting and make legacy index replacement explicit.
+This respects the adopted reconciliation policy and stock-server compatibility. Record the
+boundary in the FIFO scope ADR now; do not claim the proposed index is implemented.
 
+2026-09-12: Treat EP-2 as an evidence-gated optimization and EP-3 as independently draftable
+with final integration. A changed scan node is insufficient proof of a useful optimization.
+No improvement means an explicit scope/outcome update, not fabricated successful acceptance.
+
+2026-09-12: Remove publication from completion criteria and defer release-number selection
+until authoritative registry/tag verification and an actual compatibility diff are available.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+
+Plan validation and revision are complete. Implementation remains unstarted. The concrete SQL
+ordering and index experiments are future acceptance work, not results of this review.
+
+Revision note (2026-09-12): Reworked the coordination and all three children after repository
+validation exposed native/extension, convergence-test, provisioning, performance-evidence and
+retention gaps in the externally authored plan.
