@@ -50,6 +50,22 @@ vendor bytes to disguise a divergence. Migration 0006 preserves the new premake 
 identity mode while restoring queue/archive parent-registration guards. Replaying 0003 would
 reintroduce the wrong signature. The whole suffix must finish before queue-creation traffic.
 
+## FIFO work must not override upstream functions
+
+The FIFO initiative must not replace extension-owned SQL functions on either native or
+extension installs. The user permits adding a separately owned index, not replacing function
+bodies. See the [FIFO boundary ADR](../adr/fifo-native-overrides-and-index-upgrade-boundary.md).
+Client query ordering and measured, explicitly managed supplemental indexes are the permitted
+local approaches. They introduce no new FIFO migrations, convergence body exceptions or
+override-maintenance machinery. Upstream server fixes belong in the ordinary pristine-source
+upgrade workflow. Historical notification/partition migrations remain immutable; changing or
+removing those existing overrides is separate work.
+
+A supplemental index should have a distinct name and documented ownership, coexist with
+upstream's index, and be remeasured when relevant upstream queries change. It may become
+redundant or require attention after schema changes, but does not replace upstream function
+logic or require replaying local SQL bodies.
+
 ## Verification
 
 Pin historical payload digests, compare upstream migration bytes exactly, and compare catalog

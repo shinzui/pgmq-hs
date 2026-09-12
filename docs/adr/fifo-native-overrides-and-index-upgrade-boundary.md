@@ -1,66 +1,58 @@
-# FIFO native overrides and explicit index upgrade boundary
+# FIFO client ordering and supplemental index boundary
 
 ## Status
 
-Accepted scope and compatibility boundary, 2026-09-12. SQL implementation remains planned in
+Accepted, revised 2026-09-12 following the user's explicit prohibition of extension SQL
+overrides and permission to add an index. Supersedes this record's earlier conditional
+native-override and retirement design. The filename is retained as a stable reference.
+Implementation remains planned in
 [MasterPlan 5](../masterplans/5-correct-the-fifo-grouped-read-ordering-index-and-partition-retention-contracts.md).
-This acceptance records the constraints on that work, not a claim that its migrations or
-performance experiments have completed. The repository uses plain-Markdown ADRs.
 
 ## Context
 
-The native migration package and direct clients have different responsibilities. Local SQL
-migrations do not update a stock PGMQ extension, while clients support stock 1.12 and 1.13
-per the [compatibility ADR](pgmq-1.12-1.13-compatibility.md). Upstream source is owned by
-mori://pgmq/pgmq/repos/pgmq-upstream; its project-relative pgmq-extension/sql/pgmq.sql has
-an artifact-level URI pending.
-
-The vendored grouped/head reads have unordered UPDATE output. The conventional FIFO index
-is a GIN on headers rather than the extracted group expression. The
-[reconciliation contract](../design/018-reconciliation-contract.md) intentionally reports
-index existence and skips existing resources. Treating every legacy GIN as absent in the
-client would cause repeated create calls against stock SQL, which still creates GIN.
+Copied upstream function bodies add recurring upgrade maintenance and can hide or replace new
+upstream behavior. A supplemental index has a narrower relationship with upstream: query changes
+may affect its usefulness, but it does not replace function logic. It still has storage/write
+costs and depends on table columns; it is not immune to schema changes.
 
 ## Decision
 
-Scope local result-order guarantees to databases that applied the corresponding native
-migration. Preserve stock extension support and never infer server patch state merely from
-a Haskell package version. Result order is distinct from consumer processing order and lease
-safety. Grouped heads lease at most one message per group; consumers still own renewal,
-side effects, acknowledgement and redelivery handling.
+Do not override extension-owned SQL functions for FIFO work, on native or extension installs.
+No new copied function bodies, migrations installing them, convergence exceptions, override
+inventories or reapplication mechanisms. Keep pristine upstream source and normal upstream
+upgrade adoption. The [compatibility ADR](pgmq-1.12-1.13-compatibility.md) still governs
+stock 1.12/1.13 support and immutable existing history; historical notification/partition
+overrides are not removed or extended by this initiative.
 
-Keep the conventional FIFO index name and the existing existence meaning of
-listFifoIndexQueueNames and CreatedFifoIndex/SkippedFifoIndex. An index-presence report is
-not a definition or performance certificate. If an expression index proves useful, install
-its helper through a separate append-only migration; do not automatically rebuild indexes
-on existing queues in that migration or in ordinary startup reconciliation. Explicit native
-create_fifo_index calls may upgrade only the exact known legacy definition, atomically and
-with tested serialization, while rejecting unexpected conflicting objects. Operators choose
-when to acquire build locks. Stock servers retain their own implementation.
+Order the four Haskell grouped/head query results with outer ORDER BY msg_id. This guarantees
+ascending IDs in returned vectors, not group contiguity, raw-SQL function order, producer commit
+order or successful processing order. Round-robin preserves upstream layering. Selection,
+locking and leasing remain entirely upstream-owned.
 
-Retain partition retention semantics and creation-only reconciliation. Document destruction
-of eligible whole queue/archive partitions without checking processing state. Time-based
-queue/archive parents use enqueued_at/archived_at; numeric parents use msg_id. Do not promise
-per-message expiry timing or archive permanence. Performance claims require complete-query
-measurements and must disclose remaining full-backlog work; a changed scan node is insufficient.
+A separately named q_<queue>_group_lookup_idx may be recommended after complete-query measurement.
+Keep upstream q_<queue>_fifo_idx, create_fifo_index helpers and presence-report semantics
+unchanged. The supplement is an explicit operator create/inspect/remove action, not automatically
+managed by withFifoIndex, reconciliation, migrations or vendor refreshes. Validate ordinary,
+unlogged and partitioned behavior and document locks, redundancy and write/storage costs.
+
+Document destructive time/numeric partition retention without changing it. Queue/archive time
+parents use enqueued_at/archived_at; numeric parents use msg_id. Processing/acknowledgement state
+does not protect eligible partitions from retention maintenance.
 
 ## Consequences and verification
 
-The ordering plan tests SQL, polling and native client results without changing selection.
-The index plan must cover native legacy/new/absent states, stock 1.12/1.13 reconciliation,
-explicit upgrade retry/rollback, and partitioned indexes. A negative performance experiment
-may lead to documentation without a replacement index. Documentation must state that the
-helper migration alone leaves existing indexes unchanged.
-
-Historical migration payloads and 1.12 checkpoint exceptions remain immutable in meaning.
-New exceptions belong only to the latest migrated state and need focused behavioral tests.
-Changing an excepted body also requires preserving the convergence comparator's sentinel
-coverage. See the [vendoring policy](../design/012-vendor-upstream-pgmq-sql.md).
+Test client result order against unchanged supported stock/native SQL. Test supplemental-index
+coexistence, lifecycle and unchanged upstream function definitions/reporting. A future relevant
+upstream query/index change calls for measurement and possibly explicit removal of the supplement,
+not a function-body rebase. Negative performance evidence is a valid documentation outcome.
+No new override-maintenance subsystem is necessary.
 
 ## Alternatives
 
-A global definition-aware presence filter was rejected because it cannot make stock server
-DDL produce a native replacement and changes the public report contract. Automatically
-rebuilding all queues was rejected because it expands startup/migration lock scope and the
-adopted no-conversion boundary. A new public capability/repair-report API is unnecessary for
-this initiative; it would require a separately justified compatibility design.
+Conditional local overrides and a drift/retirement registry were rejected by the user constraint.
+Replacing upstream GIN/helper behavior would also change ownership and complicate upgrades.
+Adding the ORDER BY in the client query is bounded and preserves upstream selection. Claiming
+raw-SQL order from that client change was rejected; a server-level correction belongs upstream.
+
+See [vendoring policy](../design/012-vendor-upstream-pgmq-sql.md) and
+[reconciliation policy](../design/018-reconciliation-contract.md).

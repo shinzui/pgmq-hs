@@ -1,7 +1,7 @@
 ---
 id: 19
 slug: give-the-grouped-reads-a-deterministic-return-order
-title: "Give the grouped reads a deterministic return order"
+title: "Order grouped/head results in the Haskell client"
 kind: exec-plan
 created_at: 2026-09-12T14:23:59Z
 intention: "intention_01m2b005z8egm8rarkzn70zv4t"
@@ -17,6 +17,16 @@ provenance:
       at: 2026-09-12T15:04:18Z
       mode: "update"
       note: "Validated against repository SQL, tests and ADRs; corrected native/stock scope, ledger coordination, index evidence and retention contracts."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-12T15:42:32Z
+      mode: "update"
+      note: "Added upstream-first maintenance gate and focused drift, successor-upgrade and retirement acceptance for proposed FIFO overrides."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-09-12T15:49:24Z
+      mode: "update"
+      note: "Applied user prohibition of extension SQL overrides; scoped work to client ordering, additive operator index and documentation; removed override machinery."
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -25,226 +35,151 @@ provenance:
       note: "Repository review findings applied in this revision; SQL regressions and performance measurements remain explicit implementation acceptance work."
 ---
 
-# Give the grouped reads a deterministic return order
+# Order grouped/head results in the Haskell client
 
-This ExecPlan is a living document. Keep its progress, evidence and decisions current.
+This ExecPlan is a living document. Its filename preserves the original plan reference.
 
 ## Purpose / Big Picture
 
 
-After applying a new native migration, a direct grouped read returns a predictable sequence:
-`read_grouped` returns selected groups in priority order and ascending message IDs within
-each group; `read_grouped_head` returns selected heads in ascending message ID order.
-Polling delegates to those base functions. A Haskell caller can observe the sequence in its
-returned `Vector Message` without sorting it client-side.
-
-This is a result-order correction, not a processing-order or exactly-once guarantee. Selection,
-visibility, row locks, batch size and error behavior must remain unchanged. A Haskell library
-upgrade alone does not change stock PGMQ extension SQL, which remains supported separately.
+Return grouped and grouped-head Haskell results in ascending msg_id order by adding ORDER BY
+to the client SELECT around PGMQ's unchanged function call. This preserves ascending IDs within
+each group but does not keep groups contiguous or alter which messages the server selects.
+Direct SQL callers receive only upstream's guarantees. Round-robin keeps its layered order.
+No extension SQL function may be overridden, including through native migrations.
 
 ## Progress
 
 
-- [ ] M1: Append migration 0007 with ordered base reads; update manifest and latest convergence, including its comparator sentinel.
-- [ ] M2: Add adversarial multi-group, head, polling and Haskell vector-order regressions; verify unchanged selection/visibility behavior.
-- [ ] M3: Prepare upstream patch artifact, package/root changelog entries and migration-readiness evidence; no publication.
+- [ ] M1: Add outer ordering to four client statements and precise Haddocks.
+- [ ] M2: Verify ordered vectors, unchanged selection/leases, polling and round-robin behavior on supported stock/native fixtures.
+- [ ] M3: Record compatibility evidence and root/package changelog entries; hand semantics to documentation.
 
 ## Surprises & Discoveries
 
 
-2026-09-12 repository review: the polling functions delegate, so only two base bodies need
-replacement. `testConvergence` excludes local bodies, then deliberately deletes and mutates the normalized head body to test its comparator.
-After the body is excepted, the deletion becomes a no-op and its assertion fails (inserting
-a changed body still creates a detected difference). Move the sentinel pair to a still-compared
-key or raw snapshots after the head body becomes an exception. The four-entry 1.12 checkpoint never
-applies the proposed migration and must receive no new exception.
-
-No failing SQL test was run during this plan revision. Small fixtures can happen to arrive
-ordered on the old SQL; an unspecified order does not imply a reliable failure on every plan.
+The four current statements are simple SELECT calls returning Vector Message. An outer ORDER BY
+can sort their result without duplicating PGMQ's selection, locks or update logic. Earlier plan
+versions instead copied server bodies and promised group-contiguous order; both are superseded.
+No migration or ordering implementation has been performed by this planning revision.
 
 ## Decision Log
 
 
-2026-09-12: Carry `batch_selection.overall_rank` to the final SELECT for `read_grouped`;
-order heads by `msg_id`. For sends A1, B1, A2, B2 with ascending IDs, a full grouped batch
-must return A1, A2, B1, B2. This distinguishes the chosen contract from a global ID sort.
-Round-robin remains A1, B1, A2, B2 for this fixture and is not changed.
-
-2026-09-12: Override only the base functions. Keep existing locking clauses and FORMAT
-arguments except changes needed to carry rank. Test polling and direct Haskell consumption
-rather than assuming an ordered base query proves every caller path.
-
-2026-09-12: Allocate 0007 separately from the index plan's 0008. Never edit an applied
-migration, including one applied before publication. Preserve both historical checkpoints
-and the predecessor validator.
+2026-09-12: User prohibits extension-owned SQL overrides. Use client query ordering only and
+explicitly narrow the guarantee to ascending msg_id in Haskell results. Do not infer transaction
+commit order from IDs or successful processing order from a lease. No native-only guarantee,
+new migration, body exception, drift registry or retirement framework is needed.
 
 ## Outcomes & Retrospective
 
 
-Repository validation updated the plan. No implementation or database test result yet.
+Plan updated; implementation and test results pending. Raw SQL return ordering remains upstream-owned.
 
 ## Context and Orientation
 
 
-The five libraries in this checkout declare version 0.6.0.0. The SQL vendor is pristine
-PGMQ v1.13.0, commit `32c075bb6dbed66a303d1a792393c93e36c09a97`, from
-`mori://pgmq/pgmq/repos/pgmq-upstream`. Its project-relative SQL path is
-`pgmq-extension/sql/pgmq.sql` (artifact-level URI pending); the local copy is
-`vendor/pgmq/pgmq-extension/sql/pgmq.sql`. Do not change vendor files.
+`pgmq-hasql/src/Pgmq/Hasql/Statements/Message.hs` defines readGrouped,
+readGroupedWithPoll, readGroupedHead and readGroupedHeadWithPoll as preparable SELECT calls
+with a rowVector decoder. readGroupedRoundRobin and its polling sibling are separate statements.
+Sessions and plain/traced effects delegate to these statements; preserve their public signatures.
+`pgmq-hasql/test/AdvancedOpsSpec.hs` already covers grouped/head operations. Inspect its fixtures
+and the existing effect tests before extending them; do not mutate shared server functions to
+force output order during concurrent tests.
 
-`pgmq-migration/migrations/manifest` lists six SQL files ending at
-`0006-preserve-partitioned-reentry-v1.13.0.sql`. The component in
-`pgmq-migration/src/Pgmq/Migration/Internal/Definition.hs` embeds that ledger.
-`pgmq-migration/pgmq-migration.cabal` already packages `migrations/*.sql`.
-Migrations 0003 and 0006 demonstrate local CREATE OR REPLACE overrides with comments
-explaining each deliberate divergence.
-
-In vendored `read_grouped`, the common table expressions (named query stages) compute groups,
-lock visible heads, reject groups with earlier invisible rows, collect visible messages,
-and assign `overall_rank` by group priority and rank within group. `selected_messages`
-currently discards that rank. The terminal UPDATE returns the seven message-record fields
-without an ordered final SELECT. `read_grouped_head` similarly selects absolute group heads
-regardless of visibility, leases visible selected heads, and returns unordered UPDATE rows.
-`read_grouped_rr` demonstrates an `updated_messages` CTE followed by a sorted SELECT.
-
-`read_grouped_with_poll` and `read_grouped_head_with_poll` iterate their base functions and
-RETURN NEXT each record, then stop after a nonempty batch. These wrappers need no new SQL
-body but must be tested with nonzero polling duration. Do not promise row order for arbitrary
-outer SQL joins, aggregation or sorting; this contract targets direct function consumption.
-
-`pgmq-migration/test/Main.hs` owns a shared disposable database/connection and must run
-serially. `testNativeComponent` asserts the exact manifest names. `testConvergence` compares
-the four-migration 1.12 checkpoint and six-migration current state with separate fresh fixtures.
-It removes notification and partition-creation body exceptions, checks that those keys exist,
-and performs deliberate missing/altered-head and altered-metric sentinel checks. New exceptions
-must not erase the evidence those sentinels are intended to provide.
-
-The direct client statements are in `pgmq-hasql/src/Pgmq/Hasql/Statements/Message.hs`;
-`pgmq-hasql/test/AdvancedOpsSpec.hs` already tests grouped/head operations. Extend its native
-fixture path or add an isolated native-order test module registered in
-`pgmq-hasql/test/Main.hs`; do not impose local override behavior on stock-server fixtures.
-
-The [compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md) requires immutable history,
-1.12 client support, preserved 1.11 imports and serial migration tests. The
-[vendoring design](../design/012-vendor-upstream-pgmq-sql.md) requires local overrides separate
-from upstream bytes. The [FIFO boundary ADR](../adr/fifo-native-overrides-and-index-upgrade-boundary.md)
-limits these guarantees to migrated native SQL. Documentation is owned by
-`docs/plans/21-state-the-fifo-ordering-and-partitioned-retention-contracts-truthfully.md`;
-index changes are owned by `docs/plans/20-replace-the-fifo-gin-index-with-one-the-grouped-reads-can-use.md`.
+`vendor/pgmq/pgmq-extension/sql/pgmq.sql` supplies the baseline server behavior. Grouped reads
+may lease several visible messages of a group; heads lease at most one absolute head per group.
+Round-robin already returns layered selection order. The native manifest has six historical
+entries and remains unchanged by this child. Stock 1.12/1.13 support is established by the
+[compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md). Follow the
+[FIFO boundary ADR](../adr/fifo-native-overrides-and-index-upgrade-boundary.md) and
+[vendoring policy](../design/012-vendor-upstream-pgmq-sql.md): no new function overrides.
+Use Mori before looking up dependency APIs; no new dependency bounds are needed.
 
 ## Plan of Work
 
 
-### M1: Ordered SQL and accurate convergence
+### M1: Sort the result at the client query boundary
 
 
-Create `pgmq-migration/migrations/0007-order-grouped-read-returning.sql`. Copy the two
-vendored base definitions under their exact CREATE OR REPLACE signatures. For `read_grouped`,
-carry `overall_rank` through `selected_messages`, return it from an `updated_messages` CTE,
-and select only the seven message fields ordered by rank. For heads, wrap UPDATE similarly
-and select its seven fields ordered by `msg_id`. Preserve argument names, defaults, result
-identity, language and existing query stages. Do not copy round-robin's extra visibility guard
-or advisory lock into functions that do not currently have them.
+Add an outer `ORDER BY msg_id` to each of the four grouped/head SELECT statements. For example:
 
-Append the manifest entry once and extend `testNativeComponent`. In `testConvergence`, use
-all names when `latest` is true and `take 4 names` otherwise. Add the two body exceptions
-only when latest is true. Move the comparator's deliberate body-mutation sentinel to an
-unexcepted function such as `body:read(text, integer, integer, jsonb)`, verifying its actual
-snapshot key, or test mutations on unnormalized snapshots. Keep missing-function and signature
-coverage as well. Acceptance is both historical and latest convergence passing, with an injected
-change to an unexcepted body or function signature still failing the comparison.
+```sql
+select * from pgmq.read_grouped($1,$2,$3) order by msg_id
+```
 
-### M2: Observable ordered results without semantic drift
+Do not change encoders, record projections, argument defaults, qty, server definitions or
+round-robin queries. Update the four statements' Haddocks to specify ascending msg_id, no group
+contiguity guarantee, and unchanged server eligibility. Acceptance: build succeeds and only
+the intended client query text/contract changes. A1, B1, A2, B2 with ascending send IDs returns
+that ID sequence, not the earlier plan's A1, A2, B1, B2 grouping promise.
+
+### M2: Prove the client guarantee without relying on server output order
 
 
-Use the migration suite's disposable fixtures, with reset/migrate at the start of each case.
-Send interleaved groups A1, B1, A2, B2 and assert the exact grouped result A1, A2, B1, B2.
-Also assert a single group's IDs ascend and head reads return only A1, B1 in ascending ID
-order even with quantity greater than the total number of messages. Use returned send IDs;
-never assume a sequence starts at one. Cover missing/null group headers' default group.
+Add focused cases to AdvancedOpsSpec or an isolated registered test module. Seed interleaved
+groups and assert exact returned vectors for direct and polling reads, using returned send IDs
+rather than assumed sequence starts. Cover multiple messages per group, quantity spanning
+groups, missing group headers, invisible heads, head quantity exceeding the group count,
+empty results and polling timeout. Assert read_ct/visibility change once and selected rows
+match the unchanged server eligibility. Do not sort the test result before asserting it.
 
-Make physical row order adversarial using a scratch reverse-ID index and CLUSTER, or update
-rows in reverse order, and record the pre-override result. Exercise multiple supported planner
-settings diagnostically. Run a mutation experiment with the terminal ORDER BY removed and
-record whether the fixture detects it. If the current executor happens to preserve order,
-record that limitation; do not claim guaranteed mutation failure or weaken the ordered oracle.
-The structural ordered SELECT plus behavioral fixtures together support the contract.
+Use adversarial physical row order in an isolated queue to make the outer ordering useful;
+record whether removing the outer ORDER BY causes a failure on the tested PostgreSQL version.
+Unspecified baseline output can happen to be sorted, so do not claim a guaranteed mutation
+failure. Preserve a round-robin regression whose layered order differs from ascending IDs.
+Exercise sessions and existing plain/traced effect paths to confirm the same result contract.
+Run supported stock 1.12/1.13 fixtures and native fixtures; do not add a local server patch
+just to make a compatibility case pass. Acceptance: ordered client vectors with unchanged
+selection and round-robin results, on both installation modes.
 
-Test both polling functions on nonempty queues and test the returned Haskell vector through
-the native fixture. Do not sort results in the test or its outer SQL. Verify read counts and
-visibility updates occur once, blocked heads remain blocked, multiple rows from a group remain
-possible in `read_grouped`, and empty/zero-quantity behavior matches the baseline. Include a
-held-head-lock/two-connection case to show the rewrite preserves existing skip-locked behavior;
-this does not assert stronger concurrency semantics than upstream. All tests must finish with
-the same selected IDs and lease changes as before, with only their returned sequence changed.
-
-### M3: Reviewable upstream and release-readiness artifacts
+### M3: Evidence and consumer handoff
 
 
-Prepare `docs/upstream-patches/grouped-read-ordering.patch` outside the vendor tree. Use Mori
-to locate upstream source and verify the tag against upstream before recording its exact base
-commit. Include the main SQL changes, relevant FIFO SQL tests and a prospective upgrade script;
-do not rewrite an already-released upstream migration and imply it will replay. Validate the
-patch with `git apply --check` in an isolated checkout of its recorded base. Record commands
-and results in this plan. Do not submit the patch.
-
-Add Unreleased entries to root `CHANGELOG.md` and `pgmq-migration/CHANGELOG.md`. Record that
-applying native migration 0007 is required; Haskell package presence alone is insufficient.
-Do not select release bounds from downstream memory: verify authoritative Hackage versions
-and repository release tags during actual release preparation. Hand exact semantics and
-migration evidence to the documentation plan, without editing its owned prose in this child.
+Add Unreleased entries in root CHANGELOG.md and pgmq-hasql/CHANGELOG.md. State precisely that
+client queries now sort grouped/head results; no server migration is required or supplied.
+Hand the test evidence to docs/plans/21-state-the-fifo-ordering-and-partitioned-retention-contracts-truthfully.md.
+Do not claim a release number without authoritative registry/tag checks during release work.
+No upstream patch artifact or submission is required to implement this client-only contract.
 
 ## Concrete Steps
 
 
-Run from the repository root. These are implementation commands, not results of this review.
+Run from the repository root after the edits:
 
 ```bash
-cat pgmq-migration/migrations/manifest
-rg -n 'read_grouped|overall_rank|updated_messages' vendor/pgmq/pgmq-extension/sql/pgmq.sql
-rg -n 'testConvergence|exceptions|snapshot comparison|0006' pgmq-migration/test/Main.hs
-# Implement M1 and M2, then:
+rg -n 'readGrouped|read_grouped' pgmq-hasql/src/Pgmq/Hasql/Statements/Message.hs
 cabal build all
-nix develop .#partman --command cabal test pgmq-migration:pgmq-migration-test --test-options='-j1' --test-show-details=direct
 nix develop .#partman --command cabal test pgmq-hasql:pgmq-hasql-test --test-options='-j1' --test-show-details=direct
+nix develop .#partman --command cabal test pgmq-effectful:pgmq-effectful-test --test-options='-j1' --test-show-details=direct
 ```
 
-The partman shell supplies PostgreSQL and requires pg_partman. Expected: both suites exit
-zero, new ordering fixtures pass, historical imports/convergence remain green and partition
-acceptance does not skip. Record actual test names/output rather than invented transcripts.
-Use Mori before looking up unfamiliar test-library or migration APIs.
+Expected: build and affected suites exit zero, with the new client ordering cases and existing
+round-robin/head/effect cases passing. Record actual fixture/server coverage and output; if stock
+compatibility fixtures are separate commands, record and run those commands before completion.
 
 ## Validation and Acceptance
 
 
-M1 passes old 1.12 and new latest convergence independently; only intended latest bodies
-differ, while signatures/results and comparator sentinels remain checked. M2 returns the
-exact interleaved-group expected sequence through SQL, polling and the Haskell vector;
-head cardinality, blocked heads, lease effects and baseline selection stay unchanged.
-Retain the pre-override and mutation evidence honestly, including any nondiscriminating case.
-M3 produces a patch that applies to its stated base and changelogs describing native-only
-behavior. No publication or downstream source changes are required for completion.
+Four client statements sort returned rows by msg_id; round-robin preserves layering. Test vectors
+are exact, selection/leases remain unchanged, and stock/native callers get the same client
+contract. No vendor SQL, migration payload, manifest or convergence exception changes. Review
+the diff for that boundary in addition to running behavioral tests.
 
 ## Idempotence and Recovery
 
 
-Tests use disposable databases and serial execution. Migrations are applied once by the
-native ledger; CREATE OR REPLACE bodies can be exercised in scratch databases separately.
-Never alter 0001–0006 or a subsequently applied 0007. Repair deployed mistakes with another
-numbered migration. If another initiative has occupied 0007, update both this plan and the
-parent allocation before implementation; do not merge unrelated payloads. Database tests
-must not target an existing user's queue. Revert scratch SQL mutations before final acceptance.
+Client edits are reversible and add no persistent database state. Tests use disposable fixtures.
+If upstream adds ordering later, keep the explicit client contract until compatibility testing
+justifies simplifying it; no server body needs rebasing or replaying. Historical migrations
+remain untouched. A future raw-SQL guarantee requires an upstream fix and separate adoption.
 
 ## Interfaces and Dependencies
 
 
-Keep `pgmq.read_grouped(text, integer, integer)` and
-`pgmq.read_grouped_head(text, integer, integer)` returning `SETOF pgmq.message_record`.
-No public Haskell types or signatures change. Own the new SQL file, manifest extension,
-convergence-test refactor, focused native client test, root/package changelog entry and upstream
-patch artifact. Do not change grouped selection algorithms, vendor bytes or FIFO-index code.
-The existing migration test dependencies suffice; no new bounds are selected here.
+Public parameter/result types remain unchanged. Own Message.hs, focused client/effect test cases
+and root/pgmq-hasql changelog entries. EP-3 owns broad documentation integration. There is no
+hard dependency on the index child and no new SQL migration or override-maintenance mechanism.
 
-Revision note (2026-09-12): Corrected latest-only exceptions and the hidden comparator sentinel,
-added a discriminating multi-group ordering oracle and native-client scope, removed brittle
-promised mutation failures and publication/version assumptions, and reserved a separate migration.
+Revision note (2026-09-12): Replaced the server-override plan with four outer client ORDER BY
+clauses and an explicit client-only, ascending-ID contract under the user's no-override rule.
