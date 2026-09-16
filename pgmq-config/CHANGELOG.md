@@ -1,5 +1,11 @@
 # Revision history for pgmq-config
 
+## Unreleased
+
+Widen the `effectful-core` bound behind the `effectful` flag to `^>=2.6 || ^>=2.7`, adding
+support for 2.7 and dropping the untested claim of support for 2.5. `Pgmq.Config.Effectful`
+uses only `Eff` and `(:>)`, both unchanged in 2.7, so no source change was required.
+
 ## 0.6.0.0 -- 2026-09-10
 
 Breaking: `PartitionConfig` adds `premake :: Maybe Int32`. Supply `Nothing` for the existing

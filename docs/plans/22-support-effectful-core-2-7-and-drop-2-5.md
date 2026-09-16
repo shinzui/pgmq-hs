@@ -73,16 +73,22 @@ This section must always reflect the actual current state of the work.
 - [x] Milestone 2: add `strict-mutable-base` 2.0.0.0 and `effectful-core` 2.7.1.2 to
       `nix/haskell-overlay.nix`. Both `sha256` values given in the plan were wrong and were
       replaced with the values Nix reported; see Surprises & Discoveries. (2026-09-16)
-- [x] Milestone 2: add `pgmq-effectful-tests` to the `checks` attribute set in `flake.module.nix`. (2026-09-16)
+- [x] Milestone 2: add `pgmq-effectful-tests` to the `checks` attribute set in `flake.module.nix`,
+      then **revert it** — the check cannot evaluate because of a pre-existing defect in the
+      OpenTelemetry half of `nix/haskell-overlay.nix`, unrelated to `effectful-core`. This is
+      the recovery the plan's Idempotence and Recovery section prescribes. (2026-09-16)
 - [x] Milestone 2: the overrides evaluate — `nix eval` reports
       `effectful-core=2.7.1.2 strict-mutable-base=2.0.0.0` (it printed
       `effectful-core=2.6.1.0 strict-mutable-base=1.1.0.0` before the edit). (2026-09-16)
-- [ ] Milestone 2 (remaining): `nix build .#pgmq-effectful` and `nix flake check` succeed —
-      cold rebuild of the whole closure was still in progress when Milestone 2 was committed.
+- [x] Milestone 2: `nix build .#pgmq-effectful` succeeds and
+      `nix-store --query --references` on its output names
+      `/nix/store/...-effectful-core-2.7.1.2` (Acceptance 5, first half). (2026-09-16)
+- [x] Milestone 2: `nix flake check` succeeds once `pgmq-effectful-tests` is removed. (2026-09-16)
 - [x] Milestone 2: commit (made ahead of the build finishing, at the user's request). (2026-09-16)
-- [ ] Milestone 3: add the `effectful-floor` recipe to `Justfile`.
-- [ ] Milestone 3: add "Unreleased" entries, including the advisory preferring 2.7.1.1 over 2.7.0.0, to the root, `pgmq-effectful`, and `pgmq-config` changelogs.
-- [ ] Milestone 3: document the supported `effectful-core` range in `README.md`.
+- [x] Milestone 3: add the `effectful-floor` recipe to `Justfile`; `just --list` shows it and
+      `just effectful-floor` exits 0 resolving `effectful-core 2.6.1.0` (Acceptance 4). (2026-09-16)
+- [x] Milestone 3: add "Unreleased" entries, including the advisory preferring 2.7.1.1 over 2.7.0.0, to the root, `pgmq-effectful`, and `pgmq-config` changelogs. (2026-09-16)
+- [x] Milestone 3: document the supported `effectful-core` range in `README.md`. (2026-09-16)
 - [ ] Milestone 3: `nix fmt`, then commit.
 - [ ] Final: fill in Outcomes & Retrospective and run the ADR distillation pass.
 
@@ -182,6 +188,39 @@ The corrected values now in `nix/haskell-overlay.nix` are `effectful-core` 2.7.1
 values were computed over the raw Hackage tarball, whereas `callHackageDirect` hashes the
 unpacked source tree; the recovery path in the plan does not depend on knowing which.
 
+**`pgmq-effectful-tests` cannot run under Nix, for reasons that pre-date this plan.** Adding the
+check made `nix flake check` fail at *evaluation* time, not at test time:
+
+```text
+❌ checks.aarch64-darwin.pgmq-effectful-tests
+error: function 'anonymous lambda' called without required argument 'hs-opentelemetry-propagator-jaeger'
+  at /nix/store/...-cabal2nix-hs-opentelemetry-sdk/default.nix:1:1
+```
+
+`pgmq-effectful/pgmq-effectful.cabal` makes the test suite depend on
+`hs-opentelemetry-sdk >=1.0 && <2`, and the SDK's own cabal file requires six sibling packages
+at `==1.0.*`: `exporter-handle`, `exporter-otlp`, and the `b3`, `datadog`, `jaeger` and `xray`
+propagators. `nix/haskell-overlay.nix` defines only `api`, `api-types`, `semantic-conventions`,
+`propagator-w3c`, `exporter-in-memory` and `sdk` itself from the pinned
+`iand675/hs-opentelemetry` tree. The `ghc9124` package set supplies four of the six missing
+names, but at 0.0.x/0.1.x — far below the `==1.0.*` the SDK demands:
+
+```text
+hs-opentelemetry-exporter-handle = "0.0.1.2"; hs-opentelemetry-exporter-otlp = "0.1.1.0";
+hs-opentelemetry-propagator-b3 = "0.0.1.3"; hs-opentelemetry-propagator-datadog = "0.0.1.1";
+hs-opentelemetry-propagator-jaeger = "MISSING"; hs-opentelemetry-propagator-xray = "MISSING";
+```
+
+This is a latent defect, not a regression: evaluating `hs-opentelemetry-sdk` in a worktree at
+`8a704c3` — the commit before Milestone 1 — fails with the identical `jaeger` error. Nothing
+had ever forced its evaluation because no `checks` entry built the effect layer's test suite.
+The library builds fine because it needs only `hs-opentelemetry-api`; the SDK is test-only.
+
+Fixing it means adding six `callCabal2nix` entries from the pinned tree (and `exporter-otlp`
+drags `proto-lens`), which is unrelated to `effectful-core` and outside this plan's scope. The
+`propagators/jaeger` and `propagators/xray` directories do exist in the pinned source, so the
+fix is mechanical when someone takes it on.
+
 
 ## Decision Log
 
@@ -244,6 +283,22 @@ Record every decision made while working on the plan.
   whole project against 2.7.1.2 in Milestone 1 — so the commit is not unverified, only
   not-yet-fully-verified. The outstanding build is tracked as a remaining Progress item and
   must pass before the plan is closed.
+  Date: 2026-09-16
+
+
+- Decision: revert the `pgmq-effectful-tests` entry in `flake.module.nix` rather than repair the
+  OpenTelemetry overlay.
+  Rationale: the plan's Idempotence and Recovery section prescribes exactly this when
+  `nix flake check` fails only on `pgmq-effectful-tests` while `cabal test pgmq-effectful`
+  passes — remove the line, record the failure, rely on the Cabal run for the evidence, and do
+  not let it block the plan. The cause turned out to be an incomplete OTel overlay rather than
+  a sandbox quirk, which strengthens the case: it is a pre-existing defect reproducible at
+  `8a704c3`, it has nothing to do with `effectful-core`, and repairing it means adding six
+  git-sourced `hs-opentelemetry-*` derivations. Milestone 2's actual goal is still met and
+  still machine-checked — `nix build .#pgmq-effectful` links against
+  `effectful-core-2.7.1.2`, and `nix flake check` builds the `pgmq-effectful` library from the
+  pinned package set. What is lost is only running the effect layer's *test suite* under Nix;
+  that suite does run, against 2.7.1.2, under `cabal test all`.
   Date: 2026-09-16
 
 

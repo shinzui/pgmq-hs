@@ -1,5 +1,16 @@
 # Revision history for pgmq-effectful
 
+## Unreleased
+
+Widen the `effectful-core` bound to `^>=2.6 || ^>=2.7`, adding support for 2.7 and dropping
+the untested claim of support for 2.5. Nothing in the effect layer changed: the `Pgmq` effect,
+both interpreters, and every exported name are identical, and both interpreters already
+discarded the `LocalEnv` argument whose type lost a parameter in 2.7.
+
+Prefer `effectful-core` 2.7.1.1 or newer over 2.7.0.0 — the `Pgmq` effect is dynamically
+dispatched, and 2.7.0.0 carries an upstream per-operation overhead regression for dynamic
+dispatch that 2.7.1.1 fixed.
+
 ## 0.6.0.0 -- 2026-09-10
 
 Add grouped-head reads and polling to plain/traced interpreters, with Consumer/receive spans.

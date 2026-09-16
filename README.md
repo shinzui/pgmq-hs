@@ -50,6 +50,8 @@ main = do
 
 The `pgmq-effectful` package provides an [Effectful](https://hackage.haskell.org/package/effectful) effect layer over `pgmq-hasql`. It ships a plain interpreter (`runPgmq`) and a traced interpreter (`runPgmqTraced`) built against `hs-opentelemetry` 1.0. By default the traced interpreter preserves the older v1.24 attribute names for compatibility; set `OTEL_SEMCONV_STABILITY_OPT_IN=messaging,database` to emit stable messaging and database semantic-convention attributes, or `messaging/dup,database/dup` to emit both old and stable attributes during migration. Trace-context propagation remains pluggable through whichever propagator the `TracerProvider` is configured with (W3C, B3, Datadog, …).
 
+It requires only [`effectful-core`](https://hackage.haskell.org/package/effectful-core), not the full `effectful` package, and supports `effectful-core` `^>=2.6 || ^>=2.7` — that is, any 2.6.x or 2.7.x. Prefer 2.7.1.1 or newer over 2.7.0.0: the `Pgmq` effect is dynamically dispatched, and 2.7.0.0 carries an upstream per-operation overhead regression for dynamic dispatch that 2.7.1.1 fixed.
+
 See [effectful grouped heads and partition controls](docs/user/effectful-grouped-reads.md) for PGMQ 1.12/1.13 operations, tracing labels, and nullable metrics.
 
 See [`pgmq-effectful/CHANGELOG.md`](pgmq-effectful/CHANGELOG.md) for the 0.2.0.0 migration notes — attribute names, span-name format, and the error-type rename all changed.

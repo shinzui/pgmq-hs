@@ -44,6 +44,10 @@ test-package PACKAGE:
 bench:
     cabal bench pgmq-bench
 
+# Verify the lower end of the supported effectful-core range still compiles
+effectful-floor:
+    cabal build all --builddir=dist-effectful-floor --constraint='effectful-core <2.7'
+
 # Format code
 fmt:
     nix fmt

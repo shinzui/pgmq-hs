@@ -1,5 +1,18 @@
 # Revision history for pgmq-hs
 
+## Unreleased
+
+The family now supports `effectful-core` 2.7 and no longer claims support for 2.5. The
+declared range in `pgmq-effectful`, `pgmq-config` and `pgmq-bench` is `^>=2.6 || ^>=2.7`,
+so a consumer already pinned to `effectful-core` 2.7 can depend on these packages. No
+Haskell API changed: the effect layer builds unmodified against both ends of the range.
+
+Prefer `effectful-core` 2.7.1.1 or newer over 2.7.0.0. 2.7.0.0 is inside the supported
+range and builds correctly, but upstream increased the per-operation overhead of
+dynamically dispatched effects in that release and fixed it in 2.7.1.1. Every
+`pgmq-effectful` queue operation is dynamically dispatched, so the regression lands on the
+hot path. This is a recommendation, deliberately not a version constraint.
+
 ## 0.6.0.0 -- 2026-09-10
 
 The five-library family now supports PGMQ 1.12 grouped heads and 1.13 partition controls
