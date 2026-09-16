@@ -89,8 +89,10 @@ This section must always reflect the actual current state of the work.
       `just effectful-floor` exits 0 resolving `effectful-core 2.6.1.0` (Acceptance 4). (2026-09-16)
 - [x] Milestone 3: add "Unreleased" entries, including the advisory preferring 2.7.1.1 over 2.7.0.0, to the root, `pgmq-effectful`, and `pgmq-config` changelogs. (2026-09-16)
 - [x] Milestone 3: document the supported `effectful-core` range in `README.md`. (2026-09-16)
-- [ ] Milestone 3: `nix fmt`, then commit.
-- [ ] Final: fill in Outcomes & Retrospective and run the ADR distillation pass.
+- [x] Milestone 3: `nix fmt`, then commit. (2026-09-16)
+- [x] Final: Acceptance 6 confirmed — `git diff --name-only 8a704c3..HEAD` lists no `.hs` file. (2026-09-16)
+- [x] Final: fill in Outcomes & Retrospective and run the ADR distillation pass, which created
+      [`docs/adr/haskell-dependency-bounds-and-nix-pin-policy.md`](../adr/haskell-dependency-bounds-and-nix-pin-policy.md). (2026-09-16)
 
 
 ## Surprises & Discoveries
@@ -309,7 +311,50 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+**The purpose was met.** A consumer pinned to `effectful-core` 2.7 can now depend on
+`pgmq-effectful`, `pgmq-config` and `pgmq-bench`. The same command that failed with
+`Cabal-7107` before Milestone 1 resolves a build plan after it, `cabal build all` selects
+`effectful-core 2.7.1.2`, and `nix build .#pgmq-effectful` produces a store path whose
+references include `/nix/store/...-effectful-core-2.7.1.2`. 2.5 is genuinely gone:
+`--constraint='effectful-core < 2.6'` is now a solver failure naming the new bound.
+
+**The research held up exactly.** The plan predicted that no Haskell source change would be
+required, and none was: the final diff across all three milestones touches three `.cabal`
+files, `nix/haskell-overlay.nix`, `Justfile`, `README.md` and three changelogs, with no `.hs`
+file among them (Acceptance 6). All five test suites pass against 2.7.1.2 under `cabal test
+all`, including the `pgmq-effectful` suite that drives a live PostgreSQL through both
+interpreters and asserts on emitted spans, plus the 11-test partition acceptance run in the
+`partman` shell. The predicted `strict-mutable-base >= 2.0.0.0` transitive requirement was real
+and the second Nix override was necessary.
+
+**Acceptance results.** 1 ✓ (solver accepts `>= 2.7`), 2 ✓ (`cabal test all` green at
+2.7.1.2), 3 ✓ (`< 2.6` rejected), 4 ✓ (`just effectful-floor` exits 0 at `effectful-core
+2.6.1.0`), 5 partially ✓ (`nix flake check` exits 0 and `pgmq-effectful` links 2.7.1.2, but
+without the `pgmq-effectful-tests` entry — see below), 6 ✓ (no `.hs` changed).
+
+**The one gap.** Milestone 2 intended `nix flake check` to run the effect layer's own test
+suite against the pinned 2.7.1.2. It cannot, and the reason has nothing to do with
+`effectful-core`: `hs-opentelemetry-sdk` is unbuildable in this repository's Nix overlay and
+has been since before this plan started, reproducible at `8a704c3`. The plan's Idempotence and
+Recovery section anticipated a failure confined to `pgmq-effectful-tests` and prescribed
+removing the entry, recording the output, and relying on the Cabal run — which is what was
+done. Net effect on `flake.module.nix` across the plan is zero. The behavioural evidence for
+2.7.1.2 is real, it just comes from `cabal test all` rather than from `nix flake check`.
+
+**Lessons worth carrying.** Two went into the new ADR: a Cabal bound states compatibility
+rather than preference (which is why 2.7.0.0 stayed in the range despite its dynamic-dispatch
+overhead regression, with the recommendation moved to the changelog), and a declared range has
+to be exercised at both ends by different build paths, which is the whole reason
+`just effectful-floor` exists. The third lesson is narrower and is recorded in the ADR as a
+note: adding a `checks` entry is how you discover that a derivation in your overlay has never
+actually been evaluated.
+
+**Two plan defects worth noting for future plans.** Both `callHackageDirect` `sha256` values
+the plan supplied were wrong, because they were computed over the raw Hackage tarball while
+`callHackageDirect` hashes the unpacked source tree — the plan's own recovery procedure fixed
+this cleanly. And the plan gave macOS BSD `sed -i ''` as the primary form, but the `nix
+develop` shell puts GNU sed 4.10 on `PATH`, where that form fails. Inside the dev shell, prefer
+GNU syntax even on macOS.
 
 
 ## Context and Orientation
@@ -457,10 +502,15 @@ and
 [`docs/adr/pgmq-1.12-1.13-compatibility.md`](../adr/pgmq-1.12-1.13-compatibility.md).
 Both are about PGMQ's SQL schema — which upstream extension functions we may override and how
 native migrations track PGMQ 1.12/1.13. Neither has anything to say about Haskell dependency
-version policy, and this plan touches no SQL. **No relevant ADR exists for this work.** If the
-implementation surfaces a durable rule (for example, "our Cabal bounds state compatibility
-only; performance advice belongs in the changelog"), the distillation pass at the end should
-create one, following the existing plain-Markdown convention and adding no OKF frontmatter.
+version policy, and this plan touches no SQL. **No relevant ADR existed for this work when the
+plan was written.**
+
+The distillation pass at the end of implementation created one:
+[`docs/adr/haskell-dependency-bounds-and-nix-pin-policy.md`](../adr/haskell-dependency-bounds-and-nix-pin-policy.md),
+which records that a Cabal bound states compatibility rather than preference, that a declared
+range must be exercised at both ends by different build paths, and — as a note — why the effect
+layer's test suite cannot run under `nix flake check`. It follows the existing plain-Markdown
+convention and adds no OKF frontmatter.
 
 
 ## Plan of Work
