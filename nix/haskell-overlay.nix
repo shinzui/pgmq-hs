@@ -130,6 +130,30 @@ final: prev: {
     (hsOpenTelemetrySrc + "/sdk")
     { }));
 
+  # ── effectful 2.7 ──────────────────────────────────────────────────
+  #
+  # The ghc9124 package set ships effectful-core 2.6.1.0 and
+  # strict-mutable-base 1.1.0.0. Our cabal bounds allow 2.6 as well, but the
+  # Nix build is the one that gates releases, so it pins the newer end of the
+  # range. effectful-core 2.7 requires strict-mutable-base >= 2.0.0.0, hence
+  # the second override.
+
+  strict-mutable-base = dontCheck (doJailbreak (final.callHackageDirect
+    {
+      pkg = "strict-mutable-base";
+      ver = "2.0.0.0";
+      sha256 = "sha256-3o2PMN8l56X7ULqyNNJrJQZ8xgqqOsxhjm0jfULQt+k=";
+    }
+    { }));
+
+  effectful-core = dontCheck (doJailbreak (final.callHackageDirect
+    {
+      pkg = "effectful-core";
+      ver = "2.7.1.2";
+      sha256 = "sha256-OZhGk0UY3BMWF+oUAQnCvF3hnzscBCm0Cz+nz8p2XM8=";
+    }
+    { }));
+
   # ── Test dependencies ──────────────────────────────────────────────
 
   ephemeral-pg = dontCheck (doJailbreak (final.callCabal2nix "ephemeral-pg"

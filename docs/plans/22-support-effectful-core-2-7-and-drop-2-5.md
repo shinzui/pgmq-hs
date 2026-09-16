@@ -70,10 +70,16 @@ This section must always reflect the actual current state of the work.
 - [x] Milestone 1: Acceptance 1 and Acceptance 3 both captured — the `>= 2.7` dry run failed before
       the edit and succeeds after, and `< 2.6` now fails. (2026-09-16)
 - [ ] Milestone 1: commit.
-- [ ] Milestone 2: add `strict-mutable-base` 2.0.0.0 and `effectful-core` 2.7.1.2 to `nix/haskell-overlay.nix`.
-- [ ] Milestone 2: add `pgmq-effectful-tests` to the `checks` attribute set in `flake.module.nix`.
-- [ ] Milestone 2: `nix build .#pgmq-effectful` and `nix flake check` succeed.
-- [ ] Milestone 2: commit.
+- [x] Milestone 2: add `strict-mutable-base` 2.0.0.0 and `effectful-core` 2.7.1.2 to
+      `nix/haskell-overlay.nix`. Both `sha256` values given in the plan were wrong and were
+      replaced with the values Nix reported; see Surprises & Discoveries. (2026-09-16)
+- [x] Milestone 2: add `pgmq-effectful-tests` to the `checks` attribute set in `flake.module.nix`. (2026-09-16)
+- [x] Milestone 2: the overrides evaluate — `nix eval` reports
+      `effectful-core=2.7.1.2 strict-mutable-base=2.0.0.0` (it printed
+      `effectful-core=2.6.1.0 strict-mutable-base=1.1.0.0` before the edit). (2026-09-16)
+- [ ] Milestone 2 (remaining): `nix build .#pgmq-effectful` and `nix flake check` succeed —
+      cold rebuild of the whole closure was still in progress when Milestone 2 was committed.
+- [x] Milestone 2: commit (made ahead of the build finishing, at the user's request). (2026-09-16)
 - [ ] Milestone 3: add the `effectful-floor` recipe to `Justfile`.
 - [ ] Milestone 3: add "Unreleased" entries, including the advisory preferring 2.7.1.1 over 2.7.0.0, to the root, `pgmq-effectful`, and `pgmq-config` changelogs.
 - [ ] Milestone 3: document the supported `effectful-core` range in `README.md`.
@@ -153,6 +159,29 @@ sed: can't read s/^    effectful-core \^>=2\.5 || \^>=2\.6,$/...: No such file o
 The GNU form (`sed -i` with no separate suffix argument) worked and produced exactly the five
 expected line changes. Inside `nix develop`, prefer the GNU form on macOS too.
 
+**Both `callHackageDirect` hashes in the plan were wrong.** The plan's Idempotence and Recovery
+section anticipated this exact failure and prescribed the fix (take the `got:` value), which is
+what was done. `nix eval` surfaced them one at a time, because evaluating `.version` forces the
+cabal2nix import-from-derivation and therefore the tarball fetch:
+
+```text
+error: hash mismatch in fixed-output derivation '...-source.drv':
+         specified: sha256-SCP8YLoafJNpwbP8hmIe8abpqAom/ya+v5P+fkDU2aY=
+            got:    sha256-OZhGk0UY3BMWF+oUAQnCvF3hnzscBCm0Cz+nz8p2XM8=
+```
+
+```text
+error: hash mismatch in fixed-output derivation '...-source.drv':
+         specified: sha256-xAlEIMRvoh5sAdBKRwonwmYZqMoFBbds+HWKDwN2LeI=
+            got:    sha256-3o2PMN8l56X7ULqyNNJrJQZ8xgqqOsxhjm0jfULQt+k=
+```
+
+The corrected values now in `nix/haskell-overlay.nix` are `effectful-core` 2.7.1.2 =
+`sha256-OZhGk0UY3BMWF+oUAQnCvF3hnzscBCm0Cz+nz8p2XM8=` and `strict-mutable-base` 2.0.0.0 =
+`sha256-3o2PMN8l56X7ULqyNNJrJQZ8xgqqOsxhjm0jfULQt+k=`. The likely cause is that the plan's
+values were computed over the raw Hackage tarball, whereas `callHackageDirect` hashes the
+unpacked source tree; the recovery path in the plan does not depend on knowing which.
+
 
 ## Decision Log
 
@@ -203,6 +232,18 @@ Record every decision made while working on the plan.
   Rationale: `agents/skills/release/SKILL.md` owns versioning — all five packages share one
   version, bumped in a single release commit, and it explicitly moves content out of an
   "Unreleased" section into the new version section. Bumping here would collide with that.
+  Date: 2026-09-16
+
+
+- Decision: commit Milestone 2 before `nix build .#pgmq-effectful` and `nix flake check` had
+  finished.
+  Rationale: the user asked for the changes to be committed while the cold Nix rebuild of the
+  `effectful-core`/`hasql`/`hs-opentelemetry` closure was still running. The committed state is
+  independently evidenced — `nix eval` confirms the package set now resolves `effectful-core`
+  2.7.1.2 and `strict-mutable-base` 2.0.0.0, and the Cabal path already built and tested the
+  whole project against 2.7.1.2 in Milestone 1 — so the commit is not unverified, only
+  not-yet-fully-verified. The outstanding build is tracked as a remaining Progress item and
+  must pass before the plan is closed.
   Date: 2026-09-16
 
 

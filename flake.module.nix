@@ -104,6 +104,7 @@
 
       checks = {
         inherit (haskellPackages) pgmq-core pgmq-hasql pgmq-effectful pgmq-migration pgmq-config;
+        pgmq-effectful-tests = withTests haskellPackages.pgmq-effectful;
         pgmq-hasql-tests = withTests haskellPackages.pgmq-hasql;
         pgmq-migration-tests = withTests haskellPackages.pgmq-migration;
         pgmq-config-tests = withTests haskellPackages.pgmq-config;
