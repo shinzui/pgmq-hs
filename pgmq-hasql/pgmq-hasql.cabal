@@ -129,4 +129,5 @@ test-suite pgmq-hasql-test
     tasty-hunit ^>=0.10,
     text,
     time,
+    unix,
     vector,

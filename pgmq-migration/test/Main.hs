@@ -84,6 +84,7 @@ import Pgmq.Migration.History.HasqlMigration
   )
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (lookupEnv)
+import System.Posix.User (getEffectiveUserID)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -93,14 +94,21 @@ import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 -- temporary root. With 'temporaryRoot' unset that root is @$TMPDIR@, which
 -- @nix develop@ makes unique per shell, so a run never reclaims what an earlier
 -- session abandoned. Pinning one root across sessions keeps them reachable.
-ephemeralRoot :: FilePath
-ephemeralRoot = "/tmp/ephpg-pgmq-hs"
+--
+-- The path is keyed by effective uid. It is a fixed location created @0700@, so
+-- a run under a different user -- the Nix build sandbox -- must not collide with
+-- a directory it cannot write to.
+ephemeralRoot :: IO FilePath
+ephemeralRoot = do
+  uid <- getEffectiveUserID
+  pure ("/tmp/ephpg-pgmq-hs-" <> show uid)
 
 -- | Cached-startup configuration pinned to 'ephemeralRoot'.
 ephemeralConfig :: IO Config
 ephemeralConfig = do
-  createDirectoryIfMissing True ephemeralRoot
-  pure defaultConfig {temporaryRoot = Last (Just ephemeralRoot)}
+  root <- ephemeralRoot
+  createDirectoryIfMissing True root
+  pure defaultConfig {temporaryRoot = Last (Just root)}
 
 main :: IO ()
 main = do

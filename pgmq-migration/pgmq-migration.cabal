@@ -88,3 +88,4 @@ test-suite pgmq-migration-test
     tasty ^>=1.5,
     tasty-hunit ^>=0.10,
     text,
+    unix,

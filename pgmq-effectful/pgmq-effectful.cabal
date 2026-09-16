@@ -122,5 +122,6 @@ test-suite pgmq-effectful-test
     tasty ^>=1.5,
     tasty-hunit ^>=0.10,
     text >=2.0 && <2.2,
+    unix,
     unordered-containers >=0.2 && <0.3,
     vector ^>=0.13,

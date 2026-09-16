@@ -130,6 +130,7 @@ test-suite pgmq-config-test
     tasty-hunit ^>=0.10,
     text,
     time ^>=1.14,
+    unix,
 
   -- ForeignQueueSpec asserts that both reconciler backends use the lenient
   -- queue listing. The effect-backed half only exists when the library's

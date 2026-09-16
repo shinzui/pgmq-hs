@@ -156,13 +156,12 @@ final: prev: {
 
   # ── Test dependencies ──────────────────────────────────────────────
 
-  ephemeral-pg = dontCheck (doJailbreak (final.callCabal2nix "ephemeral-pg"
-    (pkgs.fetchFromGitHub {
-      owner = "shinzui";
-      repo = "ephemeral-pg";
-      rev = "c7b8340143dfeaa99c7f61c933fc315dd780d61c";
-      hash = "sha256-v7kMgEV7wABH3J+ftxtgfCX0s8iHTXFNXW+fsKXIwEM=";
-    })
+  ephemeral-pg = dontCheck (doJailbreak (final.callHackageDirect
+    {
+      pkg = "ephemeral-pg";
+      ver = "0.3.1.0";
+      sha256 = "sha256-0PyBqpG7iHLSZKfoqRO5uMlm2w821dbfMvNPTt/tKGs=";
+    }
     { }));
 
   # ── Local packages ──────────────────────────────────────────────────
