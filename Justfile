@@ -63,6 +63,8 @@ clean:
 docs-check:
     mori validate
     okf validate docs/capabilities --profile docs/capabilities/profile.dhall --profile-enforce --log-enforce
+    dhall type --file docs/reviews/profile.dhall > /dev/null
+    okf validate docs/reviews --profile docs/reviews/profile.dhall --profile-enforce --log-enforce
     okf graph docs/capabilities >/dev/null
     okf validate docs/improvement-requests --profile docs/improvement-requests/profile.dhall --profile-enforce --log-enforce
 

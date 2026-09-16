@@ -190,5 +190,12 @@ in  Schema.Project::{ project =
         , description = Some
             "Cross-repository improvement requests owned by pgmq-hs"
         }
+      , Schema.OkfBundle::{ name = "reviews"
+        , path = "docs/reviews"
+        , profile = Some "docs/reviews/profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some
+            "Commit-pinned records of what was reviewed, by whom, and what came of it"
+        }
       ]
     }
