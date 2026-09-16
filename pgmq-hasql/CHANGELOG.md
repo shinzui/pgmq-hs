@@ -1,5 +1,14 @@
 # Revision history for pgmq-hasql
 
+## 0.6.1.0 -- 2026-09-16
+
+Coordinated family version bump; the library is unchanged from 0.6.0.0.
+
+The test suite now requires `ephemeral-pg >=0.3.1.0` and pins its temporary PostgreSQL
+clusters to `/tmp/ephpg-pgmq-hs-<uid>`, so a run killed mid-test leaves a postmaster a later
+run can reap. It therefore depends on `unix` to read the effective uid. No library
+dependency changed.
+
 ## 0.6.0.0 -- 2026-09-10
 
 Add grouped-head reads and polling (PGMQ 1.12+), and expose all six grouped reads and their

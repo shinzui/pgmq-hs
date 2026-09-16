@@ -1,5 +1,15 @@
 # Changelog for pgmq-migration
 
+## 0.6.1.0 -- 2026-09-16
+
+Coordinated family version bump; the migration ledger and validators are unchanged
+from 0.6.0.0.
+
+The test suite now requires `ephemeral-pg >=0.3.1.0` and pins its temporary PostgreSQL
+clusters to `/tmp/ephpg-pgmq-hs-<uid>`, so a run killed mid-test leaves a postmaster a later
+run can reap. It therefore depends on `unix` to read the effective uid. No library
+dependency changed.
+
 ## 0.6.0.0 -- 2026-09-10
 
 Native installs now reach tagged PGMQ 1.13.0 through append-only migrations 0004–0006:

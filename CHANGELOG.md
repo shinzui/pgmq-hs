@@ -1,6 +1,6 @@
 # Revision history for pgmq-hs
 
-## Unreleased
+## 0.6.1.0 -- 2026-09-16
 
 The family now supports `effectful-core` 2.7 and no longer claims support for 2.5. The
 declared range in `pgmq-effectful`, `pgmq-config` and `pgmq-bench` is `^>=2.6 || ^>=2.7`,

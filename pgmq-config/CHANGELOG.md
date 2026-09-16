@@ -1,10 +1,15 @@
 # Revision history for pgmq-config
 
-## Unreleased
+## 0.6.1.0 -- 2026-09-16
 
 Widen the `effectful-core` bound behind the `effectful` flag to `^>=2.6 || ^>=2.7`, adding
 support for 2.7 and dropping the untested claim of support for 2.5. `Pgmq.Config.Effectful`
 uses only `Eff` and `(:>)`, both unchanged in 2.7, so no source change was required.
+
+The test suite now requires `ephemeral-pg >=0.3.1.0` and pins its temporary PostgreSQL
+clusters to `/tmp/ephpg-pgmq-hs-<uid>`, so a run killed mid-test leaves a postmaster a later
+run can reap. It therefore depends on `unix` to read the effective uid. No library
+dependency changed.
 
 ## 0.6.0.0 -- 2026-09-10
 

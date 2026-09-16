@@ -1,6 +1,6 @@
 # Revision history for pgmq-effectful
 
-## Unreleased
+## 0.6.1.0 -- 2026-09-16
 
 Widen the `effectful-core` bound to `^>=2.6 || ^>=2.7`, adding support for 2.7 and dropping
 the untested claim of support for 2.5. Nothing in the effect layer changed: the `Pgmq` effect,
@@ -10,6 +10,11 @@ discarded the `LocalEnv` argument whose type lost a parameter in 2.7.
 Prefer `effectful-core` 2.7.1.1 or newer over 2.7.0.0 — the `Pgmq` effect is dynamically
 dispatched, and 2.7.0.0 carries an upstream per-operation overhead regression for dynamic
 dispatch that 2.7.1.1 fixed.
+
+The test suite now requires `ephemeral-pg >=0.3.1.0` and pins its temporary PostgreSQL
+clusters to `/tmp/ephpg-pgmq-hs-<uid>`, so a run killed mid-test leaves a postmaster a later
+run can reap. It therefore depends on `unix` to read the effective uid. No library
+dependency changed.
 
 ## 0.6.0.0 -- 2026-09-10
 
