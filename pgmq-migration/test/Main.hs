@@ -10,6 +10,7 @@ import Data.ByteString qualified as ByteString
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
+import Data.Monoid (Last (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
@@ -59,8 +60,11 @@ import Database.PostgreSQL.Migrate.Internal
 -- of the same name imported above, so it is reached through this alias only.
 import Database.PostgreSQL.Migrate.Internal qualified as MigrateInternal
 import EphemeralPg
-  ( connectionSettings,
-    withCached,
+  ( Config (temporaryRoot),
+    connectionSettings,
+    defaultCacheConfig,
+    defaultConfig,
+    withCachedConfig,
   )
 import Hasql.Connection qualified as Connection
 import Hasql.Connection.Settings qualified as Settings
@@ -78,14 +82,30 @@ import Pgmq.Migration.History.HasqlMigration
     pgmqHasqlMigrationSourceConfig,
     pgmqHasqlMigrationSourceConfigWithPolicy,
   )
-import System.Directory (doesFileExist)
+import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (lookupEnv)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
+-- | Root directory for ephemeral PostgreSQL clusters.
+--
+-- ephemeral-pg reaps abandoned clusters at startup, but only within its own
+-- temporary root. With 'temporaryRoot' unset that root is @$TMPDIR@, which
+-- @nix develop@ makes unique per shell, so a run never reclaims what an earlier
+-- session abandoned. Pinning one root across sessions keeps them reachable.
+ephemeralRoot :: FilePath
+ephemeralRoot = "/tmp/ephpg-pgmq-hs"
+
+-- | Cached-startup configuration pinned to 'ephemeralRoot'.
+ephemeralConfig :: IO Config
+ephemeralConfig = do
+  createDirectoryIfMissing True ephemeralRoot
+  pure defaultConfig {temporaryRoot = Last (Just ephemeralRoot)}
+
 main :: IO ()
 main = do
-  result <- withCached $ \db -> do
+  config <- ephemeralConfig
+  result <- withCachedConfig config defaultCacheConfig $ \db -> do
     let connSettings = connectionSettings db
     connResult <- Connection.acquire connSettings
     case connResult of

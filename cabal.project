@@ -28,6 +28,8 @@ package pg-migrate-test-support
 
 allow-newer:
   -- GHC 9.12 ships with updated boot libraries
+  -- pg-migrate-test-support caps ephemeral-pg <0.3; pgmq needs 0.3's
+  -- stale-instance sweeping (temporaryRoot / sweepStaleOnStart).
   *:time
   , *:containers
   , *:template-haskell
@@ -38,6 +40,7 @@ allow-newer:
   , *:deepseq
   , *:filepath
   , openapi3:time
+  , pg-migrate-test-support:ephemeral-pg
 
 source-repository-package
   type: git

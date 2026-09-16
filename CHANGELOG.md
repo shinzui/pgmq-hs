@@ -13,6 +13,18 @@ dynamically dispatched effects in that release and fixed it in 2.7.1.1. Every
 `pgmq-effectful` queue operation is dynamically dispatched, so the regression lands on the
 hot path. This is a recommendation, deliberately not a version constraint.
 
+The test suites now require `ephemeral-pg >=0.3.1.0` and pin every temporary PostgreSQL
+cluster to a stable root at `/tmp/ephpg-pgmq-hs`. ephemeral-pg reaps abandoned clusters at
+startup, but only inside its own temporary root; with `temporaryRoot` unset that root is
+`$TMPDIR`, which `nix develop` allocates fresh per shell. A killed test run therefore
+leaked its postmaster indefinitely, because no later run ever looked in the directory that
+held it. Pinning one root lets a later run reclaim what an earlier one abandoned. No
+Haskell API changed and no library package gained a dependency; this is test
+infrastructure only.
+
+`pg-migrate-test-support` caps `ephemeral-pg <0.3`, so `cabal.project` relaxes that single
+bound through `allow-newer`.
+
 ## 0.6.0.0 -- 2026-09-10
 
 The five-library family now supports PGMQ 1.12 grouped heads and 1.13 partition controls

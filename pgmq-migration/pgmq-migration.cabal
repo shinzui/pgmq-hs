@@ -80,7 +80,7 @@ test-suite pgmq-migration-test
     bytestring,
     containers,
     directory,
-    ephemeral-pg >=0.2.1,
+    ephemeral-pg >=0.3.1.0,
     hasql,
     pg-migrate,
     pg-migrate-import-hasql-migration,
