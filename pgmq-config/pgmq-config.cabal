@@ -77,7 +77,7 @@ library
   if flag(effectful)
     exposed-modules: Pgmq.Config.Effectful
     build-depends:
-      effectful-core ^>=2.5 || ^>=2.6,
+      effectful-core ^>=2.6 || ^>=2.7,
       pgmq-effectful >=0.6 && <0.7,
   hs-source-dirs: src
   default-language: GHC2024
@@ -137,5 +137,5 @@ test-suite pgmq-config-test
   if flag(effectful)
     cpp-options: -DPGMQ_EFFECTFUL
     build-depends:
-      effectful-core ^>=2.5 || ^>=2.6,
+      effectful-core ^>=2.6 || ^>=2.7,
       pgmq-effectful >=0.6 && <0.7,
