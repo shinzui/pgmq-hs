@@ -183,6 +183,24 @@ in  Schema.Project::{ project =
         , description = Some
             "What pgmq-hs provides today, one concept per capability, with evidence"
         }
+      , Schema.OkfBundle::{ name = "bug-reports"
+        , path = "docs/bug-reports"
+        , profile = Some "docs/bug-reports/profile.dhall"
+        , profileBinding = Some
+            ( Schema.ProfileBinding.Published
+                Schema.PinnedImport::{
+                , publisher = "shinzui/okf-profiles"
+                , publisherRef = Some Schema.MoriRef::{ namespace = "shinzui", name = "okf-profiles" }
+                , export = Some "coordination.bugReports"
+                , version = Some "v0.18.0"
+                , pin = Some
+                    "sha256:7d3a4a22be12fd0e697d6012ed1eb2efe4cb5dc4700d08fd49aa5e4c0e523df8"
+                }
+            )
+        , okfVersion = "0.2"
+        , description = Some
+            "Reproducible defects in shipped PGMQ client behavior"
+        }
       , Schema.OkfBundle::{ name = "improvement-requests"
         , path = "docs/improvement-requests"
         , profile = Some "docs/improvement-requests/profile.dhall"
