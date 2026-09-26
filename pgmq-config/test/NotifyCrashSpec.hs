@@ -33,6 +33,7 @@ import Database.PostgreSQL.Migrate
     migrationPlan,
     runMigrationPlan,
   )
+import EphemeralDb (ephemeralConfig)
 import EphemeralPg qualified as Pg
 -- 'shutdownMode' names a field of both Pg.Config and Pg.Database, so the record
 -- update below needs the selector from the module that defines only Database.
@@ -186,7 +187,8 @@ crashAndRecover db = do
 
 startOrFail :: IO Pg.Database
 startOrFail = do
-  result <- Pg.startCached Pg.defaultConfig Pg.defaultCacheConfig
+  config <- ephemeralConfig
+  result <- Pg.startCached config Pg.defaultCacheConfig
   case result of
     Left err -> assertFailure $ "could not start a dedicated PostgreSQL: " <> show err
     Right db -> pure db

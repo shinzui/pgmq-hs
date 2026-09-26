@@ -34,6 +34,7 @@ import Database.PostgreSQL.Migrate
     migrationPlan,
     runMigrationPlan,
   )
+import EphemeralDb (ephemeralConfig)
 import EphemeralPg qualified as Pg
 import Hasql.Decoders qualified as D
 import Hasql.Pool qualified as Pool
@@ -274,7 +275,8 @@ testOrphanDeletion getDb = testCase "orphaned row is deleted, not resurrected as
 
 acquireDb :: IO (Pg.Database, Pool.Pool)
 acquireDb = do
-  started <- Pg.startCached Pg.defaultConfig Pg.defaultCacheConfig
+  config <- ephemeralConfig
+  started <- Pg.startCached config Pg.defaultCacheConfig
   db <- either (\err -> error ("could not start a dedicated PostgreSQL: " <> show err)) pure started
   component <- either (error . ("Invalid PGMQ migration component: " <>) . show) pure Migration.pgmqMigrations
   plan <- either (error . ("Invalid PGMQ migration plan: " <>) . show) pure (migrationPlan (component :| []))

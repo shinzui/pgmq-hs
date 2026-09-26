@@ -41,6 +41,7 @@ import Database.PostgreSQL.Migrate
     migrationPlan,
     runMigrationPlan,
   )
+import EphemeralDb (ephemeralConfig)
 import EphemeralPg qualified as Pg
 import Hasql.Decoders qualified as D
 import Hasql.Encoders qualified as E
@@ -222,7 +223,8 @@ runEffectfulReconcile _pool _qn = pure []
 
 startOrFail :: IO Pg.Database
 startOrFail = do
-  result <- Pg.startCached Pg.defaultConfig Pg.defaultCacheConfig
+  config <- ephemeralConfig
+  result <- Pg.startCached config Pg.defaultCacheConfig
   case result of
     Left err -> assertFailure $ "could not start a dedicated PostgreSQL: " <> show err
     Right db -> pure db

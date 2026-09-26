@@ -4,6 +4,7 @@
 module EphemeralDb
   ( -- * Database setup
     withPgmqDb,
+    ephemeralConfig,
 
     -- * Re-exports
     StartError,

@@ -5,6 +5,7 @@ module EphemeralDb
   ( -- * Database setup
     withPgmqDb,
     withPgmqPool,
+    ephemeralConfig,
 
     -- * Test fixtures
     TestFixture (..),
