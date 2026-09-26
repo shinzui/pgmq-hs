@@ -1,6 +1,6 @@
 # Revision history for pgmq-hs
 
-## Unreleased
+## 0.6.1.1 -- 2026-09-25
 
 `pgmq-migration` now accepts the `pg-migrate` 1.2 series alongside 1.1 for `pg-migrate`,
 `pg-migrate-embed` and `pg-migrate-import-hasql-migration`. Those packages changed only
@@ -10,7 +10,7 @@ their internal bounds in 1.2, so no Haskell API changed. The Nix build pins
 `pg-migrate-test-support` 1.2 accepts `ephemeral-pg >=0.3.1`, so `cabal.project` no longer
 needs its `allow-newer` override.
 
-The three test suites that start a dedicated cluster outside `EphemeralDb`
+The three test specs that start a dedicated cluster outside `EphemeralDb`
 (`ForeignQueueSpec`, `NotifyCrashSpec`, `MixedCaseRemediationSpec`) now use the same
 stable per-uid temporary root. Before this change they fell back to `$TMPDIR` and escaped
 the startup sweep.

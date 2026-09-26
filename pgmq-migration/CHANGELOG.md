@@ -1,5 +1,12 @@
 # Changelog for pgmq-migration
 
+## 0.6.1.1 -- 2026-09-25
+
+Accept the `pg-migrate` 1.2 series alongside 1.1: `pg-migrate`, `pg-migrate-embed` and
+`pg-migrate-import-hasql-migration` are now bounded `^>=1.1.0.0 || ^>=1.2.0.0`. Those
+packages changed only their internal bounds in 1.2, so the migration ledger, validators
+and exported API are unchanged from 0.6.1.0.
+
 ## 0.6.1.0 -- 2026-09-16
 
 Coordinated family version bump; the migration ledger and validators are unchanged

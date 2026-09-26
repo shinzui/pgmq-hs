@@ -1,5 +1,9 @@
 # Revision history for pgmq-effectful
 
+## 0.6.1.1 -- 2026-09-25
+
+Coordinated family version bump; the effect layer is unchanged from 0.6.1.0.
+
 ## 0.6.1.0 -- 2026-09-16
 
 Widen the `effectful-core` bound to `^>=2.6 || ^>=2.7`, adding support for 2.7 and dropping

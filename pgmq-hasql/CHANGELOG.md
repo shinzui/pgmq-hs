@@ -1,5 +1,13 @@
 # Revision history for pgmq-hasql
 
+## 0.6.1.1 -- 2026-09-25
+
+Coordinated family version bump; the library is unchanged from 0.6.1.0.
+
+`MixedCaseRemediationSpec`, which starts its own cluster, now uses the same stable per-uid
+temporary root as the rest of the test suite instead of falling back to `$TMPDIR`, so a
+killed run's cluster is reaped by the next run. No library dependency changed.
+
 ## 0.6.1.0 -- 2026-09-16
 
 Coordinated family version bump; the library is unchanged from 0.6.0.0.
