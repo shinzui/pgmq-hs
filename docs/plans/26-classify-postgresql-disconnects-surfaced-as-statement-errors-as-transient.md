@@ -16,6 +16,11 @@ provenance:
       at: 2026-09-30T20:28:53Z
       mode: "update"
       note: "Add the isAmbiguousReply classifier for lost replies to non-idempotent operations"
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-09-30T21:21:28Z
+      mode: "update"
+      note: "Require bounded retry loops and a sticky ambiguous state; add the runtime-patterns follow-up"
 ---
 
 # Classify PostgreSQL disconnects surfaced as statement errors as transient
@@ -78,7 +83,8 @@ closes as completed.
 - [ ] M2: `cabal test pgmq-effectful:test:pgmq-effectful-test` green, disconnect suite included; commit
 - [ ] M3: `docs/design/017-transient-error-classification.md` revised with the client-synthesized-error and stray-result rules, the pool caveat, and the residual gap
 - [ ] M3: `docs/capabilities/effectful-integration.md` limits and evidence revised; capability log entry added
-- [ ] M3: `pgmq-effectful/CHANGELOG.md` and root `CHANGELOG.md` gain an Unreleased entry; the README retry example gains the `isAmbiguousReply` branch
+- [ ] M3: `pgmq-effectful/CHANGELOG.md` and root `CHANGELOG.md` gain an Unreleased entry; the README retry example becomes a bounded loop with the sticky `isAmbiguousReply` branch
+- [ ] Follow-up after the next release (other repository): revise `runtime-patterns/messaging/pgmq-connection-faults.md` in `mori://shinzui/keiro-runtime-patterns` to drop its pending note and cite the released version
 - [ ] M3: BUG-1 set to `fixed` with `fixedVersion: unreleased` and a `resolution`; IR-4 set to `completed` with `completedAt` and a `resolution`; both bundle logs appended
 - [ ] M3: `justfile` `docs-check` validates `docs/bug-reports`; `just docs-check` passes; `okf validate --strict` passes for bug-reports, improvement-requests, and capabilities
 - [ ] M3: `docs/adr/transient-classification-is-value-based.md` written; commit
@@ -199,6 +205,19 @@ same pool needed to complete a send afterwards.)
   server; a real server error or a decode failure is not ambiguous, because the server's verdict
   arrived. Reconciling unnecessarily costs one read; duplicating a send costs correctness. Added
   at the user's request after the regression-risk review of this plan.
+  Date: 2026-09-30
+- Decision: Every retry loop the documentation shows is bounded, and an ambiguous reply is
+  sticky: once `isAmbiguousReply` fires for a non-idempotent operation, the loop retries the
+  reconciliation, never the operation, until reconciliation succeeds or the bound is hit.
+  Rationale: `isTransient` is a verdict on one error, not an oracle for whether an outage will
+  heal; during a permanent outage every attempt is individually transient, so an unbounded loop
+  spins forever. That was already true for "connection refused" before this plan, but the README
+  example showed no bound, and the classifier's new reach makes the omission more visible. The
+  sticky rule closes a hole the helper alone leaves open: a lost send reply followed by a
+  reconciliation read that fails transiently (the server is still down) would otherwise be
+  handled as a plain transient error and re-send blindly, producing exactly the duplicate the
+  helper exists to prevent. Both rules are stated in the design note and shown in the README
+  loop; neither is enforced by the library, which still retries nothing itself.
   Date: 2026-09-30
 
 
@@ -505,7 +524,13 @@ close it, and an update to "Where this is enforced" naming `DisconnectSpec` and 
 shape counts as ambiguous even though its usual producer aborted the transaction, and shows the
 recommended loop: an ambiguous reply to a non-idempotent operation is reconciled (for a send,
 check the durable message keys) before any re-send; any other transient error is retried with
-bounded backoff; everything else fails. Update the Status line to record this plan and the date.
+bounded backoff; everything else fails. State the two loop rules explicitly. First, every loop
+is bounded by an attempt count or a deadline, because a permanent outage yields errors that
+are each transient and the classifier cannot tell an outage that will heal from one that will
+not. Second, the ambiguous state is sticky: after `isAmbiguousReply` fires, further transient
+failures (typically the reconciliation read failing while the server is still down) retry the
+reconciliation, never the original send, until it succeeds or the bound is hit. Show the same
+loop the README will carry. Update the Status line to record this plan and the date.
 Say explicitly, as IR-4 asks, that the library still does not retry anything itself and that a
 lost reply to a non-idempotent send remains the caller's call, now with a helper that tells the
 caller when that is the case.
@@ -524,19 +549,35 @@ Add an `## Unreleased` section at the top of `pgmq-effectful/CHANGELOG.md` with 
 entry describing the two shapes, why they were permanent, the precise new rules, and the pool
 caveat, plus a New Features entry for `isAmbiguousReply` that states its contract, the
 implication, and the duplicate-send hazard it exists for; add a corresponding paragraph at the
-top of the root `CHANGELOG.md`. Extend the README's retry example (the `run pool` snippet under
-the error-handling paragraph) with the ambiguous branch placed before the transient one:
+top of the root `CHANGELOG.md`. Replace the README's retry example (the `run pool` snippet
+under the error-handling paragraph) with a loop that is bounded and whose ambiguous state is
+sticky. `lookupByKey` stands for whatever reconciliation the application can do, such as
+finding the message by a dedupe key it put in the headers; `pause` is the caller's backoff:
 
 ```haskell
-    Left (_cs, err)
-      | isAmbiguousReply err -> reconcileThenRetry
-      | isTransient err -> retry
-      | otherwise -> logFatal err
+-- Bounded: stop after maxAttempts. Sticky: once a send's reply is lost, look
+-- the message up instead of sending again, and keep looking it up through
+-- further transient failures until the lookup succeeds.
+sendOnce pool key body = go 1 False
+  where
+    go attempt reconciling = do
+      result <-
+        runEff . runError @PgmqRuntimeError . runPgmq pool $
+          if reconciling then lookupByKey key else sendMessage (message key body)
+      case result of
+        Right outcome -> pure (Right outcome)
+        Left (_cs, err)
+          | attempt >= maxAttempts -> pure (Left err)
+          | isAmbiguousReply err -> pause attempt >> go (attempt + 1) True
+          | isTransient err -> pause attempt >> go (attempt + 1) reconciling
+          | otherwise -> pure (Left err)
 ```
 
-and add one sentence after the snippet explaining that an ambiguous reply means the statement
-was delivered but its reply was lost, so a send may already have committed and should be
-checked against the queue before being sent again.
+Follow the snippet with three sentences: an ambiguous reply means the statement was delivered
+but its reply was lost, so a send may already have committed; the loop therefore switches to
+reconciliation and never switches back; and the bound exists because a server that stays down
+produces transient errors indefinitely. Keep the existing sentence about the three
+`PgmqRuntimeError` constructors after that.
 
 Close the records. In `docs/bug-reports/1-disconnect-errors-are-classified-as-permanent.md` set
 `status: fixed`, add `fixedVersion: unreleased`, add a one-sentence `resolution` naming the
@@ -549,6 +590,16 @@ names `isAmbiguousReply` as the answer to its non-goal about replaying ambiguous
 Append a log entry to each bundle with `okf log add`. Add
 `okf validate docs/bug-reports --profile docs/bug-reports/profile.dhall --profile-enforce --log-enforce`
 to the `docs-check` recipe in `justfile`.
+
+One follow-up lives outside this repository and outside this plan's commits. The Keiro runtime
+pattern corpus `mori://shinzui/keiro-runtime-patterns` carries a standard at
+`runtime-patterns/messaging/pgmq-connection-faults.md` (document-level URI
+`mori://shinzui/keiro-runtime-patterns/docs/messaging-pgmq-connection-faults`) that sizes the
+`shibuya-pgmq-adapter` retry budgets for connection faults and states, truthfully for the
+released 0.6.1.1, that the two disconnect shapes are still permanent. After the release that
+carries this fix, that standard must be revised to cite the released version, drop its pending
+note, and prescribe `isAmbiguousReply` for application-owned sends. Record that as the
+post-release follow-up in Outcomes & Retrospective.
 
 Write `docs/adr/transient-classification-is-value-based.md` in the existing plain-Markdown
 style: Status (accepted, date, introduced by this plan), Context (hasql reports receive-side
@@ -1077,7 +1128,8 @@ is that loop, and its recorded attempt counts in Surprises & Discoveries show ho
 each fault cost. The second claim is the README's ambiguous branch: a loop that checks
 `isAmbiguousReply` first can tell a lost reply (reconcile, then retry) from a server refusal or
 a failed send (retry or fail), which is what stops the fix from turning a lost send reply into
-a duplicate message.
+a duplicate message. Read the README loop and confirm it has an attempt bound and that the
+`reconciling` flag is never reset to `False`.
 
 The documentation claims are checked by `just docs-check` and the three strict `okf validate`
 commands passing, and by reading `docs/design/017-transient-error-classification.md` and
@@ -1143,3 +1195,8 @@ the Plan of Work carry the frontmatter fields their profiles require for their n
   Decision Log, Plan of Work (M2 and M3), Concrete Steps (classifier code, ClassificationSpec,
   DisconnectSpec, UmbrellaExportsSpec, README, both commit messages), Validation and Acceptance,
   and Interfaces and Dependencies. Milestone count and order are unchanged.
+- 2026-09-30: After the permanent-outage review, required every documented retry loop to be
+  bounded and made the ambiguous state sticky (reconcile, never re-send, until reconciliation
+  succeeds). Replaced the README snippet in Concrete Steps with the bounded sticky loop, added
+  the two rules to the design-note guidance in Plan of Work M3, added a Decision Log entry,
+  a Validation check, and a post-release follow-up for the Keiro runtime pattern corpus.
