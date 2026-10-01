@@ -454,7 +454,7 @@ allQueueMetrics = send AllQueueMetrics
 -- | A keyset page of a queue table without leasing anything: @vt@ and
 -- @read_ct@ are untouched. Accepts any server-accepted name; pass
 -- 'Pgmq.Types.queueNameToText' for a validated one. Pages by exclusive
--- @msg_id@ cursor, never @OFFSET@. A missing queue is a 'PgmqSessionError'
+-- @msg_id@ cursor, never @OFFSET@. A missing queue is a @PgmqSessionError@
 -- carrying SQLSTATE @42P01@.
 peekMessages :: (Pgmq :> es) => PeekMessages -> Eff es (Vector Message)
 peekMessages = send . PeekMessages

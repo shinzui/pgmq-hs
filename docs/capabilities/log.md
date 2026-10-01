@@ -1,6 +1,7 @@
 # Capability catalog log
 
 ## 2026-10-01
+* **Addition**: CAP-10: non-destructive queue inspection reads (peek, archive peek, lookups, lenient metrics) across pgmq-hasql and pgmq-effectful, since unreleased (ExecPlan 27)
 * **Revision**: CAP-5: revise the isTransient limits, add isAmbiguousReply, and add DisconnectSpec as evidence (ExecPlan 26)
 
 ## 2026-08-08

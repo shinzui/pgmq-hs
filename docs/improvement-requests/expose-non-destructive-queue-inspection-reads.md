@@ -9,7 +9,16 @@ generated:
   by: anthropic/claude-fable-5
   at: "2026-08-19T00:00:00Z"
 requestId: IR-1
-status: accepted
+status: completed
+completedAt: "2026-10-01T21:55:00Z"
+resolution: >-
+  Implemented by mori://shinzui/pgmq-hs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers; the contract is docs/design/019-non-destructive-inspection-reads.md.
+  (1) pgmq-hasql/test/InspectionSpec.hs reads the raw msg_id, read_ct, last_read_at, and vt cells before and after five peek rounds and a lookup on a queue holding leased and delayed messages and asserts them identical.
+  (2) The same spec races a consumer leasing in batches of five against two hundred peeks; the consumer receives all fifty ids exactly once and every read_ct is one.
+  (3) Paging 1000 messages with limit 7 from the last id seen takes 143 pages and visits every id once in order; toSql of every inspection statement contains no OFFSET.
+  (4) Archive peeks return archived rows with archived_at no earlier than enqueued_at; lookupMessage and lookupArchivedMessage answer Just for a present id and a typed Nothing for an absent one in both tables.
+  (5) pgmq-hasql/test/InspectionForeignNameSpec.hs creates mixed-case and hyphenated queues through raw SQL on a dedicated instance and peeks, looks up, archives, and measures them through the new reads; the reads take the name as plain Text and resolve the table with pgmq.format_table_name.
+  (6) Five constructors on the Pgmq effect run under runPgmq and runPgmqTraced (the inspection case in pgmq-effectful/test/TracedInterpreterSpec.hs, including span assertions); being dynamic-dispatch constructors they are implementable by any mock interpreter.
 targetPlan: docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md
 origin: mori://shinzui/keiro-ui
 ---

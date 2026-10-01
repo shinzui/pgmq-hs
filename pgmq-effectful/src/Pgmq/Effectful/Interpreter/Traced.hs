@@ -387,7 +387,7 @@ queueOp :: Text -> OTel.SpanKind -> QueueName -> OpInfo
 queueOp fn kind qn = queueOpText fn kind (queueNameToText qn)
 
 -- | 'OpInfo' for a non-messaging operation scoped to a queue named by plain
--- text: the lenient inspection path, which accepts names 'parseQueueName'
+-- text: the lenient inspection path, which accepts names 'Pgmq.Types.parseQueueName'
 -- rejects. The destination attribute carries the name exactly as given.
 queueOpText :: Text -> OTel.SpanKind -> Text -> OpInfo
 queueOpText fn kind name = (defaultOpInfo fn kind) {opDestination = Just name}

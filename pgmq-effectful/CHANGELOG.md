@@ -31,6 +31,20 @@
   a lost send reply blindly can duplicate a message that already committed, so gate the
   retry of non-idempotent operations on `isAmbiguousReply` and reconcile first. See the
   bounded, sticky loop in the README and `docs/design/017-transient-error-classification.md`.
+- Non-destructive inspection on the `Pgmq` effect (IR-1): `peekMessages`,
+  `peekArchivedMessages`, `lookupMessage`, `lookupArchivedMessage`, and
+  `queueMetricsUnvalidated`, re-exported from `Pgmq.Effectful` with `PeekMessages`,
+  `LookupMessage`, and `ArchivedMessage`. Both interpreters run them; the traced one labels
+  the four hand-written reads `pgmq.peek`, `pgmq.peek_archive`, `pgmq.lookup_message`, and
+  `pgmq.lookup_archived_message` (`Internal` spans; lookups carry `messaging.message.id`)
+  and keeps `pgmq.metrics` for the lenient metrics read. See
+  `docs/design/019-non-destructive-inspection-reads.md`.
+
+### Breaking Changes
+
+- The `Pgmq` effect gained five constructors (`PeekMessages`, `PeekArchivedMessages`,
+  `LookupMessage`, `LookupArchivedMessage`, `QueueMetricsUnvalidated`). An interpreter that
+  matches every constructor, such as a mock in a consumer's test suite, must add five cases.
 
 ## 0.6.1.1 -- 2026-09-25
 

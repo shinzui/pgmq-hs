@@ -10,6 +10,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-01T00:12:35Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-01T21:23:58Z
+      mode: "implement"
+      note: "EP-1 (ExecPlan 27) marked complete; codec ownership handed to EP-2"
 ---
 
 # Expose non-destructive queue inspection through typed reads, JSON codecs, and the pgmq-inspect sister package
@@ -195,7 +201,7 @@ path for foreign and mixed-case names).
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Add non-destructive peek, archive, and lookup reads across the pgmq layers | docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md | None | EP-2 (integration: `ArchivedMessage` codec) | Not Started |
+| 1 | Add non-destructive peek, archive, and lookup reads across the pgmq layers | docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md | None | EP-2 (integration: `ArchivedMessage` codec) | Complete |
 | 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | Not Started |
 | 3 | Create the pgmq-inspect sister package with the HTTP inspection surface | docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md | EP-1, EP-2 | None | Not Started |
 | 4 | Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect | docs/plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md | EP-3 | None | Not Started |
@@ -442,9 +448,9 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 
 ## Progress
 
-- [ ] EP-1 M1: `ArchivedMessage`, the two argument records, four statements, and four sessions exist; a red-then-green `InspectionSpec` proves byte-identical `vt`/`read_ct`, exactly-once keyset paging without `OFFSET`, archive timestamps, and typed not-found
-- [ ] EP-1 M2: four `Pgmq` effect constructors with plain and traced cases; umbrella re-exports and compile witnesses; foreign and mixed-case names covered on a dedicated instance; partitioned queues covered
-- [ ] EP-1 M3: design note 019, capability record, Haddocks, changelogs; `IR-1` completed
+- [x] EP-1 M1: `ArchivedMessage`, the two argument records, four statements, and four sessions exist; a red-then-green `InspectionSpec` proves byte-identical `vt`/`read_ct`, exactly-once keyset paging without `OFFSET`, archive timestamps, and typed not-found (2026-10-01)
+- [x] EP-1 M2: four `Pgmq` effect constructors with plain and traced cases; umbrella re-exports and compile witnesses; foreign and mixed-case names covered on a dedicated instance; partitioned queues covered (2026-10-01)
+- [x] EP-1 M3: design note 019, capability record, Haddocks, changelogs; `IR-1` completed (2026-10-01)
 - [ ] EP-2 M1: hand-written instances for every listed record in `pgmq-core`, `pgmq-hasql`, and `pgmq-config`; golden tests pin every encoding
 - [ ] EP-2 M2: design note 020, Haddock policy on every type, capability record, changelogs; `IR-2` completed
 - [ ] EP-3 M1: `pgmq-inspect` builds under cabal and Nix with config, env, wire types, error mapping, and a router serving the descriptor, listings, metrics, and health; mock-interpreter router tests
@@ -463,7 +469,18 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
 
-(None yet.)
+- EP-1 landed before EP-2, so under the `ArchivedMessage` integration rule the codec now
+  belongs to EP-2: `ArchivedMessage` exists in `pgmq-core/src/Pgmq/Types.hs` with no JSON
+  instances, and EP-2 must add them (flattened `Message` fields plus `archived_at`) with a
+  golden file. Evidence: the M1 integration grep in ExecPlan 27 printed nothing on 2026-10-01.
+- EP-1 took capability handle `CAP-10` (`docs/capabilities/non-destructive-queue-inspection.md`);
+  EP-2's `okf id next` will now return `CAP-11`.
+- `IR-1` was at `status: accepted` (not `proposed`, as EP-1's plan text said) when EP-1
+  closed it; the closure is unaffected.
+- Consumers that import `Pgmq` or `Pgmq.Effectful` unqualified without
+  `DuplicateRecordFields` and use `messageId` as a function now see it ambiguous between
+  `Message` and `LookupMessage`, as it already was with `MessageQuery`. EP-3's handlers
+  should construct the records positionally or use qualified imports.
 
 
 ## Decision Log

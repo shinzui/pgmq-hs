@@ -91,11 +91,11 @@ receives every message exactly once with `read_ct` equal to one.
 - [x] M2: `pgmq-hasql/test/InspectionForeignNameSpec.hs` written on a dedicated instance, proving the mixed-case and hyphenated paths through every new read; wired into `Main.hs` and the cabal file (2026-10-01 21:55Z)
 - [x] M2: `featureTests` in `pgmq-effectful/test/TracedInterpreterSpec.hs` extended with the inspection case for both interpreters, including span assertions when traced (2026-10-01 21:55Z)
 - [x] M2: `nix fmt` clean; `cabal test all` green; committed (2026-10-01 21:55Z)
-- [ ] M3: `docs/design/019-non-destructive-inspection-reads.md` written
-- [ ] M3: Haddocks on every new type, statement, session, and effect operation state the contract
-- [ ] M3: capability record written under `docs/capabilities/` with the handle `okf id next` returned; `index.md` and `log.md` updated; `just docs-check` green
-- [ ] M3: `Unreleased` sections appended to `CHANGELOG.md`, `pgmq-core/CHANGELOG.md`, `pgmq-hasql/CHANGELOG.md`, and `pgmq-effectful/CHANGELOG.md`, the effectful one naming the breaking constructor additions
-- [ ] M3: `IR-1` set to `completed` with `completedAt` and `resolution`; bundle log appended; committed
+- [x] M3: `docs/design/019-non-destructive-inspection-reads.md` written (2026-10-01 22:20Z)
+- [x] M3: Haddocks on every new type, statement, session, and effect operation state the contract; `cabal haddock pgmq-hasql pgmq-effectful` shows `Pgmq.Hasql.Statements.Inspection` at 100% and no new out-of-scope or ambiguous-identifier warnings (2026-10-01 22:20Z)
+- [x] M3: capability record written under `docs/capabilities/` with the handle `okf id next` returned (`CAP-10`); `index.md` and `log.md` updated; `just docs-check` green (2026-10-01 22:20Z)
+- [x] M3: `Unreleased` sections appended to `CHANGELOG.md`, `pgmq-core/CHANGELOG.md`, `pgmq-hasql/CHANGELOG.md`, and `pgmq-effectful/CHANGELOG.md`, the effectful one naming the breaking constructor additions (2026-10-01 22:20Z)
+- [x] M3: `IR-1` set to `completed` with `completedAt` and `resolution`; bundle log appended; committed (2026-10-01 22:20Z)
 
 
 ## Surprises & Discoveries
@@ -114,6 +114,17 @@ implementation. Provide concise evidence.
 - The effectful inspection case takes 12–17 s per interpreter, like its siblings: `isolated`
   starts a whole ephemeral database per case and the cases in `featureTests` start theirs
   concurrently. The reads themselves are sub-millisecond.
+- `IR-1` was `status: accepted`, not `proposed` as Context and Orientation says; the
+  closure to `completed` was unaffected.
+- `CHANGELOG.md` and `pgmq-effectful/CHANGELOG.md` already had `## Unreleased` sections
+  (from plan 26), so this plan appended to them instead of creating new ones; `pgmq-core`
+  and `pgmq-hasql` got new sections.
+- `cabal haddock` flagged three of this plan's Haddock references: `'PgmqSessionError'` is out of
+  scope in `Pgmq.Effectful.Effect`, `'parseQueueName'` is out of scope in the traced
+  interpreter, and `'PeekMessages'` / `'unvalidatedQueueName'` are ambiguous under
+  `DuplicateRecordFields` in `Statements.Types`. They now use `@…@`, a qualified name, or
+  `t'…'`. The remaining warnings (`'ReadMessage'`, `'OpInfo'`, `'AttributeKey'`,
+  `'recordException'`) were already there.
 - The partition case ran for real in the partman shell (`OK (0.10s)`) and printed
   `SKIPPED: pg_partman is not installed` natively and on the stock 1.12.0 fixture.
 
@@ -192,7 +203,30 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Completed 2026-10-01 in three commits, one per milestone. What a user can now do matches the
+Purpose: `peekMessages`, `peekArchivedMessages`, `lookupMessage`, `lookupArchivedMessage`,
+and `queueMetricsUnvalidated` exist in `pgmq-hasql` (re-exported by `Pgmq`) and on the
+`Pgmq` effect under both interpreters. They take the queue name as plain `Text` and lease
+nothing.
+
+Evidence: the `Inspection (non-destructive reads)` group (10 cases) passed natively (98
+tests), on the stock 1.12.0 fixture (97), and in the partman shell (98, where the partition
+case actually ran). The `Inspection of foreign queue names` group passed for a mixed-case
+and a hyphenated name. The effectful `non-destructive inspection reads` case passed under
+both interpreters and asserts all four inspection span labels. `cabal test all` was green,
+and so was `just docs-check` with `CAP-10` and `IR-1` at `completed`.
+
+Gaps: the `ArchivedMessage` JSON codec is deferred to plan 28 under the integration rule.
+The red state was only seen at compile time. The behavioural red run (pointing
+`peekStatement` at `pgmq.read`) was not performed, because the byte-identical and
+concurrent-consumer assertions fail by construction for any leasing read.
+
+Lesson: in packages without `DuplicateRecordFields`, the new records' `messageId` and
+`unvalidatedQueueName` fields collide with existing selectors, so tests import the records
+constructor-only. Durable context went into
+`docs/adr/queue-inspection-surface-boundary-and-wire-contract.md`: an implementation
+pointer, plus the rule that hand-written reads get this library's own trace labels. The full
+contract is in `docs/design/019-non-destructive-inspection-reads.md`.
 
 
 ## Context and Orientation

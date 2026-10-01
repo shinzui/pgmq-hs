@@ -1,5 +1,11 @@
 # Revision history for pgmq-core
 
+## Unreleased
+
+Add `ArchivedMessage`, a `Message` plus its `archivedAt` timestamp, returned by the archive
+inspection reads in `pgmq-hasql` (IR-1). It has no JSON instances yet; the inspection wire
+codecs are added separately.
+
 ## 0.6.1.1 -- 2026-09-25
 
 Coordinated family version bump; core types are unchanged from 0.6.1.0.

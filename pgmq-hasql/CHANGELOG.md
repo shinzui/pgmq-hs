@@ -1,5 +1,26 @@
 # Revision history for pgmq-hasql
 
+## Unreleased
+
+### New Features
+
+- Non-destructive inspection reads (IR-1), exported from `Pgmq` and
+  `Pgmq.Hasql.Sessions`: `peekMessages` and `peekArchivedMessages` return a keyset page of
+  `pgmq.q_<name>` or `pgmq.a_<name>` (rows with `msg_id` strictly after an optional
+  exclusive cursor, ascending, at most `limit`, never `OFFSET`); `lookupMessage` and
+  `lookupArchivedMessage` fetch one row by id. None of them leases: `vt`, `read_ct`, and
+  `last_read_at` are untouched, and a concurrently polling consumer is undisturbed.
+- The argument records `PeekMessages` and `LookupMessage` take the queue name as plain
+  `Text`, so the reads work for foreign and mixed-case names `parseQueueName` rejects. The
+  physical table is resolved on the server by `pgmq.format_table_name` and spliced as a
+  quoted identifier. A missing queue fails with the server's `42P01`; a missing message is
+  `Nothing`.
+- `queueMetricsUnvalidated :: Text -> Session QueueMetrics`, the `queueMetrics` projection
+  for a queue named by plain text.
+- New module `Pgmq.Hasql.Statements.Inspection` (`formatTableName`, `quoteIdentifier`, and
+  four `unpreparable` statement builders) and `archivedMessageDecoder` in
+  `Pgmq.Hasql.Decoders`. See `docs/design/019-non-destructive-inspection-reads.md`.
+
 ## 0.6.1.1 -- 2026-09-25
 
 Coordinated family version bump; the library is unchanged from 0.6.1.0.

@@ -20,6 +20,7 @@ evidence you can open:
 | [CAP-7](extension-free-schema-install.md) | Extension-free pgmq schema installation | pgmq-migration | 0.1.0.0 |
 | [CAP-8](predecessor-history-import.md) | Predecessor-history ledger import + schema contract | pgmq-migration | 0.4.0.0 |
 | [CAP-9](declarative-queue-reconciliation.md) | Declarative queue reconciliation | pgmq-config | 0.1.3.0 |
+| [CAP-10](non-destructive-queue-inspection.md) | Non-destructive queue inspection reads | pgmq-hasql, pgmq-effectful, pgmq-core | unreleased |
 
 Every capability is `stability: experimental`: pgmq-hs is pre-1.0 and makes no
 cross-version compatibility promise yet. The field is uniform because the promise is

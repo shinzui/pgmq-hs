@@ -7,6 +7,10 @@ Accepted, 2026-09-30. Implementation is tracked by
 This repository has no profiled ADR bundle; this record follows its existing plain-Markdown
 decision convention and introduces no OKF metadata.
 
+The inspection reads were implemented on 2026-10-01 by
+[ExecPlan 27](../plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md);
+their full contract is [design note 019](../design/019-non-destructive-inspection-reads.md).
+
 ## Context
 
 Three improvement requests filed from the keiro runtime UI initiative (`IR-1`, `IR-2`, `IR-3` in
@@ -66,7 +70,10 @@ lookup reads take the queue name as plain `Text`, resolve the physical table thr
 `pgmq.format_table_name` on the server, and run an unprepared `SELECT` ordered by `msg_id` with
 an exclusive cursor and `LIMIT`, never `OFFSET`. They modify no row. A missing message is a typed
 `Nothing`; a missing queue is the server's `42P01`. No upstream function body is overridden and
-no migration is added.
+no migration is added. Because no upstream function backs these reads, the traced interpreter
+labels them with this library's own names (`pgmq.peek`, `pgmq.peek_archive`,
+`pgmq.lookup_message`, `pgmq.lookup_archived_message`), never a `pgmq.<function>` name that
+does not exist; any future hand-written read follows the same rule.
 
 **Push is a hint; the poll is truth.** The WebSocket feed carries queue metrics, not message
 bodies. One server-wide LISTEN connection accelerates updates for queues whose names validate;

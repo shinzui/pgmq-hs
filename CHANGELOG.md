@@ -12,6 +12,18 @@ and an immediate restart against a dedicated cluster. The rules, the one extra t
 failure the pool produces per dead connection, and the remaining `DriverSessionError` gap
 are in `docs/design/017-transient-error-classification.md`.
 
+Add non-destructive inspection reads across the family (IR-1): `peekMessages`,
+`peekArchivedMessages`, `lookupMessage`, `lookupArchivedMessage`, and
+`queueMetricsUnvalidated` in `pgmq-hasql`, the same five operations on the `Pgmq` effect in
+`pgmq-effectful` under both interpreters, and the `ArchivedMessage` record in `pgmq-core`.
+The reads observe a queue or its archive without leasing: `vt`, `read_ct`, and
+`last_read_at` are untouched. They accept any server-accepted queue name (including names
+`parseQueueName` rejects) and page by exclusive `msg_id` cursor, never `OFFSET`. See
+`docs/design/019-non-destructive-inspection-reads.md`.
+
+Breaking for `pgmq-effectful` consumers that interpret every `Pgmq` constructor: the effect
+gained five constructors.
+
 ## 0.6.1.1 -- 2026-09-25
 
 `pgmq-migration` now accepts the `pg-migrate` 1.2 series alongside 1.1 for `pg-migrate`,
