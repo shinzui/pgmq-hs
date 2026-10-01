@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-01
+* **Update**: IR-4 completed: disconnect shapes classify transient, fault tests added, design note 017 revised (ExecPlan 26)
 * **Update**: IR-1, IR-2, and IR-3 accepted; implementation planned under MasterPlan 7 (docs/masterplans/7-expose-non-destructive-queue-inspection-through-typed-reads-json-codecs-and-the-pgmq-inspect-sister-package.md) as ExecPlans 27 through 31, with the sister package named pgmq-inspect
 
 ## 2026-09-22

@@ -1,5 +1,37 @@
 # Revision history for pgmq-effectful
 
+## Unreleased
+
+### Bug Fixes
+
+- `isTransient` now classifies a connection lost while waiting for a reply as transient
+  (BUG-1). hasql reports such a loss through statement constructors rather than
+  `ConnectionSessionError`, in one of two shapes, and both used to be permanent. The first
+  is a `ServerError` with an empty SQLSTATE: libpq's own connection-loss result, which
+  carries no fields. Every `ErrorResponse` PostgreSQL sends carries a SQLSTATE, so an empty
+  code is always client-side. It appears after SIGKILL of the backend, an immediate server
+  shutdown, or a TCP reset. The second is `UnexpectedRowCountStatementError 1 1 1`, hasql's
+  encoding of a stray second result, which appears when the server sends a FATAL such as
+  `57P01` and libpq then appends its own connection-loss result. Only that exact value is
+  transient; a genuine row-count mismatch never reports an actual count inside its bounds,
+  so `1 1 0`, `1 1 2`, and every other count stay permanent.
+- `ScriptSessionError` now follows the same SQLSTATE rule as statement errors. Previously
+  every script error was permanent, including `57P01`.
+- Every other server SQLSTATE, decode, missing-type, and driver-error policy is unchanged.
+  After either disconnect shape the pool keeps the dead connection, so a retry loop sees one
+  more transient `ConnectionSessionError` (which evicts it) before a fresh connection
+  succeeds.
+
+### New Features
+
+- `isAmbiguousReply :: PgmqRuntimeError -> Bool`, exported from `Pgmq.Effectful` and
+  `Pgmq.Effectful.Interpreter`, answers `True` exactly when a statement was delivered but
+  no server verdict came back: an empty-SQLSTATE server error in a statement or script, or
+  `UnexpectedRowCountStatementError 1 1 1`. Every ambiguous reply is also transient. Retrying
+  a lost send reply blindly can duplicate a message that already committed, so gate the
+  retry of non-idempotent operations on `isAmbiguousReply` and reconcile first. See the
+  bounded, sticky loop in the README and `docs/design/017-transient-error-classification.md`.
+
 ## 0.6.1.1 -- 2026-09-25
 
 Coordinated family version bump; the effect layer is unchanged from 0.6.1.0.

@@ -6,7 +6,9 @@ generated:
   by: process:codex
   at: "2026-09-25T04:34:56Z"
 bugId: BUG-1
-status: reported
+status: fixed
+fixedVersion: unreleased
+resolution: isTransient now classifies a server error with an empty SQLSTATE and hasql's stray-result shape UnexpectedRowCountStatementError 1 1 1 as transient, and the new isAmbiguousReply marks both as lost replies (mori://shinzui/pgmq-hs/plans/26-classify-postgresql-disconnects-surfaced-as-statement-errors-as-transient).
 severity: degraded
 origin: mori://shinzui/keiro-runtime-kenshou/masterplans/1-build-an-extensive-verification-suite-for-the-keiro-runtime
 affects: mori://shinzui/pgmq-hs/packages/pgmq-effectful
@@ -39,3 +41,7 @@ reviews:
 The shipped capability promises an `isTransient` retry gate. The design note at `mori://shinzui/pgmq-hs` with project-relative path `docs/design/017-transient-error-classification.md` makes row-count mismatches and unrecognized statement errors permanent because it assumes retries cannot repair them. These runs isolate a different cause: each error occurred during a real connection fault, and the same pool completed a later operation. The document-level Mori URI is pending.
 
 The source of truth for the observed outcomes is `mori://shinzui/keiro-runtime-kenshou` at `runs/01a0d6d6-cb25-7609-b1d1-0eeebbba50ec/`, `runs/01a0d6d7-028e-73ac-b7a5-e582b4f85c36/`, and `runs/01a0d6d7-1f5e-768c-9b95-822031453720/`; artifact-level run URIs are pending. The existing remediation request is `mori://shinzui/pgmq-hs/okf/improvement-requests/concepts/IR-4`. This report records broken retry classification, not an instruction to replay an ambiguous send automatically.
+
+## Resolution
+
+Fixed on the default branch, not yet released. A server error with an empty SQLSTATE can only be libpq's own connection-loss result, and `UnexpectedRowCountStatementError 1 1 1` can only be hasql reporting a stray second result, so `isTransient` now classifies both as transient; every real SQLSTATE, decode, and row-count policy is unchanged, and script errors follow the same SQLSTATE rule. Because a retried send whose reply was lost may duplicate a committed message, the new `isAmbiguousReply` marks exactly those lost-reply shapes so callers can reconcile first. The rules, the pool caveat (one more transient `ConnectionSessionError` per dead pooled connection), and the residual `DriverSessionError` window are in `docs/design/017-transient-error-classification.md`. `pgmq-effectful/test/DisconnectSpec.hs` reproduces backend termination, backend SIGKILL, and an immediate restart against a dedicated cluster; `pgmq-effectful/test/ClassificationSpec.hs` pins the shapes in both directions.

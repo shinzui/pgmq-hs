@@ -86,14 +86,15 @@ closes as completed.
 - [x] (2026-10-01T14:25Z) M2: `pgmq-effectful/test/ClassificationSpec.hs` pins the new shapes and their permanent neighbours, pins `isAmbiguousReply` in both directions, and checks that every ambiguous reply is transient
 - [x] (2026-10-01T14:25Z) M2: `DisconnectSpec` gains the ambiguity cases (implication for every fault; the SIGKILL reply is ambiguous)
 - [x] (2026-10-01T14:25Z) M2: `cabal test pgmq-effectful:test:pgmq-effectful-test` green, disconnect suite included; commit
-- [ ] M3: `docs/design/017-transient-error-classification.md` revised with the client-synthesized-error and stray-result rules, the pool caveat, and the residual gap
-- [ ] M3: `docs/capabilities/effectful-integration.md` limits and evidence revised; capability log entry added
-- [ ] M3: `pgmq-effectful/CHANGELOG.md` and root `CHANGELOG.md` gain an Unreleased entry; the README retry example becomes a bounded loop with the sticky `isAmbiguousReply` branch
+- [x] (2026-10-01T14:50Z) M3: `docs/design/017-transient-error-classification.md` revised with the client-synthesized-error and stray-result rules, the pool caveat, and the residual gap
+- [x] (2026-10-01T14:50Z) M3: `docs/capabilities/effectful-integration.md` limits and evidence revised; capability log entry added
+- [x] (2026-10-01T14:50Z) M3: `pgmq-effectful/CHANGELOG.md` and root `CHANGELOG.md` gain an Unreleased entry; the README retry example becomes a bounded loop with the sticky `isAmbiguousReply` branch
 - [ ] Follow-up after the next release (other repository): revise `runtime-patterns/messaging/pgmq-connection-faults.md` in `mori://shinzui/keiro-runtime-patterns` to drop its pending note and cite the released version
-- [ ] M3: BUG-1 set to `fixed` with `fixedVersion: unreleased` and a `resolution`; IR-4 set to `completed` with `completedAt` and a `resolution`; both bundle logs appended
-- [ ] M3: `justfile` `docs-check` validates `docs/bug-reports`; `just docs-check` passes; `okf validate --strict` passes for bug-reports, improvement-requests, and capabilities
-- [ ] M3: `docs/adr/transient-classification-is-value-based.md` written; commit
-- [ ] Final: `nix fmt` and `git diff --check` clean; Outcomes & Retrospective written
+- [x] (2026-10-01T14:50Z) M3: BUG-1 set to `fixed` with `fixedVersion: unreleased` and a `resolution`; IR-4 set to `completed` with `completedAt` and a `resolution`; both bundle logs appended
+- [x] (2026-10-01T14:50Z) M3: `justfile` `docs-check` validates `docs/bug-reports`; `just docs-check` passes; `okf validate --strict` passes for bug-reports
+- [ ] M3 (remaining, pre-existing): `okf validate --strict` for improvement-requests and capabilities still fails only on the profile-recommended `reviews` field, missing from every record in both bundles (it failed identically before this plan); left for a review pass rather than fabricated here
+- [x] (2026-10-01T14:50Z) M3: `docs/adr/transient-classification-is-value-based.md` written; commit
+- [x] (2026-10-01T14:50Z) Final: `nix fmt` and `git diff --check` clean; Outcomes & Retrospective written
 
 
 ## Surprises & Discoveries
@@ -134,6 +135,13 @@ implementation. Provide concise evidence.
 - The pool-recovery prediction in Context and Orientation held exactly: after every fault the
   dead connection went back to the pool, the next send failed at the send step with
   `ConnectionSessionError` (evicting it), and the send after that succeeded.
+- `okf validate --strict` for `docs/improvement-requests` and `docs/capabilities` already
+  exited 1 before this plan: every record lacks the profile-recommended `reviews` field (IR-4
+  carries `reviews: []`, which strict mode also reports as missing). The plan's claim that the
+  three strict validations print `OK` does not hold for those two bundles; the non-strict
+  `just docs-check` and strict bug-reports validation pass. Strict mode also rejected a bare
+  model ID in CAP-5's `generated.by` (format `actor`), so it records
+  `anthropic/claude-opus-5-5`, matching the `openai/gpt-6-sol` style already in the bundle.
 - After M2 the whole suite reports `All 77 tests passed`. `DisconnectSpec` has 16 cases, not
   the twelve Concrete Steps mentions: five per fault (the four original checks plus "ambiguous
   replies are transient") and the group-level "SIGKILL reply is ambiguous".
@@ -281,7 +289,37 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Completed 2026-10-01. The purpose is met: `isTransient` now answers `True` for the two
+receive-side disconnect shapes, `isAmbiguousReply` marks lost replies, and
+`DisconnectSpec` proves against a live cluster that backend termination, backend SIGKILL,
+and an immediate restart all surface a transient error and that the same size-1 pool
+completes a send on the second attempt. Before the fix, the SIGKILL and immediate-restart
+rounds failed exactly as BUG-1 describes. The whole `pgmq-effectful-test` suite passes
+(77 tests).
+
+Gaps. The `1 1 1` shape did not reproduce locally: `pg_terminate_backend` delivered its
+57P01 as the only result over both Unix socket and TCP, so that rule rests on the hasql
+source analysis, the kenshou run, and the pure tests. The `DriverSessionError` window remains
+open by design. Strict OKF validation of two bundles fails on a pre-existing, bundle-wide
+`reviews` gap that this plan did not introduce.
+
+Durable context is distilled into `docs/adr/transient-classification-is-value-based.md` (no
+connection probe, the one-extra-failure pool caveat, the conservative `isAmbiguousReply`,
+and the hasql-upgrade recheck) and into design note 017 (the rule table and the recommended
+bounded, sticky loop).
+
+Follow-ups outside this plan's commits:
+
+- After the next release, revise `runtime-patterns/messaging/pgmq-connection-faults.md` in
+  `mori://shinzui/keiro-runtime-patterns` (document URI
+  `mori://shinzui/keiro-runtime-patterns/docs/messaging-pgmq-connection-faults`) to cite the
+  released version, drop its pending note, and prescribe `isAmbiguousReply` for
+  application-owned sends. Then set BUG-1's `fixedVersion` to that version.
+- `mori://shinzui/keiro-runtime-kenshou` can flip its BUG-1 known-defect declarations in
+  `kenshou-pgmq/src/Kenshou/Suite/Pgmq/Concurrency/Outage.hs` after that release.
+- File an upstream issue with `mori://hasql/hasql` asking that receive-side connection loss
+  map to `ConnectionSessionError`, which would retire both rules and the `DriverSessionError`
+  gap.
 
 
 ## Context and Orientation

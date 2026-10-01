@@ -67,6 +67,7 @@ docs-check:
     okf validate docs/reviews --profile docs/reviews/profile.dhall --profile-enforce --log-enforce
     okf graph docs/capabilities >/dev/null
     okf validate docs/improvement-requests --profile docs/improvement-requests/profile.dhall --profile-enforce --log-enforce
+    okf validate docs/bug-reports --profile docs/bug-reports/profile.dhall --profile-enforce --log-enforce
 
 # Check database status
 db-status:

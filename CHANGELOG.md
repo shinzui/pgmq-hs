@@ -1,5 +1,17 @@
 # Revision history for pgmq-hs
 
+## Unreleased
+
+`pgmq-effectful`'s `isTransient` now treats a PostgreSQL connection lost mid-statement as
+transient (BUG-1). hasql surfaces that loss as a server error with an empty SQLSTATE, or as
+`UnexpectedRowCountStatementError 1 1 1`, and both used to be permanent. Script errors now
+follow the same SQLSTATE rule as statement errors. A new `isAmbiguousReply` marks exactly
+the lost-reply shapes. A send whose reply was lost may already have committed, so check it
+before re-sending. A new `DisconnectSpec` reproduces backend termination, backend SIGKILL,
+and an immediate restart against a dedicated cluster. The rules, the one extra transient
+failure the pool produces per dead connection, and the remaining `DriverSessionError` gap
+are in `docs/design/017-transient-error-classification.md`.
+
 ## 0.6.1.1 -- 2026-09-25
 
 `pgmq-migration` now accepts the `pg-migrate` 1.2 series alongside 1.1 for `pg-migrate`,

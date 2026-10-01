@@ -8,7 +8,14 @@ generated:
   at: "2026-09-22T21:21:00Z"
 reviews: []
 requestId: IR-4
-status: proposed
+status: completed
+completedAt: "2026-10-01T14:25:00Z"
+resolution: >-
+  Implemented by mori://shinzui/pgmq-hs/plans/26-classify-postgresql-disconnects-surfaced-as-statement-errors-as-transient.
+  (1) pgmq-effectful/test/DisconnectSpec.hs terminates a backend, SIGKILLs it, and crashes and restarts PostgreSQL while a readWithPoll is in flight; every outcome classifies transient and the same pool completes a later send without being recreated. The TCP-reset scenario was not ported: SIGKILL produces the same empty-SQLSTATE value deterministically without a proxy.
+  (2) ClassificationSpec keeps genuine row-count mismatches (1 1 0, 1 1 2), invalid SQL and constraint SQLSTATEs, missing types, driver errors, and authentication and compatibility errors permanent. The row-count shape is matched by its exact value 1 1 1, which hasql 1.10 reserves for a stray second result, rather than by a connection-health probe, so no other row-count mismatch became transient.
+  (3) docs/design/017-transient-error-classification.md describes the no-SQLSTATE and stray-result cases and why each is distinguishable from a permanent error.
+  For the non-goal, the library still retries nothing; the new isAmbiguousReply tells a caller when a reply was lost so it can reconcile a non-idempotent send before replaying it.
 origin: mori://shinzui/keiro-runtime-kenshou
 ---
 

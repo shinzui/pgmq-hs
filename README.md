@@ -65,16 +65,25 @@ import Effectful (runEff)
 import Effectful.Error.Static (runError)
 import Pgmq.Effectful
 
-run pool = do
-  result <- runEff . runError @PgmqRuntimeError . runPgmq pool $ do
-    createQueue myQueue
-    sendMessage SendMessage {queueName = myQueue, messageBody = body, delay = Nothing}
-  case result of
-    Right msgId -> print msgId
-    Left (_cs, err)
-      | isTransient err -> retry
-      | otherwise -> logFatal err
+-- Bounded: stop after maxAttempts. Sticky: once a send's reply is lost, look
+-- the message up instead of sending again, and keep looking it up through
+-- further transient failures until the lookup succeeds.
+sendOnce pool key body = go 1 False
+  where
+    go attempt reconciling = do
+      result <-
+        runEff . runError @PgmqRuntimeError . runPgmq pool $
+          if reconciling then lookupByKey key else sendMessage (message key body)
+      case result of
+        Right outcome -> pure (Right outcome)
+        Left (_cs, err)
+          | attempt >= maxAttempts -> pure (Left err)
+          | isAmbiguousReply err -> pause attempt >> go (attempt + 1) True
+          | isTransient err -> pause attempt >> go (attempt + 1) reconciling
+          | otherwise -> pure (Left err)
 ```
+
+`lookupByKey` stands for whatever reconciliation the application can do, such as finding the message by a dedupe key it put in the headers, and `pause` is the caller's backoff. An ambiguous reply means the statement was delivered but its reply was lost, so a send may already have committed. The loop therefore switches to reconciliation and never switches back. The bound exists because a server that stays down produces transient errors indefinitely. See [`docs/design/017-transient-error-classification.md`](docs/design/017-transient-error-classification.md) for the exact rules.
 
 `PgmqRuntimeError` has three constructors — `PgmqAcquisitionTimeout`, `PgmqConnectionError`, `PgmqSessionError` — each exposing the full hasql context (SQL state, connection-error kind, etc.) so applications can pattern-match on whatever granularity they need. See [`docs/design/013-pgmq-effectful-error-model.md`](docs/design/013-pgmq-effectful-error-model.md) for the rationale.
 
