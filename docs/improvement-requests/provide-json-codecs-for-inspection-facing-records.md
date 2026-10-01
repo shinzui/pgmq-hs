@@ -10,7 +10,8 @@ generated:
   by: anthropic/claude-fable-5
   at: "2026-08-19T00:00:00Z"
 requestId: IR-2
-status: proposed
+status: accepted
+targetPlan: docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md
 origin: mori://shinzui/keiro-ui
 ---
 

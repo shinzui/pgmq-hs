@@ -9,7 +9,8 @@ generated:
   by: anthropic/claude-fable-5
   at: "2026-08-19T00:00:00Z"
 requestId: IR-1
-status: proposed
+status: accepted
+targetPlan: docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md
 origin: mori://shinzui/keiro-ui
 ---
 

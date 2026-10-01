@@ -10,7 +10,8 @@ generated:
   by: anthropic/claude-fable-5
   at: "2026-08-19T00:00:00Z"
 requestId: IR-3
-status: proposed
+status: accepted
+targetPlan: docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md
 origin: mori://shinzui/keiro-ui
 ---
 
