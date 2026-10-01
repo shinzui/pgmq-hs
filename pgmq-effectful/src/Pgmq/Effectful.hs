@@ -15,6 +15,7 @@ module Pgmq.Effectful
     PgmqRuntimeError (..),
     fromUsageError,
     isTransient,
+    isAmbiguousReply,
 
     -- ** Deprecated Error Types
     PgmqError (..),
@@ -218,6 +219,7 @@ import Pgmq.Effectful.Interpreter
   ( PgmqError (..),
     PgmqRuntimeError (..),
     fromUsageError,
+    isAmbiguousReply,
     isTransient,
     runPgmq,
   )

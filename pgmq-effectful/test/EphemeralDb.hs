@@ -9,6 +9,8 @@
 module EphemeralDb
   ( withPgmqDb,
     withPgmqPool,
+    ephemeralConfig,
+    installPgmqNative,
     StartError,
   )
 where
@@ -30,6 +32,7 @@ import EphemeralPg
     defaultConfig,
     withCachedConfig,
   )
+import Hasql.Connection.Settings qualified as ConnectionSettings
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as PoolConfig
 import Hasql.Session qualified as Session
@@ -82,8 +85,8 @@ withPgmqDb action =
             [] -> error "Missing packaged PGMQ 1.12.0 test fixture"
           sql <- TextIO.readFile path
           Pool.use pool (Session.script sql) >>= either (error . show) pure
-        Nothing -> installNative connSettings
-        Just "1.13.0" -> installNative connSettings
+        Nothing -> installPgmqNative connSettings
+        Just "1.13.0" -> installPgmqNative connSettings
         Just invalid -> error ("Invalid PGMQ_TEST_SCHEMA_VERSION: " <> invalid)
       required <- (== Just "1") <$> lookupEnv "PGMQ_REQUIRE_PARTMAN"
       -- Required runs fail for absent or unusable pg_partman, not just missing metadata.
@@ -92,12 +95,15 @@ withPgmqDb action =
         Left err -> when required (error ("PGMQ_REQUIRE_PARTMAN=1: " <> show err))
         Right () -> pure ()
       action pool
-  where
-    installNative connSettings = do
-      component <- either (error . ("Invalid PGMQ migration component: " <>) . show) pure Migration.pgmqMigrations
-      plan <- either (error . ("Invalid PGMQ migration plan: " <>) . show) pure (migrationPlan (component :| []))
-      installResult <- runMigrationPlan defaultRunOptions connSettings plan
-      either (error . ("Migration failed: " <>) . show) (const (pure ())) installResult
+
+-- | Apply the native pgmq migration ledger to the database at the given
+-- connection settings, failing loudly on any error.
+installPgmqNative :: ConnectionSettings.Settings -> IO ()
+installPgmqNative connSettings = do
+  component <- either (error . ("Invalid PGMQ migration component: " <>) . show) pure Migration.pgmqMigrations
+  plan <- either (error . ("Invalid PGMQ migration plan: " <>) . show) pure (migrationPlan (component :| []))
+  installResult <- runMigrationPlan defaultRunOptions connSettings plan
+  either (error . ("Migration failed: " <>) . show) (const (pure ())) installResult
 
 -- | Alias for 'withPgmqDb' kept for parallelism with pgmq-hasql.
 withPgmqPool :: (Pool.Pool -> IO a) -> IO (Either StartError a)

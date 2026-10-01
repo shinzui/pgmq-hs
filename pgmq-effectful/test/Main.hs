@@ -3,6 +3,7 @@
 module Main (main) where
 
 import ClassificationSpec qualified
+import DisconnectSpec qualified
 import EphemeralDb (withPgmqPool)
 import PlainInterpreterSpec qualified
 import Test.Tasty (defaultMain, testGroup)
@@ -17,7 +18,8 @@ main = do
             "pgmq-effectful"
             [ ClassificationSpec.tests,
               PlainInterpreterSpec.tests pool,
-              TracedInterpreterSpec.tests pool
+              TracedInterpreterSpec.tests pool,
+              DisconnectSpec.tests
             ]
     defaultMain tree
   case result of

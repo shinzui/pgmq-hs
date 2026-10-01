@@ -21,6 +21,11 @@ provenance:
       at: 2026-09-30T21:21:28Z
       mode: "update"
       note: "Require bounded retry loops and a sticky ambiguous state; add the runtime-patterns follow-up"
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-01T14:11:39Z
+      mode: "implement"
+      note: "Implement M1-M3: DisconnectSpec, isTransient/isAmbiguousReply, docs and records"
 ---
 
 # Classify PostgreSQL disconnects surfaced as statement errors as transient
@@ -73,14 +78,14 @@ closes as completed.
 
 ## Progress
 
-- [ ] M1: `pgmq-effectful/test/EphemeralDb.hs` exports `ephemeralConfig` and a top-level `installPgmqNative`
-- [ ] M1: `pgmq-effectful/test/DisconnectSpec.hs` written, listed in `pgmq-effectful.cabal` `other-modules`, and registered in `pgmq-effectful/test/Main.hs`
-- [ ] M1: the disconnect suite runs against its own cluster; the observed error shape, `isTransient` verdict, and recovery attempt count for each of the three faults are recorded in Surprises & Discoveries (the transient assertions fail at this point, which is the reproduction)
-- [ ] M2: `Pgmq.Effectful.Interpreter.isTransient` restructured around `isTransientStatementError` and `isTransientServerError`; empty SQLSTATE and the `1 1 1` shape classify transient; `ScriptSessionError` routed through the SQLSTATE rule
-- [ ] M2: `isAmbiguousReply` exported from `Pgmq.Effectful.Interpreter` and re-exported from `Pgmq.Effectful`; `UmbrellaExportsSpec` gains a compile witness for both classifiers
-- [ ] M2: `pgmq-effectful/test/ClassificationSpec.hs` pins the new shapes and their permanent neighbours, pins `isAmbiguousReply` in both directions, and checks that every ambiguous reply is transient
-- [ ] M2: `DisconnectSpec` gains the ambiguity cases (implication for every fault; the SIGKILL reply is ambiguous)
-- [ ] M2: `cabal test pgmq-effectful:test:pgmq-effectful-test` green, disconnect suite included; commit
+- [x] (2026-10-01T14:00Z) M1: `pgmq-effectful/test/EphemeralDb.hs` exports `ephemeralConfig` and a top-level `installPgmqNative`
+- [x] (2026-10-01T14:00Z) M1: `pgmq-effectful/test/DisconnectSpec.hs` written, listed in `pgmq-effectful.cabal` `other-modules`, and registered in `pgmq-effectful/test/Main.hs`
+- [x] (2026-10-01T14:11Z) M1: the disconnect suite runs against its own cluster; the observed error shape, `isTransient` verdict, and recovery attempt count for each of the three faults are recorded in Surprises & Discoveries (the transient assertions fail at this point, which is the reproduction)
+- [x] (2026-10-01T14:25Z) M2: `Pgmq.Effectful.Interpreter.isTransient` restructured around `isTransientStatementError` and `isTransientServerError`; empty SQLSTATE and the `1 1 1` shape classify transient; `ScriptSessionError` routed through the SQLSTATE rule
+- [x] (2026-10-01T14:25Z) M2: `isAmbiguousReply` exported from `Pgmq.Effectful.Interpreter` and re-exported from `Pgmq.Effectful`; `UmbrellaExportsSpec` gains a compile witness for both classifiers
+- [x] (2026-10-01T14:25Z) M2: `pgmq-effectful/test/ClassificationSpec.hs` pins the new shapes and their permanent neighbours, pins `isAmbiguousReply` in both directions, and checks that every ambiguous reply is transient
+- [x] (2026-10-01T14:25Z) M2: `DisconnectSpec` gains the ambiguity cases (implication for every fault; the SIGKILL reply is ambiguous)
+- [x] (2026-10-01T14:25Z) M2: `cabal test pgmq-effectful:test:pgmq-effectful-test` green, disconnect suite included; commit
 - [ ] M3: `docs/design/017-transient-error-classification.md` revised with the client-synthesized-error and stray-result rules, the pool caveat, and the residual gap
 - [ ] M3: `docs/capabilities/effectful-integration.md` limits and evidence revised; capability log entry added
 - [ ] M3: `pgmq-effectful/CHANGELOG.md` and root `CHANGELOG.md` gain an Unreleased entry; the README retry example becomes a bounded loop with the sticky `isAmbiguousReply` branch
@@ -96,9 +101,42 @@ closes as completed.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet. M1 must record here, for each of the three faults, the exact `show` of the error
-that surfaced, whether `isTransient` returned `True` before the fix, and how many attempts the
-same pool needed to complete a send afterwards.)
+- M1 observations before the fix (three consecutive runs, identical every time; macOS,
+  PostgreSQL from `nix develop`, Unix-socket connection; the SQL text and parameters are
+  elided below as `...`):
+
+  ```text
+  backend termination
+    err       = PgmqSessionError (StatementSessionError 1 0 "select * from pgmq.read_with_poll(...)" [...] True
+                  (ServerStatementError (ServerError "57P01" "terminating connection due to administrator command" Nothing Nothing Nothing)))
+    transient = True (already, via the 57P01 whitelist entry)
+    recovery  = 2 attempts; attempt 1 failed with ConnectionSessionError "no connection to the server\n"
+  backend SIGKILL
+    err       = PgmqSessionError (StatementSessionError 1 0 "..." [...] True (ServerStatementError (ServerError "" "" Nothing Nothing Nothing)))
+    transient = False   <- BUG-1 reproduced
+    recovery  = 2 attempts; attempt 1 failed with ConnectionSessionError "no connection to the server\n"
+  immediate restart
+    err       = PgmqSessionError (StatementSessionError 1 0 "..." [...] True (ServerStatementError (ServerError "" "" Nothing Nothing Nothing)))
+    transient = False   <- BUG-1 reproduced
+    recovery  = 2 attempts; attempt 1 failed with ConnectionSessionError "no connection to the server\n"
+  ```
+
+- `pg_terminate_backend` did not reproduce `UnexpectedRowCountStatementError 1 1 1` locally.
+  libpq returned the server's FATAL 57P01 as the only result and the second `PQgetResult`
+  returned `Nothing`, so hasql decoded the real server error. Switching the attacked pool to
+  TCP (`127.0.0.1`, the port ephemeral-pg listens on) gave the same 57P01 in three more runs,
+  so the transport is not the trigger. The kenshou run's `1 1 1` therefore depends on timing:
+  libpq produces its own connection-loss result as a second result only when it notices the
+  socket close while it is still processing the ErrorResponse (EOF arriving in the same read).
+  Consequence: the `1 1 1` rule is covered by the pure `ClassificationSpec` cases and the
+  kenshou evidence, not by a live reproduction here; `DisconnectSpec` accepts 57P01 and
+  `1 1 1` as the termination shape, both of which are transient after the fix.
+- The pool-recovery prediction in Context and Orientation held exactly: after every fault the
+  dead connection went back to the pool, the next send failed at the send step with
+  `ConnectionSessionError` (evicting it), and the send after that succeeded.
+- After M2 the whole suite reports `All 77 tests passed`. `DisconnectSpec` has 16 cases, not
+  the twelve Concrete Steps mentions: five per fault (the four original checks plus "ambiguous
+  replies are transient") and the group-level "SIGKILL reply is ambiguous".
 
 
 ## Decision Log
@@ -206,6 +244,21 @@ same pool needed to complete a send afterwards.)
   arrived. Reconciling unnecessarily costs one read; duplicating a send costs correctness. Added
   at the user's request after the regression-risk review of this plan.
   Date: 2026-09-30
+- Decision: Keep `DisconnectSpec` on ephemeral-pg's default Unix-socket connection and accept
+  that the termination round is green before the fix.
+  Rationale: The termination round surfaced the real 57P01 on both Unix socket and TCP (see
+  Surprises & Discoveries), so the stray-result shape cannot be forced from this test without
+  a fault-injecting proxy, which the plan already rejected. The round still proves the
+  termination fault is transient and that the pool recovers; the `1 1 1` rule is pinned by the
+  pure cases. The SIGKILL and immediate-restart rounds are the live reproduction.
+  Date: 2026-10-01
+- Decision: Poll and recovery sends use two different queues, and every round runs
+  `CHECKPOINT` first.
+  Rationale: The plan's skeleton used one queue, but each round's recovery send would then
+  make the next round's `readWithPoll` return immediately instead of blocking, so the fault
+  would never land. The SIGKILL round also forces crash recovery, and with `fsync` and
+  `synchronous_commit` off, a checkpoint before each fault keeps the queues durable.
+  Date: 2026-10-01
 - Decision: Every retry loop the documentation shows is bounded, and an ambiguous reply is
   sticky: once `isAmbiguousReply` fires for a non-idempotent operation, the loop retries the
   reconciliation, never the operation, until reconciliation succeeds or the bound is hit.

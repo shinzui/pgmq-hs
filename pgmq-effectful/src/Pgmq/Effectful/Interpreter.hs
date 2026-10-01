@@ -6,6 +6,7 @@ module Pgmq.Effectful.Interpreter
     PgmqRuntimeError (..),
     fromUsageError,
     isTransient,
+    isAmbiguousReply,
 
     -- * Legacy Error Types (deprecated; will be removed in 0.3.0)
     PgmqError (..),
@@ -56,13 +57,22 @@ fromUsageError = \case
 --
 -- Returns 'True' for acquisition timeouts, networking connection errors,
 -- uncategorized libpq connection errors, session-level connection drops,
--- and server-reported statement errors whose SQLSTATE names a transient
--- condition: @40001@ (serialization_failure), @40P01@ (deadlock_detected),
--- @55P03@ (lock_not_available), @57P01@ (admin_shutdown), @57P02@
--- (crash_shutdown), @57P03@ (cannot_connect_now), and class @53@
--- (insufficient resources). All other errors (authentication failure,
--- compatibility mismatches, missing types, other statement errors,
--- decode\/row-count mismatches, driver bugs) are treated as permanent.
+-- server-reported statement or script errors whose SQLSTATE names a
+-- transient condition: @40001@ (serialization_failure), @40P01@
+-- (deadlock_detected), @55P03@ (lock_not_available), @57P01@
+-- (admin_shutdown), @57P02@ (crash_shutdown), @57P03@ (cannot_connect_now),
+-- and class @53@ (insufficient resources); server errors in statements or
+-- scripts with no SQLSTATE (client-side connection faults, see
+-- 'isAmbiguousReply'); and the driver's stray-result shape
+-- @UnexpectedRowCountStatementError 1 1 1@. All other errors
+-- (authentication failure, compatibility mismatches, missing types, other
+-- server errors, genuine decode and row-count mismatches, driver bugs) are
+-- treated as permanent.
+--
+-- A connection lost while waiting for a reply leaves the dead connection in
+-- the pool, so the next attempt typically fails once more with a transient
+-- 'HasqlErrors.ConnectionSessionError' (which evicts it) before a fresh
+-- connection succeeds.
 --
 -- Note: 'HasqlErrors.OtherConnectionError' is classed as transient here
 -- despite hasql's documentation calling it \"not transient by default\",
@@ -79,20 +89,78 @@ isTransient = \case
   PgmqSessionError e -> case e of
     HasqlErrors.ConnectionSessionError _ -> True
     HasqlErrors.StatementSessionError _ _ _ _ _ statementError ->
-      case statementError of
-        HasqlErrors.ServerStatementError (HasqlErrors.ServerError code _ _ _ _) ->
-          isTransientSqlState code
-        _ -> False
-    HasqlErrors.ScriptSessionError {} -> False
+      isLostReplyStatementError statementError || isTransientStatementError statementError
+    HasqlErrors.ScriptSessionError _ serverError ->
+      isLostReplyServerError serverError || isTransientServerError serverError
     HasqlErrors.MissingTypesSessionError _ -> False
     HasqlErrors.DriverSessionError _ -> False
+
+-- | Was the statement delivered but its reply lost, so that the caller cannot
+-- tell whether PostgreSQL applied it?
+--
+-- 'True' for the two values hasql 1.10 produces when the connection dies while
+-- it is waiting for a reply: a server error with no SQLSTATE (libpq's own
+-- connection-loss result, which carries no fields) inside a statement or script
+-- error, and @UnexpectedRowCountStatementError 1 1 1@ (a stray second result;
+-- hasql discards the first, so the value cannot show whether that was a server
+-- fatal error or a completed command). 'False' for everything else: a
+-- 'HasqlErrors.ConnectionSessionError' means the send failed and nothing reached
+-- the server, and every other error carries the server's verdict or the
+-- driver's own decode verdict.
+--
+-- Every ambiguous reply is transient, so @isAmbiguousReply err@ implies
+-- @isTransient err@. Gate the retry of non-idempotent operations on it: an
+-- ambiguous reply to a send may have committed, so check the durable message
+-- keys before sending again.
+isAmbiguousReply :: PgmqRuntimeError -> Bool
+isAmbiguousReply = \case
+  PgmqSessionError (HasqlErrors.StatementSessionError _ _ _ _ _ statementError) ->
+    isLostReplyStatementError statementError
+  PgmqSessionError (HasqlErrors.ScriptSessionError _ serverError) ->
+    isLostReplyServerError serverError
+  _ -> False
+
+-- | The statement-level shapes of a lost reply (see 'isAmbiguousReply').
+--
+-- hasql 1.10 reports a stray second result as @UnexpectedRowCountStatementError 1 1 1@
+-- (@Hasql.Engine.Errors.fromRecvError@, @TooManyResultsError@ branch). A genuine
+-- row-count mismatch can never carry an actual count inside its own bounds, so
+-- this exact value is reserved for the driver's stray-result case, which for the
+-- single-command roundtrips this library issues only happens when libpq appends
+-- its own connection-loss result after a server fatal error (for example
+-- @57P01@ from @pg_terminate_backend@). Every other actual count is a real
+-- decoder mismatch and stays permanent.
+isLostReplyStatementError :: HasqlErrors.StatementError -> Bool
+isLostReplyStatementError = \case
+  HasqlErrors.ServerStatementError serverError -> isLostReplyServerError serverError
+  HasqlErrors.UnexpectedRowCountStatementError 1 1 1 -> True
+  _ -> False
+
+-- | Every @ErrorResponse@ PostgreSQL sends carries a SQLSTATE, so an empty code
+-- means libpq manufactured the error on the client — \"server closed the
+-- connection unexpectedly\" and its relatives — which hasql 1.10 surfaces with
+-- every field empty.
+isLostReplyServerError :: HasqlErrors.ServerError -> Bool
+isLostReplyServerError (HasqlErrors.ServerError code _ _ _ _) = T.null code
+
+-- | Server-reported statement errors worth retrying: those whose SQLSTATE is in
+-- the transient whitelist.
+isTransientStatementError :: HasqlErrors.StatementError -> Bool
+isTransientStatementError = \case
+  HasqlErrors.ServerStatementError serverError -> isTransientServerError serverError
+  _ -> False
+
+-- | Server errors (from a statement or a script) whose SQLSTATE is in the
+-- transient whitelist.
+isTransientServerError :: HasqlErrors.ServerError -> Bool
+isTransientServerError (HasqlErrors.ServerError code _ _ _ _) = isTransientSqlState code
 
 -- | SQLSTATEs that indicate a transient, retry-worthy condition: @40001@
 -- serialization_failure, @40P01@ deadlock_detected, @55P03@
 -- lock_not_available, @57P01@ admin_shutdown, @57P02@ crash_shutdown,
 -- @57P03@ cannot_connect_now, and class @53@ (insufficient resources —
 -- 53000\/53100\/53200\/53300\/53400). These arrive as server errors inside
--- 'HasqlErrors.StatementSessionError' and are precisely the errors retries
+-- 'HasqlErrors.StatementSessionError' or 'HasqlErrors.ScriptSessionError' and are precisely the errors retries
 -- exist for. Everything else reported by the server is permanent for retry
 -- purposes.
 isTransientSqlState :: Text -> Bool

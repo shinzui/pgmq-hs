@@ -4,7 +4,7 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- Compile witnesses: this module intentionally uses only the public umbrella.
-module UmbrellaExportsSpec (grouped, polling, creation, arguments, metric) where
+module UmbrellaExportsSpec (grouped, polling, creation, arguments, metric, classifiers) where
 
 import Data.Int (Int32, Int64)
 import Data.Vector (Vector)
@@ -25,3 +25,6 @@ arguments q = (ReadGrouped q 30 10, ReadGroupedWithPoll q 30 10 5 100, CreatePar
 
 metric :: QueueMetrics -> Maybe Int64
 metric = defaultPartitionLength
+
+classifiers :: PgmqRuntimeError -> (Bool, Bool)
+classifiers err = (isTransient err, isAmbiguousReply err)

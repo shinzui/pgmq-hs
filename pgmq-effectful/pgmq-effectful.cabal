@@ -87,6 +87,7 @@ test-suite pgmq-effectful-test
 
   other-modules:
     ClassificationSpec
+    DisconnectSpec
     EphemeralDb
     PlainInterpreterSpec
     TracedInterpreterSpec
