@@ -23,6 +23,9 @@ module Pgmq.Hasql.Statements.Types
     -- FIFO read types (pgmq 1.8.0+)
     ReadGrouped (..),
     ReadGroupedWithPoll (..),
+    -- Non-destructive inspection (no upstream function)
+    PeekMessages (..),
+    LookupMessage (..),
     -- Topic types (pgmq 1.11.0+)
     BindTopic (..),
     UnbindTopic (..),
@@ -316,5 +319,33 @@ data BatchSendTopicWithHeadersForLater = BatchSendTopicWithHeadersForLater
 data UpdateNotifyInsert = UpdateNotifyInsert
   { queueName :: !QueueName,
     throttleIntervalMs :: !Int32
+  }
+  deriving stock (Generic)
+
+-- | A keyset page over a queue table (@pgmq.q_\<name\>@) or, through
+-- @peekArchivedMessages@, an archive table (@pgmq.a_\<name\>@).
+--
+-- 'unvalidatedQueueName' is any name the server accepts, including names
+-- 'Pgmq.Types.parseQueueName' rejects: an inspection surface must show what
+-- exists. Pass 'Pgmq.Types.queueNameToText' when you hold a validated name.
+-- The physical table is resolved by @pgmq.format_table_name@ on the server.
+--
+-- 'afterMessageId' is an /exclusive/ cursor: the page starts strictly after
+-- it; 'Nothing' starts at the beginning. 'limit' is passed straight to SQL
+-- @LIMIT@, so it must be positive (@0@ returns nothing; a negative value is a
+-- server error). Pages are ordered by @msg_id@ ascending and never use
+-- @OFFSET@, so paging is stable while rows before the cursor are consumed.
+data PeekMessages = PeekMessages
+  { unvalidatedQueueName :: !Text,
+    afterMessageId :: !(Maybe MessageId),
+    limit :: !Int32
+  }
+  deriving stock (Generic)
+
+-- | One message by id in a queue table or, through @lookupArchivedMessage@, an
+-- archive table. The name rules are those of 'PeekMessages'.
+data LookupMessage = LookupMessage
+  { unvalidatedQueueName :: !Text,
+    messageId :: !MessageId
   }
   deriving stock (Generic)

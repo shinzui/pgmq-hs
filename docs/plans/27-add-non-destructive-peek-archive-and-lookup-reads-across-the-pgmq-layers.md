@@ -11,6 +11,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-01T00:15:41Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-01T21:05:25Z
+      mode: "implement"
+      note: "Milestones 1-3 implemented"
 ---
 
 # Add non-destructive peek, archive, and lookup reads across the pgmq layers
@@ -71,14 +77,14 @@ receives every message exactly once with `read_ct` equal to one.
 
 ## Progress
 
-- [ ] M1: `ArchivedMessage` added to `pgmq-core/src/Pgmq/Types.hs` and exported; the integration rule for its JSON instances applied (instances and golden file added if the policy from plan 28 (`docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md`) is already present, otherwise deferred)
-- [ ] M1: `PeekMessages` and `LookupMessage` added to `pgmq-hasql/src/Pgmq/Hasql/Statements/Types.hs`
-- [ ] M1: `archivedMessageDecoder` added to `pgmq-hasql/src/Pgmq/Hasql/Decoders.hs`
-- [ ] M1: `pgmq-hasql/src/Pgmq/Hasql/Statements/Inspection.hs` created with `formatTableName`, `quoteIdentifier`, and the four `unpreparable` statement builders; listed in the cabal file and re-exported from `Pgmq.Hasql.Statements`
-- [ ] M1: `queueMetricsUnvalidated` added to `pgmq-hasql/src/Pgmq/Hasql/Statements/QueueObservability.hs`
-- [ ] M1: five sessions added to `pgmq-hasql/src/Pgmq/Hasql/Sessions.hs` and exported, with the records and `ArchivedMessage`, from `pgmq-hasql/src/Pgmq.hs`
-- [ ] M1: `pgmq-hasql/test/InspectionSpec.hs` written, wired into `Main.hs` and the cabal `other-modules`, red before the statements exist and green after; covers byte-identical rows, the concurrent consumer, exactly-once paging, archive timestamps, lookups, limit semantics, the missing-queue error, no `OFFSET`, metrics parity, and a partitioned queue under the partman guard
-- [ ] M1: `nix fmt` clean; `cabal test pgmq-hasql:pgmq-hasql-test` green natively and with `PGMQ_TEST_SCHEMA_VERSION=1.12.0`; committed
+- [x] M1: `ArchivedMessage` added to `pgmq-core/src/Pgmq/Types.hs` and exported; the integration rule for its JSON instances applied (instances and golden file added if the policy from plan 28 (`docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md`) is already present, otherwise deferred) — codec deferred to plan 28 (policy absent) (2026-10-01 21:30Z)
+- [x] M1: `PeekMessages` and `LookupMessage` added to `pgmq-hasql/src/Pgmq/Hasql/Statements/Types.hs` (2026-10-01 21:30Z)
+- [x] M1: `archivedMessageDecoder` added to `pgmq-hasql/src/Pgmq/Hasql/Decoders.hs` (2026-10-01 21:30Z)
+- [x] M1: `pgmq-hasql/src/Pgmq/Hasql/Statements/Inspection.hs` created with `formatTableName`, `quoteIdentifier`, and the four `unpreparable` statement builders; listed in the cabal file and re-exported from `Pgmq.Hasql.Statements` (2026-10-01 21:30Z)
+- [x] M1: `queueMetricsUnvalidated` added to `pgmq-hasql/src/Pgmq/Hasql/Statements/QueueObservability.hs` (2026-10-01 21:30Z)
+- [x] M1: five sessions added to `pgmq-hasql/src/Pgmq/Hasql/Sessions.hs` and exported, with the records and `ArchivedMessage`, from `pgmq-hasql/src/Pgmq.hs` (2026-10-01 21:30Z)
+- [x] M1: `pgmq-hasql/test/InspectionSpec.hs` written, wired into `Main.hs` and the cabal `other-modules`, red before the statements exist and green after; covers byte-identical rows, the concurrent consumer, exactly-once paging, archive timestamps, lookups, limit semantics, the missing-queue error, no `OFFSET`, metrics parity, and a partitioned queue under the partman guard (2026-10-01 21:30Z)
+- [x] M1: `nix fmt` clean; `cabal test pgmq-hasql:pgmq-hasql-test` green natively and with `PGMQ_TEST_SCHEMA_VERSION=1.12.0`; committed (2026-10-01 21:30Z)
 - [ ] M2: five constructors on `Pgmq` in `pgmq-effectful/src/Pgmq/Effectful/Effect.hs` with smart constructors
 - [ ] M2: cases in `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs` and `pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs` (with the `queueOpText` helper and the four `pgmq.peek`/`pgmq.lookup` labels)
 - [ ] M2: re-exports from `pgmq-effectful/src/Pgmq/Effectful.hs`; compile witnesses added to both `UmbrellaExportsSpec` modules
@@ -97,7 +103,16 @@ receives every message exactly once with `read_ct` equal to one.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- The test suite does not enable `DuplicateRecordFields`, so importing `LookupMessage (..)`
+  alongside `Message (..)` makes the selector `messageId` ambiguous when used as a function.
+  `InspectionSpec` imports the two argument records constructor-only
+  (`LookupMessage (LookupMessage)`, `PeekMessages (PeekMessages)`) and builds them positionally.
+  Consumers of the `Pgmq` umbrella that use `messageId` as a function with both in scope will
+  hit the same ambiguity, exactly as they already do with `MessageQuery (..)`.
+- The pgmq-hasql test suite did not list `containers` in `build-depends`; `Data.Set` in
+  `InspectionSpec` needed it (test-only, as the plan anticipated).
+- The partition case ran for real in the partman shell (`OK (0.10s)`) and printed
+  `SKIPPED: pg_partman is not installed` natively and on the stock 1.12.0 fixture.
 
 
 ## Decision Log
@@ -146,6 +161,18 @@ implementation. Provide concise evidence.
   `pgmq.list_fifo_indexes`, so a `pgmq.<function>` label would be a lie; the lenient metrics
   read does call `pgmq.metrics`.
   Date: 2026-09-30
+- Decision: `ArchivedMessage` JSON instances deferred to plan 28 (policy not yet present at
+  2026-10-01: `grep -n "instance ToJSON Message\|020-json-wire-encodings" pgmq-core/src/Pgmq/Types.hs`
+  printed nothing).
+  Rationale: the integration rule in Concrete Steps; plan 28's own rule covers the type once
+  it exists.
+  Date: 2026-10-01
+- Decision: In `InspectionSpec`, replace the plan's partial `head`/`last` uses on pages with a
+  `lastId` helper that fails the test on an empty page, destructure the two lookup ids with a
+  `case`, and import `CreatePartitionedQueue (..)` instead of the fully qualified spelling.
+  Rationale: avoids `-Wx-partial` warnings and turns an unexpected empty page into a clear
+  assertion failure rather than an exception; behaviour asserted is unchanged.
+  Date: 2026-10-01
 
 
 ## Outcomes & Retrospective

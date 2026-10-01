@@ -42,6 +42,7 @@ library
     Pgmq.Hasql.Quasi
     Pgmq.Hasql.Sessions
     Pgmq.Hasql.Statements
+    Pgmq.Hasql.Statements.Inspection
     Pgmq.Hasql.Statements.Message
     Pgmq.Hasql.Statements.QueueManagement
     Pgmq.Hasql.Statements.QueueObservability
@@ -91,6 +92,7 @@ test-suite pgmq-hasql-test
     DecoderValidationSpec
     EphemeralDb
     Generators
+    InspectionSpec
     MessageSpec
     MetricsSpec
     MixedCaseRemediationSpec
@@ -112,6 +114,7 @@ test-suite pgmq-hasql-test
   build-depends:
     aeson,
     base >=4.18 && <5,
+    containers,
     directory,
     ephemeral-pg >=0.3.1.0,
     hasql,

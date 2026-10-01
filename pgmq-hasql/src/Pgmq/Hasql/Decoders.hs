@@ -1,6 +1,7 @@
 module Pgmq.Hasql.Decoders
   ( messageDecoder,
     messageIdDecoder,
+    archivedMessageDecoder,
     queueDecoder,
     unvalidatedQueueDecoder,
     queueMetricsDecoder,
@@ -19,7 +20,8 @@ import Data.Text (pack)
 import Hasql.Decoders qualified as D
 import Pgmq.Hasql.Statements.Types (QueueMetrics (..))
 import Pgmq.Types
-  ( Message (..),
+  ( ArchivedMessage (..),
+    Message (..),
     MessageBody (..),
     MessageId (..),
     NotifyInsertThrottle (..),
@@ -65,6 +67,16 @@ messageDecoder =
 
 messageIdDecoder :: D.Row MessageId
 messageIdDecoder = MessageId <$> D.column (D.nonNullable D.int8)
+
+-- | Decoder for an archive-table row projected as the seven message columns in
+-- 'messageDecoder' order followed by @archived_at@. The inspection statements
+-- list the columns explicitly in exactly this order; the archive table's own
+-- column order (which puts @archived_at@ before @vt@) is irrelevant.
+archivedMessageDecoder :: D.Row ArchivedMessage
+archivedMessageDecoder =
+  ArchivedMessage
+    <$> messageDecoder
+    <*> D.column (D.nonNullable D.timestamptz) -- archived_at
 
 -- | Decoder for pgmq.queue_record type
 -- Column order: queue_name (varchar), is_partitioned (bool), is_unlogged (bool), created_at (timestamptz)

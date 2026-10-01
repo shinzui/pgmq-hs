@@ -33,6 +33,12 @@ module Pgmq.Hasql.Sessions
     allQueueMetrics,
     readMessage,
     readWithPoll,
+    -- Non-destructive inspection (no upstream function)
+    peekMessages,
+    peekArchivedMessages,
+    lookupMessage,
+    lookupArchivedMessage,
+    queueMetricsUnvalidated,
     -- FIFO read functions (pgmq 1.8.0+)
     readGrouped,
     readGroupedWithPoll,
@@ -69,6 +75,7 @@ where
 import Hasql.Session (Session, statement)
 import Pgmq.Hasql.Prelude
 import Pgmq.Hasql.Statements qualified as Stmt
+import Pgmq.Hasql.Statements.Inspection qualified as Inspect
 import Pgmq.Hasql.Statements.Message qualified as Msg
 import Pgmq.Hasql.Statements.TopicManagement qualified as Topic
 import Pgmq.Hasql.Statements.Types
@@ -86,7 +93,9 @@ import Pgmq.Hasql.Statements.Types
     BindTopic,
     CreatePartitionedQueue,
     EnableNotifyInsert,
+    LookupMessage (..),
     MessageQuery,
+    PeekMessages (..),
     PopMessage,
     QueueMetrics,
     ReadGrouped,
@@ -105,7 +114,8 @@ import Pgmq.Hasql.Statements.Types
     VisibilityTimeoutQuery,
   )
 import Pgmq.Types
-  ( Message,
+  ( ArchivedMessage,
+    Message,
     MessageId,
     NotifyInsertThrottle,
     Queue,
@@ -232,6 +242,44 @@ queueMetrics q = statement q Stmt.queueMetrics
 
 allQueueMetrics :: Session [QueueMetrics]
 allQueueMetrics = statement () Stmt.allQueueMetrics
+
+-- | Metrics for a queue named by plain text, including names
+-- 'Pgmq.Types.parseQueueName' rejects. Same projection as 'queueMetrics'.
+queueMetricsUnvalidated :: Text -> Session QueueMetrics
+queueMetricsUnvalidated q = statement q Stmt.queueMetricsUnvalidated
+
+-- Non-destructive inspection ---------------------------------------------------
+--
+-- Each read resolves the physical table on the server first, then runs an
+-- unprepared SELECT against it. Neither statement modifies a row: vt, read_ct,
+-- and last_read_at are exactly what they were. A missing queue surfaces as the
+-- server's undefined_table error (SQLSTATE 42P01); a missing message is Nothing.
+
+-- | A keyset page of a queue table in ascending @msg_id@ order, starting
+-- strictly after 'afterMessageId', without leasing anything.
+peekMessages :: PeekMessages -> Session (Vector Message)
+peekMessages PeekMessages {unvalidatedQueueName, afterMessageId, limit} = do
+  table <- statement (unvalidatedQueueName, "q") Inspect.formatTableName
+  statement (afterMessageId, limit) (Inspect.peekStatement table)
+
+-- | A keyset page of an archive table, each row with its archival timestamp.
+peekArchivedMessages :: PeekMessages -> Session (Vector ArchivedMessage)
+peekArchivedMessages PeekMessages {unvalidatedQueueName, afterMessageId, limit} = do
+  table <- statement (unvalidatedQueueName, "a") Inspect.formatTableName
+  statement (afterMessageId, limit) (Inspect.peekArchivedStatement table)
+
+-- | One message of a queue table by id, or 'Nothing' when it is not there
+-- (deleted, archived, popped, or never sent).
+lookupMessage :: LookupMessage -> Session (Maybe Message)
+lookupMessage LookupMessage {unvalidatedQueueName, messageId} = do
+  table <- statement (unvalidatedQueueName, "q") Inspect.formatTableName
+  statement messageId (Inspect.lookupStatement table)
+
+-- | One message of an archive table by id, or 'Nothing'.
+lookupArchivedMessage :: LookupMessage -> Session (Maybe ArchivedMessage)
+lookupArchivedMessage LookupMessage {unvalidatedQueueName, messageId} = do
+  table <- statement (unvalidatedQueueName, "a") Inspect.formatTableName
+  statement messageId (Inspect.lookupArchivedStatement table)
 
 readMessage :: ReadMessage -> Session (Vector Message)
 readMessage query = statement query Stmt.readMessage

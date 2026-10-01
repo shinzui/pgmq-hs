@@ -56,6 +56,21 @@ module Pgmq
     ReadGrouped (..),
     ReadGroupedWithPoll (..),
 
+    -- * Non-destructive Inspection
+
+    -- | Reads that observe a queue or its archive without leasing anything:
+    -- @vt@ and @read_ct@ are untouched. They accept any server-accepted name
+    -- (pass 'queueNameToText' for a validated one) and page by exclusive
+    -- @msg_id@ cursor, never @OFFSET@. See
+    -- @docs/design/019-non-destructive-inspection-reads.md@.
+    peekMessages,
+    peekArchivedMessages,
+    lookupMessage,
+    lookupArchivedMessage,
+    queueMetricsUnvalidated,
+    PeekMessages (..),
+    LookupMessage (..),
+
     -- * Topic Routing (pgmq 1.11.0+)
 
     -- ** Topic Management
@@ -84,6 +99,7 @@ module Pgmq
     MessageHeaders (..),
     MessageId (..),
     Message (..),
+    ArchivedMessage (..),
     Queue (..),
     UnvalidatedQueue (..),
     QueueName,
@@ -173,8 +189,13 @@ import Pgmq.Hasql.Sessions
     listQueuesUnvalidated,
     listTopicBindings,
     listTopicBindingsForQueue,
+    lookupArchivedMessage,
+    lookupMessage,
+    peekArchivedMessages,
+    peekMessages,
     pop,
     queueMetrics,
+    queueMetricsUnvalidated,
     readGrouped,
     readGroupedHead,
     readGroupedHeadWithPoll,
@@ -211,7 +232,9 @@ import Pgmq.Hasql.Statements.Types
     BindTopic (..),
     CreatePartitionedQueue (..),
     EnableNotifyInsert (..),
+    LookupMessage (..),
     MessageQuery (..),
+    PeekMessages (..),
     PopMessage (..),
     QueueMetrics (..),
     ReadGrouped (..),
@@ -230,7 +253,8 @@ import Pgmq.Hasql.Statements.Types
     VisibilityTimeoutQuery (..),
   )
 import Pgmq.Types
-  ( Message (..),
+  ( ArchivedMessage (..),
+    Message (..),
     MessageBody (..),
     MessageHeaders (..),
     MessageId (..),

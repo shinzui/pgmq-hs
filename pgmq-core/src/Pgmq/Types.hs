@@ -5,6 +5,7 @@ module Pgmq.Types
     MessageHeaders (..),
     MessageId (..),
     Message (..),
+    ArchivedMessage (..),
     Queue (..),
     UnvalidatedQueue (..),
     QueueName,
@@ -89,6 +90,19 @@ data Message = Message
     readCount :: !Int64,
     body :: !MessageBody,
     headers :: !(Maybe Value)
+  }
+  deriving stock (Eq, Generic, Show)
+
+-- | A row of an archive table @pgmq.a_\<queue\>@: the message exactly as it was
+-- when @archiveMessage@ (or @pgmq.archive@ called by any client) moved it out of
+-- the queue table, plus the archival timestamp the archive table stamped.
+--
+-- Archive tables are only ever read by the non-destructive inspection reads
+-- (@peekArchivedMessages@, @lookupArchivedMessage@ in pgmq-hasql); pgmq itself
+-- never reads them back. See @docs/design/019-non-destructive-inspection-reads.md@.
+data ArchivedMessage = ArchivedMessage
+  { archivedMessage :: !Message,
+    archivedAt :: !UTCTime
   }
   deriving stock (Eq, Generic, Show)
 
