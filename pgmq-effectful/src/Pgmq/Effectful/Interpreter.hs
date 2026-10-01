@@ -247,6 +247,12 @@ runPgmq pool = interpret $ \_ -> \case
   ListFifoIndexQueueNames -> runSession pool Sessions.listFifoIndexQueueNames
   QueueMetrics q -> runSession pool $ Sessions.queueMetrics q
   AllQueueMetrics -> runSession pool Sessions.allQueueMetrics
+  -- Non-destructive inspection
+  PeekMessages args -> runSession pool $ Sessions.peekMessages args
+  PeekArchivedMessages args -> runSession pool $ Sessions.peekArchivedMessages args
+  LookupMessage args -> runSession pool $ Sessions.lookupMessage args
+  LookupArchivedMessage args -> runSession pool $ Sessions.lookupArchivedMessage args
+  QueueMetricsUnvalidated q -> runSession pool $ Sessions.queueMetricsUnvalidated q
 
 -- Internal helper
 runSession ::

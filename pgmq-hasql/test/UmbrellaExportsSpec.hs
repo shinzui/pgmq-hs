@@ -4,9 +4,10 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- Compile witnesses: this module intentionally uses only the public umbrella.
-module UmbrellaExportsSpec (grouped, polling, creation, arguments, metric) where
+module UmbrellaExportsSpec (grouped, polling, creation, arguments, metric, inspection, lenientMetrics, inspectionArguments) where
 
 import Data.Int (Int32, Int64)
+import Data.Text (Text)
 import Data.Vector (Vector)
 import Hasql.Session (Session)
 import Pgmq
@@ -25,3 +26,12 @@ arguments q = (ReadGrouped q 30 10, ReadGroupedWithPoll q 30 10 5 100, CreatePar
 
 metric :: QueueMetrics -> Maybe Int64
 metric = defaultPartitionLength
+
+inspection :: PeekMessages -> LookupMessage -> (Session (Vector Message), Session (Vector ArchivedMessage), Session (Maybe Message), Session (Maybe ArchivedMessage))
+inspection page one = (peekMessages page, peekArchivedMessages page, lookupMessage one, lookupArchivedMessage one)
+
+lenientMetrics :: Text -> Session QueueMetrics
+lenientMetrics = queueMetricsUnvalidated
+
+inspectionArguments :: Text -> (PeekMessages, LookupMessage)
+inspectionArguments q = (PeekMessages q Nothing 50, LookupMessage q (MessageId 1))

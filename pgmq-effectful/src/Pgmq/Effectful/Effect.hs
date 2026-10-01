@@ -85,6 +85,13 @@ module Pgmq.Effectful.Effect
     listFifoIndexQueueNames,
     queueMetrics,
     allQueueMetrics,
+
+    -- * Non-destructive Inspection
+    peekMessages,
+    peekArchivedMessages,
+    lookupMessage,
+    lookupArchivedMessage,
+    queueMetricsUnvalidated,
   )
 where
 
@@ -108,7 +115,9 @@ import Pgmq.Hasql.Statements.Types
     BindTopic,
     CreatePartitionedQueue,
     EnableNotifyInsert,
+    LookupMessage,
     MessageQuery,
+    PeekMessages,
     PopMessage,
     QueueMetrics,
     ReadGrouped,
@@ -127,7 +136,8 @@ import Pgmq.Hasql.Statements.Types
     VisibilityTimeoutQuery,
   )
 import Pgmq.Types
-  ( Message,
+  ( ArchivedMessage,
+    Message,
     MessageId,
     NotifyInsertThrottle,
     Queue,
@@ -208,6 +218,12 @@ data Pgmq :: Effect where
   ListFifoIndexQueueNames :: Pgmq m [Text]
   QueueMetrics :: QueueName -> Pgmq m QueueMetrics
   AllQueueMetrics :: Pgmq m [QueueMetrics]
+  -- Non-destructive inspection (no upstream function; design note 019)
+  PeekMessages :: PeekMessages -> Pgmq m (Vector Message)
+  PeekArchivedMessages :: PeekMessages -> Pgmq m (Vector ArchivedMessage)
+  LookupMessage :: LookupMessage -> Pgmq m (Maybe Message)
+  LookupArchivedMessage :: LookupMessage -> Pgmq m (Maybe ArchivedMessage)
+  QueueMetricsUnvalidated :: Text -> Pgmq m QueueMetrics
 
 type instance DispatchOf Pgmq = 'Dynamic
 
@@ -432,3 +448,32 @@ queueMetrics = send . QueueMetrics
 
 allQueueMetrics :: (Pgmq :> es) => Eff es [QueueMetrics]
 allQueueMetrics = send AllQueueMetrics
+
+-- Non-destructive Inspection
+
+-- | A keyset page of a queue table without leasing anything: @vt@ and
+-- @read_ct@ are untouched. Accepts any server-accepted name; pass
+-- 'Pgmq.Types.queueNameToText' for a validated one. Pages by exclusive
+-- @msg_id@ cursor, never @OFFSET@. A missing queue is a 'PgmqSessionError'
+-- carrying SQLSTATE @42P01@.
+peekMessages :: (Pgmq :> es) => PeekMessages -> Eff es (Vector Message)
+peekMessages = send . PeekMessages
+
+-- | A keyset page of an archive table, each row with its archival timestamp.
+-- Same name, paging, and error rules as 'peekMessages'.
+peekArchivedMessages :: (Pgmq :> es) => PeekMessages -> Eff es (Vector ArchivedMessage)
+peekArchivedMessages = send . PeekArchivedMessages
+
+-- | One message by id without leasing it, or 'Nothing' when it is not in the
+-- queue table (deleted, archived, popped, or never sent).
+lookupMessage :: (Pgmq :> es) => LookupMessage -> Eff es (Maybe Message)
+lookupMessage = send . LookupMessage
+
+-- | One archived message by id, or 'Nothing' when it is not in the archive.
+lookupArchivedMessage :: (Pgmq :> es) => LookupMessage -> Eff es (Maybe ArchivedMessage)
+lookupArchivedMessage = send . LookupArchivedMessage
+
+-- | 'queueMetrics' for a queue named by plain text, including names
+-- 'Pgmq.Types.parseQueueName' rejects.
+queueMetricsUnvalidated :: (Pgmq :> es) => Text -> Eff es QueueMetrics
+queueMetricsUnvalidated = send . QueueMetricsUnvalidated

@@ -41,6 +41,8 @@
 -- * Messaging spans: @"publish my-queue"@, @"receive my-queue"@.
 -- * Lifecycle and observability spans: @"pgmq.archive my-queue"@,
 --   @"pgmq.set_vt my-queue"@, @"pgmq.list_queues"@ (no destination).
+-- * Inspection spans: @"pgmq.peek my-queue"@, @"pgmq.lookup_message my-queue"@
+--   (this library's own labels; no pgmq function backs them).
 --
 -- == Span Kinds
 --
@@ -356,6 +358,25 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
   AllQueueMetrics ->
     withTracedOp config pool (defaultOpInfo "pgmq.metrics_all" OTel.Internal) $
       Sessions.allQueueMetrics
+  -- Non-destructive inspection. No pgmq function backs the four reads (they
+  -- are hand-written SELECTs, see design note 019), so, like
+  -- pgmq.list_fifo_indexes, they carry this library's own labels. The lenient
+  -- metrics read does call pgmq.metrics and says so.
+  PeekMessages args@(Types.PeekMessages qn _ _) ->
+    withTracedOp config pool (queueOpText "pgmq.peek" OTel.Internal qn) $
+      Sessions.peekMessages args
+  PeekArchivedMessages args@(Types.PeekMessages qn _ _) ->
+    withTracedOp config pool (queueOpText "pgmq.peek_archive" OTel.Internal qn) $
+      Sessions.peekArchivedMessages args
+  LookupMessage args@(Types.LookupMessage qn msgId) ->
+    withTracedOp config pool ((queueOpText "pgmq.lookup_message" OTel.Internal qn) {opMessageId = Just msgId}) $
+      Sessions.lookupMessage args
+  LookupArchivedMessage args@(Types.LookupMessage qn msgId) ->
+    withTracedOp config pool ((queueOpText "pgmq.lookup_archived_message" OTel.Internal qn) {opMessageId = Just msgId}) $
+      Sessions.lookupArchivedMessage args
+  QueueMetricsUnvalidated q ->
+    withTracedOp config pool (queueOpText "pgmq.metrics" OTel.Internal q) $
+      Sessions.queueMetricsUnvalidated q
 
 -- ---------------------------------------------------------------------
 -- OpInfo constructors
@@ -363,7 +384,13 @@ runPgmqTracedWith pool config = interpret $ \_ -> \case
 
 -- | 'OpInfo' for a non-messaging operation scoped to a single queue.
 queueOp :: Text -> OTel.SpanKind -> QueueName -> OpInfo
-queueOp fn kind qn = (defaultOpInfo fn kind) {opDestination = Just (queueNameToText qn)}
+queueOp fn kind qn = queueOpText fn kind (queueNameToText qn)
+
+-- | 'OpInfo' for a non-messaging operation scoped to a queue named by plain
+-- text: the lenient inspection path, which accepts names 'parseQueueName'
+-- rejects. The destination attribute carries the name exactly as given.
+queueOpText :: Text -> OTel.SpanKind -> Text -> OpInfo
+queueOpText fn kind name = (defaultOpInfo fn kind) {opDestination = Just name}
 
 -- | 'OpInfo' for a @publish@ (send) on a queue.
 publishOp :: Text -> QueueName -> OpInfo

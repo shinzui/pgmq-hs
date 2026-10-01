@@ -4,9 +4,10 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- Compile witnesses: this module intentionally uses only the public umbrella.
-module UmbrellaExportsSpec (grouped, polling, creation, arguments, metric, classifiers) where
+module UmbrellaExportsSpec (grouped, polling, creation, arguments, metric, classifiers, inspection, lenientMetrics, inspectionArguments) where
 
 import Data.Int (Int32, Int64)
+import Data.Text (Text)
 import Data.Vector (Vector)
 import Effectful (Eff, (:>))
 import Pgmq.Effectful
@@ -28,3 +29,12 @@ metric = defaultPartitionLength
 
 classifiers :: PgmqRuntimeError -> (Bool, Bool)
 classifiers err = (isTransient err, isAmbiguousReply err)
+
+inspection :: (Pgmq :> es) => PeekMessages -> LookupMessage -> (Eff es (Vector Message), Eff es (Vector ArchivedMessage), Eff es (Maybe Message), Eff es (Maybe ArchivedMessage))
+inspection page one = (peekMessages page, peekArchivedMessages page, lookupMessage one, lookupArchivedMessage one)
+
+lenientMetrics :: (Pgmq :> es) => Text -> Eff es QueueMetrics
+lenientMetrics = queueMetricsUnvalidated
+
+inspectionArguments :: Text -> (PeekMessages, LookupMessage)
+inspectionArguments q = (PeekMessages q Nothing 50, LookupMessage q (MessageId 1))

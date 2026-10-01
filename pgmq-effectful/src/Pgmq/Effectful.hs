@@ -107,11 +107,24 @@ module Pgmq.Effectful
     queueMetrics,
     allQueueMetrics,
 
+    -- * Non-destructive Inspection
+
+    -- | Reads that observe a queue or its archive without leasing anything.
+    -- See @docs/design/019-non-destructive-inspection-reads.md@.
+    peekMessages,
+    peekArchivedMessages,
+    lookupMessage,
+    lookupArchivedMessage,
+    queueMetricsUnvalidated,
+    PeekMessages (..),
+    LookupMessage (..),
+
     -- * Types
     MessageBody (..),
     MessageHeaders (..),
     MessageId (..),
     Message (..),
+    ArchivedMessage (..),
     Queue (..),
     QueueName,
     SendMessage (..),
@@ -193,8 +206,13 @@ import Pgmq.Effectful.Effect
     listQueues,
     listTopicBindings,
     listTopicBindingsForQueue,
+    lookupArchivedMessage,
+    lookupMessage,
+    peekArchivedMessages,
+    peekMessages,
     pop,
     queueMetrics,
+    queueMetricsUnvalidated,
     readGrouped,
     readGroupedHead,
     readGroupedHeadWithPoll,
@@ -254,7 +272,9 @@ import Pgmq.Hasql.Statements.Types
     BindTopic (..),
     CreatePartitionedQueue (..),
     EnableNotifyInsert (..),
+    LookupMessage (..),
     MessageQuery (..),
+    PeekMessages (..),
     PopMessage (..),
     QueueMetrics (..),
     ReadGrouped (..),
@@ -272,7 +292,8 @@ import Pgmq.Hasql.Statements.Types
     VisibilityTimeoutQuery (..),
   )
 import Pgmq.Types
-  ( Message (..),
+  ( ArchivedMessage (..),
+    Message (..),
     MessageBody (..),
     MessageHeaders (..),
     MessageId (..),

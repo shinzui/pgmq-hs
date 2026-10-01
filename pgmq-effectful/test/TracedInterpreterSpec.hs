@@ -521,7 +521,57 @@ featureTests traced =
                        Left (_, PgmqSessionError err) -> assertBool "server rejection is retained" (T.isInfixOf (if stock then "42883" else "premake must be at least 1") (T.pack (show err)))
                        other -> assertFailure ("expected session error, got " <> show other)
                  )
-                 [0, -1]
+                 [0, -1],
+           testCase "non-destructive inspection reads" $
+             withSemconvOptIn "messaging/dup,database/dup" $
+               isolated $ \pool -> do
+                 (tracer, _, spansRef) <- setupTracer
+                 let run :: Eff '[Eff.Pgmq, Error PgmqRuntimeError, IOE] a -> IO a
+                     run action = assertRight =<< runEff (runError @PgmqRuntimeError ((if traced then runPgmqTraced pool tracer else runPgmq pool) action))
+                 queue <- mkUniqueQueue "inspect"
+                 let q = queueNameToText queue
+                 run (Eff.createQueue queue)
+                 ids <- mapM (\i -> run (Eff.sendMessage (SendMessage queue (MessageBody (object ["i" .= (i :: Int)])) Nothing))) [1 .. 3]
+                 (archivedId, liveId) <- case ids of
+                   [a, b, _] -> pure (a, b)
+                   other -> assertFailure ("expected three ids, got " <> show other)
+                 archivedOk <- run (Eff.archiveMessage (MessageQuery queue archivedId))
+                 assertBool "archive succeeded" archivedOk
+                 page <- run (Eff.peekMessages (Types.PeekMessages q Nothing 10))
+                 assertEqual "two live messages" (drop 1 ids) (map Pgmq.messageId (V.toList page))
+                 archived <- run (Eff.peekArchivedMessages (Types.PeekMessages q Nothing 10))
+                 assertEqual "one archived message" [archivedId] (map (Pgmq.messageId . Pgmq.archivedMessage) (V.toList archived))
+                 found <- run (Eff.lookupMessage (Types.LookupMessage q liveId))
+                 assertEqual "lookup finds a live message" (Just liveId) (fmap Pgmq.messageId found)
+                 missing <- run (Eff.lookupArchivedMessage (Types.LookupMessage q liveId))
+                 assertEqual "a live message is not in the archive" Nothing (fmap (Pgmq.messageId . Pgmq.archivedMessage) missing)
+                 metrics <- run (Eff.queueMetricsUnvalidated q)
+                 assertEqual "lenient metrics" 2 (Types.queueLength metrics)
+                 -- The peeks leased nothing: a real read now returns both, and
+                 -- read_ct is one because only this read incremented it.
+                 leased <- run (Eff.readMessage (ReadMessage queue 30 (Just 10) Nothing))
+                 assertEqual "both messages still available" (drop 1 ids) (map Pgmq.messageId (V.toList leased))
+                 assertEqual "read_ct counts only the real read" [1, 1] (map Pgmq.readCount (V.toList leased))
+                 when traced $ do
+                   spans <- readIORef spansRef
+                   peeks <- spansWithFirstWord "pgmq.peek" spans
+                   peekSpan <- singleSpan peeks "peek"
+                   spanName peekSpan >>= assertEqual "peek span name" ("pgmq.peek " <> q)
+                   case OTel.spanKind peekSpan of
+                     OTel.Internal -> pure ()
+                     other -> assertFailure ("expected Internal: " <> show other)
+                   assertAttrText peekSpan "db.operation" "pgmq.peek"
+                   assertAttrText peekSpan "db.operation.name" "pgmq.peek"
+                   assertAttrText peekSpan "messaging.destination.name" q
+                   assertNoAttr peekSpan "messaging.operation"
+                   archivePeeks <- spansWithFirstWord "pgmq.peek_archive" spans
+                   _ <- singleSpan archivePeeks "archive peek"
+                   lookups <- spansWithFirstWord "pgmq.lookup_message" spans
+                   lookupSpan <- singleSpan lookups "lookup"
+                   assertAttrText lookupSpan "messaging.message.id" (T.pack (show (Pgmq.unMessageId liveId)))
+                   archivedLookups <- spansWithFirstWord "pgmq.lookup_archived_message" spans
+                   _ <- singleSpan archivedLookups "archived lookup"
+                   pure ()
          ]
 
 session :: Pool.Pool -> Session.Session a -> IO a

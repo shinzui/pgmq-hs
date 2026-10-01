@@ -7,6 +7,7 @@ import AliasingSpec qualified
 import AllFunctionsDecoderSpec qualified
 import DecoderValidationSpec qualified
 import EphemeralDb (withPgmqDb)
+import InspectionForeignNameSpec qualified
 import InspectionSpec qualified
 import MessageSpec qualified
 import MetricsSpec qualified
@@ -45,6 +46,10 @@ main = do
                 -- sweeps every mixed-case row in its database.
                 AliasingSpec.tests,
                 MixedCaseRemediationSpec.tests,
+                -- Creates mixed-case (and hyphenated) queues through raw SQL to
+                -- prove the inspection reads accept foreign names, so it too
+                -- runs on its own instance.
+                InspectionForeignNameSpec.tests,
                 -- Needs the Database handle: LISTEN/NOTIFY has no hasql API, so
                 -- the round-trip test opens a raw libpq connection.
                 NotifyChannelSpec.tests pool db,

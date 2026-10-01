@@ -85,12 +85,12 @@ receives every message exactly once with `read_ct` equal to one.
 - [x] M1: five sessions added to `pgmq-hasql/src/Pgmq/Hasql/Sessions.hs` and exported, with the records and `ArchivedMessage`, from `pgmq-hasql/src/Pgmq.hs` (2026-10-01 21:30Z)
 - [x] M1: `pgmq-hasql/test/InspectionSpec.hs` written, wired into `Main.hs` and the cabal `other-modules`, red before the statements exist and green after; covers byte-identical rows, the concurrent consumer, exactly-once paging, archive timestamps, lookups, limit semantics, the missing-queue error, no `OFFSET`, metrics parity, and a partitioned queue under the partman guard (2026-10-01 21:30Z)
 - [x] M1: `nix fmt` clean; `cabal test pgmq-hasql:pgmq-hasql-test` green natively and with `PGMQ_TEST_SCHEMA_VERSION=1.12.0`; committed (2026-10-01 21:30Z)
-- [ ] M2: five constructors on `Pgmq` in `pgmq-effectful/src/Pgmq/Effectful/Effect.hs` with smart constructors
-- [ ] M2: cases in `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs` and `pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs` (with the `queueOpText` helper and the four `pgmq.peek`/`pgmq.lookup` labels)
-- [ ] M2: re-exports from `pgmq-effectful/src/Pgmq/Effectful.hs`; compile witnesses added to both `UmbrellaExportsSpec` modules
-- [ ] M2: `pgmq-hasql/test/InspectionForeignNameSpec.hs` written on a dedicated instance, proving the mixed-case and hyphenated paths through every new read; wired into `Main.hs` and the cabal file
-- [ ] M2: `featureTests` in `pgmq-effectful/test/TracedInterpreterSpec.hs` extended with the inspection case for both interpreters, including span assertions when traced
-- [ ] M2: `nix fmt` clean; `cabal test all` green; committed
+- [x] M2: five constructors on `Pgmq` in `pgmq-effectful/src/Pgmq/Effectful/Effect.hs` with smart constructors (2026-10-01 21:55Z)
+- [x] M2: cases in `pgmq-effectful/src/Pgmq/Effectful/Interpreter.hs` and `pgmq-effectful/src/Pgmq/Effectful/Interpreter/Traced.hs` (with the `queueOpText` helper and the four `pgmq.peek`/`pgmq.lookup` labels) (2026-10-01 21:55Z)
+- [x] M2: re-exports from `pgmq-effectful/src/Pgmq/Effectful.hs`; compile witnesses added to both `UmbrellaExportsSpec` modules (2026-10-01 21:55Z)
+- [x] M2: `pgmq-hasql/test/InspectionForeignNameSpec.hs` written on a dedicated instance, proving the mixed-case and hyphenated paths through every new read; wired into `Main.hs` and the cabal file (2026-10-01 21:55Z)
+- [x] M2: `featureTests` in `pgmq-effectful/test/TracedInterpreterSpec.hs` extended with the inspection case for both interpreters, including span assertions when traced (2026-10-01 21:55Z)
+- [x] M2: `nix fmt` clean; `cabal test all` green; committed (2026-10-01 21:55Z)
 - [ ] M3: `docs/design/019-non-destructive-inspection-reads.md` written
 - [ ] M3: Haddocks on every new type, statement, session, and effect operation state the contract
 - [ ] M3: capability record written under `docs/capabilities/` with the handle `okf id next` returned; `index.md` and `log.md` updated; `just docs-check` green
@@ -111,6 +111,9 @@ implementation. Provide concise evidence.
   hit the same ambiguity, exactly as they already do with `MessageQuery (..)`.
 - The pgmq-hasql test suite did not list `containers` in `build-depends`; `Data.Set` in
   `InspectionSpec` needed it (test-only, as the plan anticipated).
+- The effectful inspection case takes 12–17 s per interpreter, like its siblings: `isolated`
+  starts a whole ephemeral database per case and the cases in `featureTests` start theirs
+  concurrently. The reads themselves are sub-millisecond.
 - The partition case ran for real in the partman shell (`OK (0.10s)`) and printed
   `SKIPPED: pg_partman is not installed` natively and on the stock 1.12.0 fixture.
 
@@ -172,6 +175,13 @@ implementation. Provide concise evidence.
   `case`, and import `CreatePartitionedQueue (..)` instead of the fully qualified spelling.
   Rationale: avoids `-Wx-partial` warnings and turns an unexpected empty page into a clear
   assertion failure rather than an exception; behaviour asserted is unchanged.
+  Date: 2026-10-01
+- Decision: The effectful inspection case additionally asserts exactly one
+  `pgmq.peek_archive` and one `pgmq.lookup_archived_message` span, beyond the plan's
+  `pgmq.peek` and `pgmq.lookup_message` assertions, and its read_ct assertion message says
+  "read_ct counts only the real read" (the plan's "was zero before this read" described a
+  value it did not check).
+  Rationale: covers all four labels the traced interpreter introduces at negligible cost.
   Date: 2026-10-01
 
 
