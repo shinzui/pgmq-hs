@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-30. Implementation is tracked by
+Accepted, 2026-09-30; clarified after implementation review on 2026-10-19. Implementation is tracked by
 [MasterPlan 7](../masterplans/7-expose-non-destructive-queue-inspection-through-typed-reads-json-codecs-and-the-pgmq-inspect-sister-package.md).
 This repository has no profiled ADR bundle; this record follows its existing plain-Markdown
 decision convention and introduces no OKF metadata.
@@ -29,8 +29,7 @@ is only reachable by mounting it inside keiro, or whose contract is only written
 keiro-ui's conventions document, would leave that audience without a way to run or build
 against it.
 
-Every read the library offers today leases: `pgmq.read`, `read_with_poll`, and `pop` mutate `vt`
-and `read_ct`. Upstream pgmq provides no non-destructive read, no archive read, and no
+Before the inspection reads, `pgmq.read` and `read_with_poll` leased rows, and `pop` removed them. Upstream pgmq provides no non-destructive read, no archive read, and no
 fetch-by-id, and the vendoring policy in [design note 012](../design/012-vendor-upstream-pgmq-sql.md)
 permits hand-written statements exactly for reads upstream has no equivalent for.
 
@@ -77,8 +76,47 @@ does not exist; any future hand-written read follows the same rule.
 
 **Push is a hint; the poll is truth.** The WebSocket feed carries queue metrics, not message
 bodies. One server-wide LISTEN connection accelerates updates for queues whose names validate;
-every subscribed queue is also polled on an interval; the feed reconnects and re-`LISTEN`s on
+one shared coordinator polls each distinct subscribed queue on an interval and fans out the result; the feed reconnects and re-`LISTEN`s on
 its own and never stops polling. A client re-reads messages through the paged HTTP routes.
+
+**Inspection cost is bounded independently of worker capacity.** Row limits bound result
+counts, not scan cost or payload bytes. Ordinary queues and archives have `msg_id` primary
+keys; time-partitioned parents and some partitioned archives have no matching index, so
+keyset reads can scan/sort many rows. Do not add index DDL during inspection or override
+upstream functions. Record complete-query EXPLAIN evidence for numeric and time partitions,
+live and archived data, before claiming indexed behavior. Any optional index remains an
+operator action with measured read benefit and write/storage/locking costs.
+
+One runtime shares read admission across HTTP and the feed; excess work fails promptly.
+Production inspection uses its own finite pool and PostgreSQL statement/lock deadlines.
+The library does not reconfigure arbitrary worker connections. Existing blackholed network
+I/O limitations remain explicit; an application timeout alone is not a hard deadline.
+One metrics refresh per distinct queue is in flight at a time, notifications coalesce,
+refresh frequency and distinct queues are capped, and scheduling is fair. Query count must
+not multiply with the number of tabs watching the same queue. Metrics still cost a scan of
+queue rows, and age fields change as time passes even without writes.
+
+**The browser contract preserves exact positions and describes a moving view.** Existing
+numeric `MessageId` JSON remains numeric; clients must parse 64-bit integer tokens losslessly
+and echo cursors as exact decimal strings in query parameters. No `Number` conversion may
+precede that parsing. Paging does not hold a multi-request snapshot: late commits and older
+IDs archived after a cursor advances require a restart from the beginning. `headers` accepts
+any JSON value. `Nothing` and `Just Null` encode alike and decode to `Nothing`; codec tests
+state that normalization instead of promising an impossible strict round trip.
+
+**The served schema is tested against real responses and mounted paths.** OpenAPI declares
+relative server URL `.`; omitting servers would select origin root and break prefix mounts.
+Readiness 503 keeps the readiness body, arbitrary JSON headers stay representable, and
+response fixtures are validated against schemas rather than merely snapshotting two unrelated
+encodings. Public database errors use fixed display-safe messages and allowlisted SQLSTATE;
+raw backend messages, detail, hint, SQL and parameters are private. Queue-not-found is
+established through metadata in the queue-scoped handler, not inferred globally from 42P01.
+
+**Subscription ordering is atomic.** A snapshot enters the bounded outbox before its
+subscription becomes eligible for updates. Generation checks discard in-flight results after
+unsubscribe or replacement. `push` reports registered interest in notifications, not listener
+health or installed triggers. Listener failure never disables polling; socket wait and
+connection resources are released on cancellation.
 
 **No mutations, no authentication.** The first iteration is read-only. The surface assumes a
 trusted network or an authenticating reverse proxy, and its documentation says so rather than

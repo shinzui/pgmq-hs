@@ -11,6 +11,18 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-01T00:15:41Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      verdict: "changes-requested"
+      note: "Corrected mounted OpenAPI servers, readiness schema, arbitrary headers, CLI bounds, privileges and release handoff; added client/schema acceptance."
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      mode: "update"
+      note: "Corrected mounted OpenAPI servers, readiness schema, arbitrary headers, CLI bounds, privileges and release handoff; added client/schema acceptance."
 ---
 
 # Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide
@@ -64,6 +76,9 @@ test suite, which now includes `OpenApiSpec`.
 
 ## Progress
 
+- [x] (2026-10-19) Reviewed against implemented EP-1, revised EP-2–EP-4 and keiro-ui contracts; implementation remains pending.
+- [ ] Review gates: mounted OpenAPI client, actual-response schema validation, lossless int64 browser fixture, isolated database budget and least-privilege role tests pass.
+
 - [ ] M1: `pgmq-inspect/app/Main.hs` and the `executable pgmq-inspect` stanza exist; `cabal run pgmq-inspect -- --version` prints the version; the server starts against the dev-shell database and answers `GET /queues`
 - [ ] M1: `--cors-origin`, `--host`, `--port`, `--poll-interval-ms`, `--pool-size`, `--no-listener`, and the `PGMQ_INSPECT_DATABASE_URL` fallback behave as documented; a missing or unparsable URL exits with status 2 and a one-line message
 - [ ] M1: `nix build .#pgmq-inspect` produces `result/bin/pgmq-inspect`
@@ -80,10 +95,31 @@ test suite, which now includes `OpenApiSpec`.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+2026-10-19 review: an omitted OpenAPI `servers` defaults to `/`, losing a prefix mount;
+`getOp` overwrote the readiness-specific 503 with a generic error envelope. Headers are
+arbitrary JSON, not necessarily objects. Independent codec/schema goldens do not prove
+agreement. CLI Int parsing and milliseconds multiplication need checked conversions.
+Metrics cost depends on rows scanned, and per-client polling multiplies it. The implemented
+`Pgmq` effect gained five constructors, including `QueueMetricsUnvalidated`.
+
+The keiro-ui checkout at commit `3472a9be2e3bc8fdb793e5549fe074450b44b1a7` contains
+architecture documents, not an implemented browser client. Compatibility below is a contract
+review, with client tests still required. See `mori://shinzui/keiro-ui` plus
+`docs/architecture/inspection-api-conventions.md` (artifact-level URI pending) and
+`mori://shinzui/keiro-ui/okf/adrs/concepts/ADR-5`.
+Mori lookup failed because its local database is absent; old dependency versions/source
+excerpts below are historical evidence, not a current-release verification. Before choosing
+bounds, verify authoritative package registries and upstream release tags.
 
 
 ## Decision Log
+
+- Decision (2026-10-19): require explicit relative OpenAPI server `.`, fixture/schema
+  cross-validation and lossless numeric-ID client tests before API freeze. Preserve the
+  native integer wire representation; do not convert existing IDs to strings.
+- Decision (2026-10-19): ship isolated inspection connections with server-side statement
+  and lock deadlines and EP-3/EP-4 shared admission/scheduling. Document measured workload
+  limits rather than recommending a universally safe polling interval.
 
 - Decision: The OpenAPI document is built programmatically with the `openapi3` library and
   pinned by a golden file, rather than hand-written as JSON or derived from a servant API type.
@@ -117,6 +153,10 @@ implementation. Provide concise evidence.
 
 
 ## Outcomes & Retrospective
+
+Review status (2026-10-19): changes requested. This update corrects the release contract;
+no executable, schema or browser integration is implemented by this documentation change.
+EP-1 M4 and the review gates in all dependent plans remain prerequisites for release.
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose. Before marking the plan complete,
@@ -199,7 +239,11 @@ data InspectConfig = InspectConfig
     notifyDebounceUs :: !Int,             -- default 100_000
     wsMaxConnections :: !Int,             -- default 100
     wsMaxSubscriptions :: !Int,           -- default 100 per connection
-    wsQueueCapacity :: !Natural           -- default 256 frames per connection
+    wsQueueCapacity :: !Natural,          -- default 256 frames per connection
+    maxConcurrentReads :: !Int,           -- default 2 across HTTP and WebSocket work
+    metricsMinRefreshUs :: !Int,          -- default 1_000_000 per distinct queue
+    wsMaxQueues :: !Int,                  -- default 100 distinct queues per runtime
+    wsMaxFrameBytes :: !Int               -- default 16_384 inbound message bytes
   }
 data InspectServerConfig = InspectServerConfig { bindHost :: !String, bindPort :: !Int, inspect :: !InspectConfig }
 defaultInspectConfig :: InspectConfig
@@ -245,7 +289,7 @@ to the service descriptor.
 page. Unknown paths answer 404 `not_found`; non-`GET` methods answer 405 `method_not_allowed`.
 
 Every error body is `{"error":{"code":"…","message":"…","details":{…}?}}`. The codes are
-`not_found`, `method_not_allowed`, `queue_not_found` (the server's SQLSTATE `42P01`),
+`inspection_busy` (503), `inspection_timeout` (503), `not_found`, `method_not_allowed`, `queue_not_found` (queue-scoped metadata confirms absence, not a blanket `42P01` mapping),
 `message_not_found`, `invalid_cursor`, `invalid_limit`, `invalid_message_id` (a `{msg_id}`
 segment that is not an integer), `invalid_routing_key`,
 `websocket_upgrade_required`, `websocket_unavailable`, `database_unavailable` (503 when
@@ -268,8 +312,11 @@ key is always present and `null` for errors not about one queue); and
 insert-notification channel of every subscribed validated queue, reconnects with exponential
 backoff when it drops, and re-issues every `LISTEN` after reconnecting; subscribers keep
 receiving poll-sourced updates throughout. The poll is authoritative: every `pollIntervalUs` the
-server reads `queueMetrics` for each subscribed queue and emits an `update` with `source`
-`poll` whenever the metrics (ignoring `scrape_time`) changed.
+shared coordinator schedules `queueMetricsUnvalidated` for each distinct subscribed queue,
+subject to the minimum refresh interval and shared admission budget; it emits an `update`
+with `source` `poll` when the metrics (ignoring `scrape_time`) changed. Nonempty idle queues
+still change age fields. `push` reports eligible registered interest, not listener health,
+LISTEN acknowledgement or an enabled notification trigger.
 
 The JSON field names, fixed by `docs/design/020-json-wire-encodings.md` (plan 28) and pinned by
 golden tests in `pgmq-core`, `pgmq-hasql`, `pgmq-config`, and `pgmq-inspect`: queues carry
@@ -319,7 +366,7 @@ A fresh database has no pgmq schema, and the executable assumes the schema is al
 installed (by `pgmq-migration`, as every test suite in this repository does, or by the upstream
 extension). `pgmq-migration` ships no runner and `pg-migrate` ships no standalone binary, so
 install it once with a throwaway script. Write the following to
-`/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-libraries-pgmq-hs-project-pgmq-hs/90a95def-cc2d-4814-9797-14a8bb36f553/scratchpad/install-pgmq-schema.hs`
+`/tmp/pgmq-inspect-install-schema.hs`
 (any path outside the repository is fine):
 
 ```haskell
@@ -345,7 +392,7 @@ main = do
 and run it through the project's package environment:
 
 ```bash
-nix develop --command bash -c 'cabal build pgmq-migration && cabal exec -- runghc /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-libraries-pgmq-hs-project-pgmq-hs/90a95def-cc2d-4814-9797-14a8bb36f553/scratchpad/install-pgmq-schema.hs "$PG_CONNECTION_STRING"'
+nix develop --command bash -c 'cabal build pgmq-migration && cabal exec -- runghc /tmp/pgmq-inspect-install-schema.hs "$PG_CONNECTION_STRING"'
 ```
 
 The report prints one `AppliedNow` per migration (`0001` through `0006`, or `0007` if
@@ -496,10 +543,10 @@ import System.IO (BufferMode (..), hPutStrLn, hSetBuffering, stderr, stdout)
 data Options = Options
   { databaseUrl :: !(Maybe String),
     host :: !String,
-    port :: !Int,
+    port :: !Integer,
     corsOrigins :: ![String],
-    pollIntervalMs :: !Int,
-    poolSize :: !Int,
+    pollIntervalMs :: !Integer,
+    poolSize :: !Integer,
     noListener :: !Bool
   }
 
@@ -545,19 +592,22 @@ main = do
   let settings = Settings.connectionString (T.pack url)
   when (settings == mempty) $
     failWith "the database URL is empty or not a valid libpq connection string"
-  when (pollIntervalMs opts <= 0) $ failWith "--poll-interval-ms must be positive"
-  when (poolSize opts <= 0) $ failWith "--pool-size must be positive"
+  when (port opts < 0 || port opts > 65535) $ failWith "--port must be in 0..65535"
+  when (pollIntervalMs opts <= 0 || pollIntervalMs opts > toInteger (maxBound :: Int) `div` 1000) $
+    failWith "--poll-interval-ms is out of range"
+  when (poolSize opts <= 0 || poolSize opts > toInteger (maxBound :: Int)) $
+    failWith "--pool-size is out of range"
   let cors = maybe CorsDisabled CorsAllowOrigins (nonEmpty (map B8.pack (corsOrigins opts)))
       serverConfig :: InspectServerConfig
       serverConfig =
         defaultInspectServerConfig
           & #bindHost .~ host opts
-          & #bindPort .~ port opts
+          & #bindPort .~ fromInteger (port opts)
           & #inspect . #corsPolicy .~ cors
-          & #inspect . #pollIntervalUs .~ pollIntervalMs opts * 1000
+          & #inspect . #pollIntervalUs .~ fromInteger (pollIntervalMs opts * 1000)
       poolConfig =
         PoolConfig.settings
-          [ PoolConfig.size (poolSize opts),
+          [ PoolConfig.size (fromInteger (poolSize opts)),
             PoolConfig.staticConnectionSettings settings
           ]
   bracket (Pool.acquire poolConfig) Pool.release $ \pool -> do
@@ -586,6 +636,13 @@ failWith msg = do
   hPutStrLn stderr ("pgmq-inspect: " <> msg)
   exitWith (ExitFailure 2)
 ```
+
+The Main.hs block is a CLI wiring sketch, not the complete production startup. Before
+allocating resources, apply EP-3's configuration validation (including wildcard origins).
+Complete isolated connection setup with effective `statement_timeout=2000ms` and
+`lock_timeout=250ms`, as required below, and verify settings in a test. Bound decimal option
+token lengths before parsing Integer, then range-check before conversion. Do not reuse worker
+connections. The callback is reached only after EP-3's startup acknowledgement.
 
 Three points about this program deserve explanation. `Settings.connectionString` is documented
 to treat an unparsable string as empty rather than failing, so the program compares the result
@@ -651,16 +708,14 @@ Add to the library's `build-depends` in `pgmq-inspect/pgmq-inspect.cabal`:
 (it should have, for the service-descriptor golden; check). Add `tasty-golden ^>=2.3` to the
 test suite's `build-depends` if absent.
 
-The `openapi3` library (`3.2.4` in the pinned package set; its source is unpacked under
-`/private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-libraries-pgmq-hs-project-pgmq-hs/90a95def-cc2d-4814-9797-14a8bb36f553/scratchpad/deps/openapi3-3.2.4/src/Data/OpenApi/`
-if you want to read it) models the document as plain records with `Monoid` instances, so a
-document is built as `mempty { … }` with record updates. The records and fields this plan
-uses, quoted from `Data.OpenApi.Internal`:
+The original plan used `openapi3` 3.2.4. Locate its source through Mori and verify
+registry/release information before choosing bounds. The excerpts below are design sketches;
+compile against the selected version. Build plain records with `mempty` and record updates.
 
 ```haskell
 data OpenApi = OpenApi
   { _openApiInfo :: Info
-  , _openApiServers :: [Server]                       -- left empty: paths are relative to the mount root
+  , _openApiServers :: [Server]                       -- explicitly [Server with URL "."] for prefix mounting
   , _openApiPaths :: InsOrdHashMap FilePath PathItem
   , _openApiComponents :: Components
   , … }                                               -- _openApiOpenapi defaults to 3.0.0 via mempty
@@ -728,6 +783,7 @@ openApiDocument =
                 \once published they are never removed or re-typed. The WebSocket feed at ws is \
                 \described in docs/user/queue-inspection.md, not here."
           },
+      _openApiServers = [mempty {_serverUrl = "."}],
       _openApiPaths = InsOrd.fromList paths,
       _openApiComponents = mempty {_componentsSchemas = InsOrd.fromList schemas}
     }
@@ -749,7 +805,7 @@ paths =
     ("/queues", getOp "listQueues" "List every queue, including names this library would reject" [] (okArray "Queue") []),
     ("/queues/{queue}", getOp "getQueue" "One queue" [queueParam] (ok "Queue") [(404, "queue_not_found")]),
     ("/queues/{queue}/metrics", getOp "getQueueMetrics" "Metrics for one queue" [queueParam] (ok "QueueMetrics") [(404, "queue_not_found")]),
-    ("/metrics", getOp "getAllMetrics" "Metrics for every queue; costs one count per queue, so poll it sparingly" [] (okArray "QueueMetrics") []),
+    ("/metrics", getOp "getAllMetrics" "Metrics for every queue; scans rows across queues, subject to the inspection budget" [] (okArray "QueueMetrics") []),
     ("/queues/{queue}/messages", getOp "peekMessages" "Non-destructive keyset page of a queue" [queueParam, fromParam, limitParam] (ok "MessagePage") [(400, "invalid_cursor, invalid_limit"), (404, "queue_not_found")]),
     ("/queues/{queue}/messages/{msg_id}", getOp "lookupMessage" "One message by id" [queueParam, msgIdParam] (ok "Message") [(400, "invalid_message_id"), (404, "queue_not_found, message_not_found")]),
     ("/queues/{queue}/archive", getOp "peekArchive" "Keyset page of a queue's archive" [queueParam, fromParam, limitParam] (ok "ArchivedMessagePage") [(400, "invalid_cursor, invalid_limit"), (404, "queue_not_found")]),
@@ -759,7 +815,7 @@ paths =
     ("/routing/test", getOp "testRouting" "Queues a routing key would reach" [routingKeyParam] (okArray "RoutingMatch") [(400, "invalid_routing_key")]),
     ("/notify/throttles", getOp "listNotifyThrottles" "Insert-notification throttle rows" [] (okArray "NotifyInsertThrottle") []),
     ("/health/live", getOp "liveness" "Process liveness" [] (ok "Liveness") []),
-    ("/health/ready", getOp "readiness" "Database readiness" [] (ok "Readiness") [(503, "not ready; same body")]),
+    ("/health/ready", readinessOp),
     ("/openapi.json", getOp "openApi" "This document" [] (okAny "The OpenAPI 3 document") [])
   ]
 ```
@@ -787,12 +843,21 @@ getOp opId summary params success errors =
                             : [(status, errorResponse codes) | (status, codes) <- errors]
                             <> [ (405, errorResponse "method_not_allowed"),
                                  (500, errorResponse "database_error"),
-                                 (503, errorResponse "database_unavailable")
+                                 (503, errorResponse "database_unavailable, inspection_busy, inspection_timeout")
                                ]
                         )
                   }
             }
     }
+
+-- Override after getOp so its common 503 cannot overwrite the readiness body.
+readinessOp :: PathItem
+readinessOp =
+  let base = getOp "readiness" "Database readiness" [] (ok "Readiness") []
+      patch op = op {_operationResponses =
+        (_operationResponses op) {_responsesResponses =
+          InsOrd.insert 503 (ok "Readiness") (_responsesResponses (_operationResponses op))}}
+   in base {_pathItemGet = fmap patch (_pathItemGet base)}
 
 errorResponse :: Text -> Referenced Response
 errorResponse codes =
@@ -833,8 +898,8 @@ The schemas are hand-declared, one per wire record, with the exact field names f
 `docs/design/020-json-wire-encodings.md` and plan 29's wire types. They are not a second source
 of truth: plan 28's golden tests in `pgmq-core`, `pgmq-hasql`, and `pgmq-config` and plan 29's
 goldens in `pgmq-inspect` already pin those names, so a field rename would break those goldens
-and the OpenAPI golden together, and the two cannot drift independently without two deliberate
-golden updates in one change. Helpers and the first few schemas:
+and the OpenAPI golden together, but those goldens alone do not establish agreement. Validate actual encoded responses
+against the corresponding method/status schema as an independent acceptance test. Helpers and the first few schemas:
 
 ```haskell
 typed :: OpenApiType -> Schema
@@ -863,12 +928,12 @@ objectOf fields =
 messageFields :: [(Text, Schema)]
 messageFields =
   [ ("msg_id", int64),
-    ("read_ct", int32),
+    ("read_ct", int64),
     ("enqueued_at", dateTime),
     ("last_read_at", nullable dateTime),
     ("vt", dateTime),
     ("message", mempty {_schemaDescription = Just "Any JSON value; a SQL NULL body is JSON null"}),
-    ("headers", nullable (typed OpenApiObject))
+    ("headers", mempty {_schemaDescription = Just "Any JSON value, including null; absent and JSON-null optional headers encode as null"})
   ]
 
 schemas :: [(Text, Schema)]
@@ -1034,8 +1099,14 @@ curl -s http://127.0.0.1:9092/health/ready
 # {"ready":true,"checks":[{"name":"postgres","healthy":true,"latency_ms":2,"error":null}]}
 ```
 
-State that the database role needs only `SELECT` on the `pgmq` schema (pgmq grants
-`pg_monitor` exactly that) plus `LISTEN`, which any role may issue.
+Provide a tested least-privilege role recipe: schema `USAGE`, `SELECT` on relevant tables
+and sequences (metrics reads sequence state), and execution privileges on the inspection
+functions, including future queues. `pg_monitor` alone does not grant these application-table
+privileges. Verify every route under the role and verify consumption/mutation is denied.
+Use an isolated inspection pool/role with `statement_timeout=2000ms` and
+`lock_timeout=250ms`; verify effective settings on every pooled connection. Resolve the
+selected hasql/libpq settings API through Mori before implementing connection setup. Do not
+change worker pool settings. These server deadlines do not bound a blackholed network.
 
 **Embedding in your own server.** `withInspectApplication` for a host that already runs Warp,
 `poolEnv` versus `tracedPoolEnv` (the traced variant records every database call as an
@@ -1090,10 +1161,13 @@ a name this library's `parseQueueName` rejects (mixed case here) is shown rather
 and the per-queue routes accept it as a path segment. Metrics, with the total-versus-visible
 distinction spelled out (`queue_length` counts every row in the queue table; `queue_visible_length`
 counts rows whose visibility timeout has expired, which is the work available to consumers
-right now; their difference is the number of messages currently leased) and the cost warning
+right now; their difference includes both leased and delayed messages) and the cost warning
 for `GET /metrics` (pgmq's `metrics_all()` loops over `pgmq.meta` and runs a `count(*)` per
-queue, so it is O(number of queues) scans; poll it no more often than every five seconds, and
-prefer `GET /queues/{queue}/metrics` for a single hot queue):
+queue, so cost scales with rows scanned across queues; measure representative queue sizes
+and worker impact before selecting an interval). Explain shared per-queue metrics scheduling,
+coalesced notifications, the minimum refresh interval and admission/timeout errors. HTTP and
+WebSocket work share the same bounded read budget. A five-second interval is not a universal
+performance guarantee:
 
 ```bash
 curl -s http://127.0.0.1:9092/queues/orders/metrics
@@ -1115,7 +1189,11 @@ curl -s 'http://127.0.0.1:9092/queues/orders/messages?from=10332&limit=2'
 
 State the rules a client must follow: the cursor is opaque (echo it, never add `limit` to it,
 never assume contiguity), `from` is exclusive, `limit` defaults to 50 and is capped at 500, and
-the absence of `next_cursor` is the end-of-data signal. State the non-destructive guarantee in
+the absence of `next_cursor` is the end of that observed page sequence, not a durable
+end-of-stream marker. This is a moving view: late commits and late archives can appear behind
+an existing cursor; restart at the first page to refresh. Preserve int64 number tokens before
+JavaScript Number conversion and echo exact decimal tokens. Test 9007199254740993 and
+9223372036854775807 with the actual client decoder; ordinary JSON.parse loses precision. State the non-destructive guarantee in
 one sentence: browsing a queue over HTTP reads the rows and changes nothing, so `vt` and
 `read_ct` are exactly what a consumer would see, and a consumer polling the same queue while
 you browse observes no change in availability. Then the archive (same shape plus
@@ -1130,10 +1208,11 @@ only when there is something structured to add (for example the SQLSTATE under
 
 **The WebSocket feed.** Connect to `ws` (relative to the mount root; `ws://127.0.0.1:9092/ws`
 standalone), then every frame with an example, in lifecycle order: `subscribe` → `snapshot`
-(with `push` explained: `true` when the queue's name validates and the server has a listener
-connection, `false` when updates can only come from polling) → `update` frames with `source`
+(with `push` explained: `true` for eligible nonpartitioned queues with registered listener interest; this does not
+assert listener health, LISTEN acknowledgement or an enabled trigger; `false` for poll-only queues) → `update` frames with `source`
 `notify` or `poll` → `unsubscribe`; `ping`/`pong`; `error` with its codes (`queue_not_found`,
-`invalid_frame`, `too_many_subscriptions`, `overflow`, `database_unavailable`); `goodbye`.
+`invalid_frame`, `too_many_subscriptions`, `too_many_queues`, `frame_too_large`,
+`inspection_busy`, `inspection_timeout`, `overflow`, `database_unavailable`, `database_error`); `goodbye`.
 State the contract in the words of design note 015 and the boundary ADR: the feed carries
 metrics, not messages; NOTIFY is a wake-up hint that is throttled and lost for disconnected
 listeners, so the server polls every subscribed queue on an interval regardless, and a client
@@ -1248,8 +1327,8 @@ somehow absent), add a paragraph for this plan and then the release handoff para
 ```markdown
 Release handoff: the next lockstep release of the family must include the new `pgmq-inspect`
 package (first release `0.1.0.0`), move its internal `pgmq-core`, `pgmq-hasql`, and
-`pgmq-effectful` bounds with the family, and list the four constructors added to the `Pgmq`
-effect (`PeekMessages`, `PeekArchivedMessages`, `LookupMessage`, `LookupArchivedMessage`) as a
+`pgmq-effectful` bounds with the family, and list the five constructors added to the `Pgmq`
+effect (`PeekMessages`, `PeekArchivedMessages`, `LookupMessage`, `LookupArchivedMessage`, `QueueMetricsUnvalidated`) as a
 breaking change for interpreters that match the effect exhaustively. That release is prepared
 by MasterPlan 6's plan 25 or its successor; this initiative bumps no version.
 ```
@@ -1291,7 +1370,7 @@ Start the development database and install the schema (once per cluster):
 ```bash
 just process-up               # or the pg_ctl + just create-database pair from Context and Orientation
 cabal build pgmq-migration
-cabal exec -- runghc /private/tmp/claude-501/-Users-shinzui-Keikaku-bokuno-libraries-pgmq-hs-project-pgmq-hs/90a95def-cc2d-4814-9797-14a8bb36f553/scratchpad/install-pgmq-schema.hs "$PG_CONNECTION_STRING"
+cabal exec -- runghc /tmp/pgmq-inspect-install-schema.hs "$PG_CONNECTION_STRING"
 ```
 
 Expected on first run, one line per migration:
@@ -1388,7 +1467,7 @@ Expected from `jq`:
 ```
 
 (`jq` sorts keys in `keys`; the document itself preserves route-table order.) The full test run
-must end with every case passing, including the three new `OpenAPI` cases. Commit with the
+must end with every case passing, including the new `OpenAPI` cases and review gates. Commit with the
 Milestone 2 message.
 
 Milestone 3:
@@ -1416,6 +1495,21 @@ and record the outcome in Progress and Outcomes & Retrospective.
 
 
 ## Validation and Acceptance
+
+Review gates (2026-10-19): validate real encoded response fixtures against their OpenAPI
+method/status schemas, including arbitrary scalar/array/null headers, final-page cursor
+omission, large int64 IDs, errors, and the readiness 503 body. Test method/path coverage,
+not only the set of paths. Resolve a generated client's `/queues` using the served document
+at both `/openapi.json` and `/pgmq/openapi.json`; the latter must request `/pgmq/queues`.
+OpenAPI's [Server Object default](https://spec.openapis.org/oas/v3.0.3#server-object) makes
+an omitted/empty servers list equivalent to `/`; use `servers: [{url: "."}]` explicitly.
+Also test service-descriptor relative links from the canonical mount URL with trailing slash.
+Test rejected oversized CLI integers, milliseconds multiplication, invalid ports and wildcard
+origins before resources are allocated. Run EP-3 config validation at startup. Verify the
+isolated role's effective deadlines, permitted inspection and denied mutation. Include the
+EP-4 many-client shared-scan measurements and EP-1 M4 partition cost caveats in the guide.
+No client-compatibility claim is complete until the lossless-number fixture runs in the chosen
+browser client; keiro-ui currently supplies architecture guidance only.
 
 **Milestone 1.** With the server started as above against a database that holds at least one
 queue (create one through `psql "$PG_CONNECTION_STRING" -c "select pgmq.create('demo')"` and
@@ -1547,3 +1641,7 @@ the capability record for the surface carries the two new evidence entries; `IR-
 the root and package changelogs carry `Unreleased` entries including the release handoff.
 No module in `pgmq-core`, `pgmq-hasql`, `pgmq-effectful`, `pgmq-config`, or `pgmq-migration`
 changes, and no version number changes anywhere.
+
+Revision note (2026-10-19): corrected mounted OpenAPI resolution, readiness schemas, arbitrary
+headers, CLI ranges, privileges and five-constructor release handoff; added executable
+client/schema and resource-budget acceptance gates.

@@ -29,9 +29,9 @@ against two hundred peeks.
 
 ## Why they exist
 
-Every upstream read leases. `pgmq.read`, `read_with_poll`, `pop`, and the grouped reads all
+`pgmq.read`, `read_with_poll`, and the grouped reads lease and
 `UPDATE ... SET vt = clock_timestamp() + <vt>, read_ct = read_ct + 1` as a side effect of
-returning rows, so an operator who "just looks" steals the messages for the visibility
+returning rows; `pop` deletes the returned rows. An operator who "just looks" steals the messages for the visibility
 timeout and inflates the counter retry and dead-letter policies depend on. Upstream has no
 read that does not lease, no read of an archive table, and no fetch by id.
 
@@ -72,6 +72,11 @@ page; a caller that wants a "has next page" signal without an extra round-trip r
 `limit + 1` rows and drops the last. The cursor predicate is the explicit
 `($1::bigint is null or msg_id > $1)`, which does not assume where ids start.
 
+Each page observes the database at its own statement snapshot. IDs are allocation order,
+not commit order: an earlier ID can commit after a later cursor has been returned. Archiving
+an old live message can likewise insert an ID behind an archive cursor. Restart from the
+first page to reconcile; these reads are inspection, not an exactly-once replay/export feed.
+
 `limit` is passed straight to SQL `LIMIT`: it must be positive. `0` returns an empty page;
 a negative value is a server error. Callers exposing paging to untrusted input (the
 HTTP layer of the planned sister package) validate before calling.
@@ -98,9 +103,18 @@ acceptable on an inspection path.
 
 ## Partitioned queues
 
-A partitioned queue's `pgmq.q_<name>` and `pgmq.a_<name>` are partitioned parents; a
-`SELECT` on the parent sees every partition, so the reads need no special case.
-`InspectionSpec` covers this under the partman shell.
+A parent SELECT sees its partitions, but that establishes visibility rather than cheap
+execution. The existing `InspectionSpec` covers a small numeric-partitioned live queue only.
+Time-partitioned live queues index `enqueued_at`; their archives index `archived_at`.
+Numeric archives also have no guaranteed `msg_id` index. A `msg_id` cursor cannot prune time
+partitions, and LIMIT does not prevent a full scan and sort. The 2026-10-19 review reproduced
+that shape with 100,000 rows; ExecPlan 27 M4 tracks real pg_partman/live/archive plan coverage.
+Ordinary live/archive tables have msg_id primary keys. Inspection creates no indexes.
+
+Use finite PostgreSQL statement/lock deadlines and capacity isolated from worker connections.
+Choose polling frequency from measured row counts and plans; a five-second default is not a
+performance guarantee. Metrics aggregate queue rows on every call. Full payloads can be large
+even when the number of returned rows is small.
 
 
 ## Tracing

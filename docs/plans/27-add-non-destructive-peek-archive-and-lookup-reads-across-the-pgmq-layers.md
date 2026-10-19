@@ -17,6 +17,17 @@ provenance:
       at: 2026-10-01T21:05:25Z
       mode: "implement"
       note: "Milestones 1-3 implemented"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      mode: "update"
+      note: "Reviewed shipped reads; retained M1-M3 completion and added M4 partition cost, moving-view and concurrency-test acceptance."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      verdict: "changes-requested"
+      note: "Reviewed shipped reads; retained M1-M3 completion and added M4 partition cost, moving-view and concurrency-test acceptance."
 ---
 
 # Add non-destructive peek, archive, and lookup reads across the pgmq layers
@@ -77,6 +88,10 @@ receives every message exactly once with `read_ct` equal to one.
 
 ## Progress
 
+- [x] Review (2026-10-19): verified implemented statements, sessions, effect cases, decoders, foreign-name tests, and native PostgreSQL query plans; no runtime code changed in the update.
+- [ ] M4: add real numeric/time partition live/archive coverage and retain EXPLAIN evidence for first/late pages and by-id reads on 1.12 and 1.13.
+- [ ] M4: pin moving-view pagination under late commits/late archival and make the concurrent-consumer test propagate thread failures without hanging; document cost and isolation requirements.
+
 - [x] M1: `ArchivedMessage` added to `pgmq-core/src/Pgmq/Types.hs` and exported; the integration rule for its JSON instances applied (instances and golden file added if the policy from plan 28 (`docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md`) is already present, otherwise deferred) — codec deferred to plan 28 (policy absent) (2026-10-01 21:30Z)
 - [x] M1: `PeekMessages` and `LookupMessage` added to `pgmq-hasql/src/Pgmq/Hasql/Statements/Types.hs` (2026-10-01 21:30Z)
 - [x] M1: `archivedMessageDecoder` added to `pgmq-hasql/src/Pgmq/Hasql/Decoders.hs` (2026-10-01 21:30Z)
@@ -99,6 +114,16 @@ receives every message exactly once with `read_ct` equal to one.
 
 
 ## Surprises & Discoveries
+
+Review (2026-10-19): the existing partition test uses numeric interval `10`, twelve live
+messages, and no archive. Migration 0006 creates a live index on the partition key and an
+archive index on archived_at; it does not guarantee msg_id indexing for time parents or
+numeric archives. A PostgreSQL 17.11 diagnostic with 100,000 rows and a synthetic time
+parent filtered 99,950 rows for a late 50-row page (1140 shared buffer hits), versus seven
+buffer hits using the ordinary queue primary key. This proves a query-shape risk, not a
+measurement of real pg_partman retention or a production load test. `forkIO` in
+`testPeekDoesNotDisturbConsumer` also loses exceptions before `putMVar`, leaving the parent
+blocked on `takeMVar`; use structured concurrency for the follow-up test.
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
@@ -130,6 +155,15 @@ implementation. Provide concise evidence.
 
 
 ## Decision Log
+
+- Decision (2026-10-19): Reopen M4 while retaining M1–M3's historical completion and IR-1's
+  closure. Preserve the five public signatures and read-only SQL. Add missing evidence and
+  state workload limits; no automatic supplemental indexes, migration edits, or copied
+  upstream functions. Any index recommendation must include write/storage costs and an
+  explicit operator lifecycle, following the FIFO index boundary ADR.
+- Decision (2026-10-19): Exactly-once paging acceptance concerns a static fixture. Independent
+  READ COMMITTED pages cannot promise a replay of every concurrently committed or archived
+  message. Keep msg_id as the cursor and document restart-from-first-page reconciliation.
 
 - Decision: The inspection reads take the queue name as plain `Text` (field
   `unvalidatedQueueName`), not as `QueueName`.
@@ -203,7 +237,8 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-Completed 2026-10-01 in three commits, one per milestone. What a user can now do matches the
+M1–M3 completed 2026-10-01 in three commits, one per milestone. M4 was reopened on
+2026-10-19 for performance/concurrency verification before the HTTP surface proceeds. What a user can now do matches the
 Purpose: `peekMessages`, `peekArchivedMessages`, `lookupMessage`, `lookupArchivedMessage`,
 and `queueMetricsUnvalidated` exist in `pgmq-hasql` (re-exported by `Pgmq`) and on the
 `Pgmq` effect under both interpreters. They take the queue name as plain `Text` and lease
@@ -320,7 +355,7 @@ CREATE TABLE IF NOT EXISTS pgmq.a_<name> (
 
 Partitioned queues (`pgmq.create_partitioned`) create the same columns on a parent table that
 pg_partman splits into child partitions; a `SELECT` against the parent sees every partition, so
-the reads in this plan work on partitioned queues without special handling. `pgmq.archive`
+the reads can select partitioned rows. This is not an index or cost guarantee; see M4. `pgmq.archive`
 deletes from the queue table and inserts the same `msg_id`, `vt`, `read_ct`, `enqueued_at`,
 `last_read_at`, `message`, and `headers` into the archive table, whose `archived_at` defaults to
 `now()`.
@@ -639,6 +674,41 @@ changelogs, the effectful one stating that `Pgmq` gained constructors. Set `IR-1
 Acceptance: `just docs-check` passes with the new capability and the completed request; the
 four changelogs each have an `Unreleased` entry; `okf show docs/improvement-requests IR-1`
 reports `completed` (or the equivalent `okf` listing shows the new status).
+
+
+### Milestone 4: verify the operational limits before web exposure
+
+Extend `pgmq-hasql/test/InspectionSpec.hs` with both numeric (`10`) and time (`1 day`)
+partitioned queues, covering live/archive first pages, late pages, and lookups. Require
+pg_partman for the dedicated acceptance run; a skipped case is not acceptance. Include
+multiple leaves and default partitions. Existing public read functions remain unchanged.
+
+Retain EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) for the exact projected seven/eight columns,
+with 100,000 rows minimum, first and late cursors, present and absent lookup IDs. Include
+ordinary and unlogged queues and archives, numeric/time partitioned parents and archives.
+Run against both supported server schemas. Record node shapes, rows scanned/filtered,
+buffer work, planning time and execution time; do not gate on unstable millisecond numbers.
+A small row limit or a SQL string without OFFSET is insufficient performance evidence.
+When no usable index exists, document the scan explicitly and exercise statement/lock
+budgets in plan 29. Inspection must never create indexes automatically. An optional
+operator-created index may be recommended only after measuring complete-query benefit,
+write/storage overhead and partition maintenance behavior; negative evidence is acceptable.
+
+Add an integration scenario with two producer transactions: reserve the smaller ID without
+committing it, commit a larger ID, advance the inspection cursor, then commit the smaller ID.
+Show the continued page misses it and a first-page refresh finds it. Repeat with archival of
+an older ID after an archive cursor has advanced. State the same limits in design note 019,
+Haddocks, and the capability's limits rather than promising replay semantics.
+
+Replace the unlinked `forkIO`/MVar consumer in `InspectionSpec` with `withAsync`/`wait` (or a
+bracketed equivalent that propagates exceptions and cancels on failure). Demonstrate a
+forced consumer failure reaches the parent assertion instead of hanging the test process.
+Preserve the before/after vt, read_ct, last_read_at checks and both interpreter witnesses.
+
+Acceptance: the targeted inspection groups pass natively, on stock 1.12, and with required
+pg_partman; query evidence covers both archive layouts; the concurrency test failure exits
+promptly; documented cost limitations agree with observed plans. Update the boundary ADR
+and this plan's outcome with actual measurements before marking M4 complete.
 
 
 ## Concrete Steps
@@ -1710,7 +1780,7 @@ case:
                  assertEqual "a live message is not in the archive" Nothing (fmap (Pgmq.messageId . Pgmq.archivedMessage) missing)
                  metrics <- run (Eff.queueMetricsUnvalidated q)
                  assertEqual "lenient metrics" 2 (Types.queueLength metrics)
-                 -- The peeks leased nothing: a real read now returns both with read_ct 0.
+                 -- The peeks leased nothing: a real read now returns both with read_ct 1.
                  leased <- run (Eff.readMessage (ReadMessage queue 30 (Just 10) Nothing))
                  assertEqual "both messages still available" (drop 1 ids) (map Pgmq.messageId (V.toList leased))
                  assertEqual "read_ct was zero before this read" [1, 1] (map Pgmq.readCount (V.toList leased))
@@ -1813,7 +1883,7 @@ date and this plan, then headed prose sections). It must state:
   `pgmq-effectful/test/TracedInterpreterSpec.hs`.
 - Related: design notes 012 and 016, the ADR
   `docs/adr/queue-inspection-surface-boundary-and-wire-contract.md`, the keiro-ui decisions
-  `mori://shinzui/keiro-ui/okf/adrs/concepts/ADR-1` and `ADR-3`.
+  `mori://shinzui/keiro-ui/okf/adrs/concepts/ADR-1` and `mori://shinzui/keiro-ui/okf/adrs/concepts/ADR-3`.
 
 ### M3: Haddocks
 
@@ -1959,6 +2029,32 @@ and update the MasterPlan's registry row and Progress checklist for EP-1.
 
 ## Validation and Acceptance
 
+M4 adds required targeted runs after implementing its tests:
+
+```bash
+nix develop --command cabal test pgmq-hasql:pgmq-hasql-test --test-options='-p Inspection'
+PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop --command cabal test pgmq-hasql:pgmq-hasql-test --test-options='-p Inspection'
+nix develop .#partman --command cabal test pgmq-hasql:pgmq-hasql-test --test-options='-p Inspection'
+```
+
+For the diagnostic query shape, on a disposable database with the native schema installed:
+
+```sql
+SELECT pgmq.create('inspection_cost');
+INSERT INTO pgmq.q_inspection_cost (vt, message)
+SELECT now(), jsonb_build_object('n', n) FROM generate_series(1, 100000) n;
+ANALYZE pgmq.q_inspection_cost;
+EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+SELECT msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers
+FROM pgmq.q_inspection_cost
+WHERE (99950::bigint IS NULL OR msg_id > 99950)
+ORDER BY msg_id ASC LIMIT 50;
+```
+
+Repeat with the actual parent names and archive projection created by the M4 fixtures;
+substitute parameters as the unprepared statement binds them. Do not substitute a simplified
+`SELECT msg_id` covering-index query for the real message/body projection.
+
 Run, from the repository root inside `nix develop`:
 
 ```bash
@@ -2093,3 +2189,7 @@ bundle holds one more record whose handle `okf id next` allocated, every changed
 changelog has an `Unreleased` section, and `IR-1` is `completed`. The sister-package plans
 (`docs/plans/29-…`, `docs/plans/30-…`) consume exactly the names above and nothing else from
 this plan.
+
+
+Revision note (2026-10-19): reviewed implemented reads and reopened M4 for partition cost,
+concurrent paging semantics, and reliable test failure propagation; implementation is unchanged.

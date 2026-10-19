@@ -11,6 +11,18 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-01T00:15:41Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      verdict: "changes-requested"
+      note: "Corrected Aeson imports and optional JSON-null normalization; added exact int64 and encoder parity acceptance."
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      mode: "update"
+      note: "Corrected Aeson imports and optional JSON-null normalization; added exact int64 and encoder parity acceptance."
 ---
 
 # Provide stable JSON codecs for the inspection-facing records
@@ -59,9 +71,11 @@ import Pgmq.Types (Queue (..), parseQueueName)
 
 ## Progress
 
+- [ ] M1 review acceptance: import Pair from Data.Aeson.Types; cover null header normalization, arbitrary header JSON, encoder parity, and exact int64 boundary fixtures.
+
 - [ ] M1: `aeson` added to `pgmq-config`'s library `build-depends`; `tasty-golden` and `bytestring` added to the three test suites; golden directories created and registered in `extra-source-files`
 - [ ] M1: hand-written `ToJSON`/`FromJSON` for `Queue`, `UnvalidatedQueue`, `Message` and `ToJSON` for `TopicBinding`, `RoutingMatch`, `TopicSendResult`, `NotifyInsertThrottle` in `pgmq-core/src/Pgmq/Types.hs`
-- [ ] M1: `ArchivedMessage` instances added here if the type exists in the working tree (see the integration rule in Context and Orientation); otherwise recorded as deferred to `docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md`
+- [ ] M1: `ArchivedMessage` instances, normalized round-trip tests and golden file added here; the type already exists.
 - [ ] M1: `ToJSON QueueMetrics` in `pgmq-hasql/src/Pgmq/Hasql/Statements/Types.hs`
 - [ ] M1: `ToJSON` for `ReconcileAction`, `QueueType`, `PartitionConfig`, `ObservedQueueType` in `pgmq-config/src/Pgmq/Config/Types.hs`
 - [ ] M1: `pgmq-core/test/JsonGoldenSpec.hs` with one golden file per record, a decode test for the validated-versus-lenient queue split, and a round-trip test; wired into `pgmq-core/test/Main.hs`
@@ -76,13 +90,28 @@ import Pgmq.Types (Queue (..), parseQueueName)
 
 ## Surprises & Discoveries
 
+Review (2026-10-19): `ArchivedMessage` already exists, so its codec is mandatory here.
+`headers :: Maybe Value` distinguishes `Nothing` from `Just Null` in Haskell, but both encode
+as JSON null; the proposed `.:?` parser normalizes both to `Nothing`. The original unrestricted
+round-trip property therefore fails. Keep the wire contract and test normalization explicitly.
+`Pair` must be imported from `Data.Aeson.Types`, not `Data.Aeson` (verified against upstream
+aeson 2.2.3.0 source after Mori registry lookup failed). No dependency bounds were changed.
+
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+Implementation has not started; the findings above are review evidence.
 
 
 ## Decision Log
+
+- Decision (2026-10-19): Define Message/ArchivedMessage round trips modulo
+  `headers = Just Null` becoming `Nothing`. Require separate golden/decoder cases for both,
+  missing headers, and scalar/array/object headers; never silently restrict the JSON domain
+  to make the property pass. Existing numeric MessageId instances stay unchanged.
+- Decision (2026-10-19): Share exact int64 fixtures with plan 31's browser-client acceptance.
+  Include 9007199254740993 and 9223372036854775807; generated JavaScript types alone do not
+  preserve their JSON tokens. Assert decoding `encode x` as Value agrees with `toJSON x`.
 
 - Decision: Every instance is hand-written with `object`/`pairs` and `withObject`; no
   instance is Generic-derived, even where the derived output would coincidentally match.
@@ -132,7 +161,8 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Not implemented. The 2026-10-19 review corrected import and round-trip specifications;
+the boundary fixtures and all codec implementation/validation remain pending.
 
 
 ## Context and Orientation
@@ -341,6 +371,9 @@ in the tree; a constructor without a golden is a defect.
 
 ### The integration rule for `ArchivedMessage`
 
+Review update (2026-10-19): the type landed without codecs; this plan now owns them.
+EP-2 owns its codecs and tests; no deferral to EP-1 remains.
+
 `docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md`
 adds a new record to `pgmq-core/src/Pgmq/Types.hs`:
 
@@ -353,12 +386,9 @@ data ArchivedMessage = ArchivedMessage
 ```
 
 Its JSON shape is the `Message` object with one more key, `archived_at`, flattened into the
-same object (not nested). The two plans may run in either order. The rule, which both plans
-carry: **if `ArchivedMessage` is in `Pgmq.Types` when you implement this plan, add its
-`ToJSON`/`FromJSON` instances and golden file here; if it is not, do nothing for it and
-record that in Progress, and plan 27 adds the instances following this plan's policy.** The
-exact instance plan 27's implementer should copy is in Concrete Steps below, so whichever
-plan runs second has no judgment call to make.
+same object (not nested). EP-1 M1–M3 already supplied the type. Add its
+`ToJSON`/`FromJSON` instances and golden file here using the concrete example below.
+EP-1 M4's performance work does not block this codec implementation.
 
 ### Test harness
 
@@ -444,7 +474,7 @@ missing; run the suite once with `--accept` to create them, open each file and c
 the shape written in Concrete Steps, and only then commit. `pgmq-core`'s spec also contains
 a decode test (`{"queue_name":"MyQueue",…}` fails as `Queue` because `parseQueueName` rejects
 uppercase, and succeeds as `UnvalidatedQueue`), a round-trip test for each record that has
-`FromJSON`, and a null-tolerance test (`"last_read_at": null` and a missing `last_read_at`
+`FromJSON` (normalizing `Just Null` headers to `Nothing`), and a null-tolerance test (`"last_read_at": null` and a missing `last_read_at`
 both decode to `Nothing`). `pgmq-hasql`'s spec adds the hedgehog property. `pgmq-config`'s
 spec has one golden per constructor.
 
@@ -544,11 +574,12 @@ mkdir -p pgmq-core/test/golden pgmq-hasql/test/golden pgmq-config/test/golden
 Replace the aeson import line with:
 
 ```haskell
-import Data.Aeson (Encoding, FromJSON (..), Pair, ToJSON (..), Value, object, pairs, withObject, (.:), (.:?), (.=))
+import Data.Aeson (Encoding, FromJSON (..), ToJSON (..), Value, object, pairs, withObject, (.:), (.:?), (.=))
+import Data.Aeson.Types (Pair)
 import Data.Aeson qualified as Aeson
 ```
 
-Add `ArchivedMessage (..)` to the export list only if the type exists (plan 27 exports it).
+`ArchivedMessage (..)` is already exported by plan 27; preserve that export.
 Add one private helper near the top of the definitions:
 
 ```haskell
@@ -655,8 +686,7 @@ Note the constructor's field order is `messageId, visibilityTime, enqueuedAt, la
 readCount, body, headers`; the parser above follows it. The wire order follows the SQL
 column order instead; the two are deliberately different and the golden pins the wire one.
 
-If `ArchivedMessage` exists, directly below it (this is the exact text plan 27's implementer
-copies when they run second):
+Add the following instances for the existing `ArchivedMessage` type:
 
 ```haskell
 -- | The 'Message' encoding with one more key, @archived_at@, flattened into
@@ -743,7 +773,8 @@ Add to the imports (the module's `Pgmq.Hasql.Prelude` already brings `ToJSON`, `
 `toEncoding`, `Text`, `Int32`, `Int64`, `UTCTime`):
 
 ```haskell
-import Data.Aeson (Encoding, Pair, object, pairs, (.=))
+import Data.Aeson (Encoding, object, pairs, (.=))
+import Data.Aeson.Types (Pair)
 ```
 
 Directly below `data QueueMetrics`:
@@ -788,7 +819,8 @@ Add imports:
 
 ```haskell
 import Control.Lens ((%~), (&), (^.))
-import Data.Aeson (Encoding, Pair, ToJSON (..), object, pairs, (.=))
+import Data.Aeson (Encoding, ToJSON (..), object, pairs, (.=))
+import Data.Aeson.Types (Pair)
 ```
 
 (`Control.Lens` is already imported for `(%~)` and `(&)`; extend that line.) Then add, below
@@ -1084,11 +1116,11 @@ All N tests passed (0.02s)
 -- owns the hedgehog generators PostgreSQL accepts.
 module JsonGoldenSpec (tests) where
 
-import Data.Aeson (decode, encode)
+import Data.Aeson (Value (Null), decode, encode)
 import Data.Time (UTCTime (..), fromGregorian)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Generators (genJsonValue, genMessageBody)
-import Hedgehog (Gen, forAll, property, tripping)
+import Hedgehog (Gen, forAll, property, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Pgmq.Hasql.Statements.Types (QueueMetrics (..))
@@ -1103,9 +1135,11 @@ tests =
     "JSON wire encodings"
     [ goldenVsString "queue_metrics" "test/golden/queue_metrics.json" (pure (encode sampleMetrics <> "\n")),
       goldenVsString "queue_metrics_partitioned" "test/golden/queue_metrics_partitioned.json" (pure (encode partitionedMetrics <> "\n")),
-      testProperty "Message round-trips through JSON" $ property $ do
+      testProperty "Message round-trips modulo explicit-null header normalization" $ property $ do
         m <- forAll genMessage
-        tripping m encode decode
+        let normalized = m {headers = case headers m of Just Null -> Nothing; other -> other}
+        decode (encode m) === Just normalized
+        encode normalized === encode m
     ]
 
 scrape :: UTCTime
@@ -1451,6 +1485,14 @@ Surprises & Discoveries, and include the plan file.
 
 ## Validation and Acceptance
 
+In addition to the original acceptance below, cover `headers` absent, null, booleans,
+numbers, strings, arrays and objects; explicitly test the `Just Null` normalization for both
+Message and ArchivedMessage. The property generator keeps all JSON values. Add int64 boundary
+goldens and decode them without rounding; compare `toJSON` and the decoded `toEncoding` output
+for every record. Measure representative large message encoding allocations before adding
+extra intermediate conversions. The shared `[Pair]` helper materializes Value nodes, so it
+is not a promise of allocation-free streaming; retain it only if measured cost is acceptable.
+
 `IR-2` lists four acceptance items; each maps to something you can run.
 
 Item 1, golden encoding tests pin the output of every record, and a rename breaks a test:
@@ -1513,7 +1555,7 @@ If `pgmq-core`'s tests fail under `nix flake check` with an unresolved `tasty-go
 `nix/haskell-overlay.nix` following the `ephemeral-pg` entry's shape, and record the
 surprise here.
 
-If `tripping` in the hedgehog property reports a counterexample, the shrunk `Message` tells
+If the normalized round-trip hedgehog property reports a counterexample, the shrunk `Message` tells
 you which field does not survive; the likeliest cause is a body or header the generator
 produced that `encode` renders differently from how `decode` reads it (for example a
 floating-point number), and the fix is in the generator or in the comparison, not in the
@@ -1542,7 +1584,7 @@ with their types:
 instance ToJSON Queue;                instance FromJSON Queue
 instance ToJSON UnvalidatedQueue;     instance FromJSON UnvalidatedQueue
 instance ToJSON Message;              instance FromJSON Message
-instance ToJSON ArchivedMessage;      instance FromJSON ArchivedMessage   -- only if the type exists
+instance ToJSON ArchivedMessage;      instance FromJSON ArchivedMessage
 instance ToJSON TopicBinding
 instance ToJSON RoutingMatch
 instance ToJSON TopicSendResult
@@ -1578,3 +1620,7 @@ embeds the `QueueMetrics` encoding in its frames; and
 `docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md`
 either receives the `ArchivedMessage` instances from this plan or supplies them by the
 text in Step 2.
+
+
+Revision note (2026-10-19): fixed the aeson import, defined null normalization, made archive
+codec ownership explicit, and added encoder parity and lossless integer acceptance.

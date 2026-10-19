@@ -16,6 +16,17 @@ provenance:
       at: 2026-10-01T21:23:58Z
       mode: "implement"
       note: "EP-1 (ExecPlan 27) marked complete; codec ownership handed to EP-2"
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      mode: "update"
+      note: "Reviewed implemented reads and keiro-ui contracts; reopened EP-1 cost gates and aligned all five plans around shared budgets, wire correctness and release validation."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      verdict: "changes-requested"
+      note: "Reviewed implemented reads and keiro-ui contracts; reopened EP-1 cost gates and aligned all five plans around shared budgets, wire correctness and release validation."
 ---
 
 # Expose non-destructive queue inspection through typed reads, JSON codecs, and the pgmq-inspect sister package
@@ -28,7 +39,7 @@ If durable project context changes, update or create ADRs in docs/adr/ in the sa
 ## Vision & Scope
 
 Three improvement requests filed from the keiro runtime UI initiative sit in
-`docs/improvement-requests/` with `status: proposed`: `IR-1` (expose non-destructive queue
+`docs/improvement-requests/` (`IR-1` is completed; `IR-2` and `IR-3` remain open): `IR-1` (expose non-destructive queue
 inspection reads), `IR-2` (provide JSON codecs for inspection-facing records), and `IR-3` (add a
 sister package with HTTP and WebSocket inspection endpoints). Together they describe what a
 browser needs in order to look at pgmq queues without a process reaching into pgmq-owned tables.
@@ -39,9 +50,7 @@ script at their queues.
 
 When the initiative is complete, the following is true.
 
-A pgmq-hs user can observe a queue without disturbing it. Today every read the library offers
-leases: `pgmq.read`, `read_with_poll`, and `pop` all bump `vt` (the visibility timeout) and
-`read_ct` (the read counter) as a side effect of returning rows, so "just looking" steals
+A pgmq-hs user can observe a queue without disturbing it. Before EP-1, the library offered only consuming reads: `pgmq.read` and `read_with_poll` lease rows and increment `read_ct`; `pop` removes rows, so "just looking" steals
 messages from consumers and inflates the counters that retry and dead-letter policies depend on.
 After this initiative the `Pgmq` umbrella module, the `Pgmq.Hasql.Sessions` module, and the
 `Pgmq` effect with both of its interpreters offer four reads that modify nothing: a keyset-paged
@@ -95,7 +104,7 @@ listener loop lives in the sister package); a bundled browser UI; Hackage public
 version bumps, which belong to the family's release train (see Integration Points). The
 transient-classification fix for disconnects (`IR-4`, `docs/plans/26-…`), the concurrent
 reconciliation report (`IR-5`), and the blackholed-call deadline (`IR-6`) are separate work;
-this initiative consumes `isTransient` as it is and benefits automatically when plan 26 lands.
+IR-4 is already completed; this initiative consumes the current `isTransient`.
 
 
 ## Decomposition Strategy
@@ -105,9 +114,9 @@ hard dependencies.
 
 The first wave is the library foundation and has two independent streams. The first stream,
 `EP-1`, is the non-destructive reads of `IR-1`: a new `ArchivedMessage` record in `pgmq-core`,
-four hand-written statements and sessions in `pgmq-hasql`, four constructors on the `Pgmq`
+four hand-written statements and sessions in `pgmq-hasql`, four read constructors plus `QueueMetricsUnvalidated` on the `Pgmq`
 effect with cases in both interpreters, the umbrella re-exports, and the tests that prove the
-reads leave `vt` and `read_ct` byte-identical, page every message exactly once without `OFFSET`,
+reads leave `vt` and `read_ct` byte-identical, page every message exactly once in a quiescent fixture without `OFFSET`,
 and work for foreign and mixed-case names. The second stream, `EP-2`, is the codecs of `IR-2`:
 hand-written aeson instances on the records listed above, the field-naming policy as a design
 note and Haddock, and golden tests that pin every encoding. They touch different parts of the
@@ -201,11 +210,14 @@ path for foreign and mixed-case names).
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Add non-destructive peek, archive, and lookup reads across the pgmq layers | docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md | None | EP-2 (integration: `ArchivedMessage` codec) | Complete |
+| 1 | Add non-destructive peek, archive, and lookup reads across the pgmq layers | docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md | None | EP-2 (integration: `ArchivedMessage` codec) | In Progress |
 | 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | Not Started |
 | 3 | Create the pgmq-inspect sister package with the HTTP inspection surface | docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md | EP-1, EP-2 | None | Not Started |
 | 4 | Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect | docs/plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md | EP-3 | None | Not Started |
 | 5 | Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide | docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md | EP-3, EP-4 | None | Not Started |
+
+EP-1 M1–M3 remain implemented. Its reopened M4 covers the performance and concurrency
+evidence missing from the original acceptance; `IR-1` retains its historical completed status.
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -213,9 +225,10 @@ Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3
 
 ## Dependency Graph
 
-Wave one: `EP-1` and `EP-2` have no hard dependencies and may be implemented in parallel or in
-either order. Their only coupling is the `ArchivedMessage` record, which `EP-1` defines and
-`EP-2` would like to encode; the integration rule below makes the order irrelevant.
+Wave one: EP-1 M4 must close before EP-3 starts; EP-2 may proceed now.
+`EP-1` and `EP-2` have no hard dependencies and may be implemented in parallel or in
+either order. The `ArchivedMessage` record already exists; EP-2 owns its codecs and need not wait for
+EP-1 M4. The integration rule below records that ownership.
 
 Wave two: `EP-3` hard-depends on `EP-1` (its browse, archive, and message-by-id handlers call
 `peekMessages`, `peekArchivedMessages`, `lookupMessage`, and `lookupArchivedMessage` through the
@@ -232,19 +245,18 @@ exactly the routes `EP-3` serves (a test checks it against the exported route ta
 guide must show the exact frames `EP-4` speaks, and the executable must serve both.
 
 Nothing here blocks on the other open initiatives. `docs/plans/26-…` (transient classification)
-changes the value of `isTransient` for lost replies, which `EP-3` consumes through one function
-call; it needs no change in this initiative whichever lands first. MasterPlan 6's release
+is already completed; EP-3 consumes its current `isTransient` through one function call. MasterPlan 6's release
 preparation (`docs/plans/25-…`) is the release train this initiative's changes ride on; see
 the release coordination note in Integration Points.
 
 
 ## Integration Points
 
-**`ArchivedMessage` (type owned by EP-1, codec by whichever plan lands second).** `EP-1` adds
+**`ArchivedMessage` (type owned by EP-1, codec now owned solely by EP-2).** `EP-1` adds
 `data ArchivedMessage = ArchivedMessage { archivedMessage :: !Message, archivedAt :: !UTCTime }`
 to `pgmq-core/src/Pgmq/Types.hs` and exports it from `Pgmq` and `Pgmq.Effectful`. Its JSON
-encoding is the flattened `Message` encoding plus `"archived_at"`. Both plans carry the full
-instance and golden test in their text. The rule: if `Pgmq.Types` already holds the policy
+encoding is the flattened `Message` encoding plus `"archived_at"`. EP-1 has landed without codecs, so EP-2 must implement the codec and golden. The original
+order-independent rule below describes the historical decomposition only. The rule: if `Pgmq.Types` already holds the policy
 Haddock and instances when `EP-1` runs, `EP-1` adds the `ArchivedMessage` instances and golden
 file; if `ArchivedMessage` already exists when `EP-2` runs, `EP-2` covers it like every other
 record. Whichever runs second checks the working tree and does the work; neither waits.
@@ -324,7 +336,11 @@ data InspectConfig = InspectConfig
     notifyDebounceUs :: !Int,             -- default 100_000 (EP-4 feed)
     wsMaxConnections :: !Int,             -- default 100 (EP-4)
     wsMaxSubscriptions :: !Int,           -- default 100 per connection (EP-4)
-    wsQueueCapacity :: !Natural           -- default 256 frames per connection (EP-4)
+    wsQueueCapacity :: !Natural,          -- default 256 frames per connection (EP-4)
+    maxConcurrentReads :: !Int,           -- default 2 across HTTP and WebSocket work
+    metricsMinRefreshUs :: !Int,          -- default 1_000_000 per distinct queue
+    wsMaxQueues :: !Int,                  -- default 100 distinct queues per runtime
+    wsMaxFrameBytes :: !Int               -- default 16_384 inbound frame/message bytes
   }
 data InspectServerConfig = InspectServerConfig { bindHost :: !String, bindPort :: !Int, inspect :: !InspectConfig }
 defaultInspectConfig :: InspectConfig
@@ -356,7 +372,7 @@ GET /                                    service descriptor {"service":"pgmq-ins
 GET /queues                              JSON array of queue objects (lenient listing)
 GET /queues/{queue}                      one queue object, 404 queue_not_found
 GET /queues/{queue}/metrics              QueueMetrics, 404 queue_not_found
-GET /metrics                             JSON array of QueueMetrics for every queue (O(queues) cost documented)
+GET /metrics                             JSON array of QueueMetrics (scans across all queue rows; explicit on-demand use)
 GET /queues/{queue}/messages?from&limit  page {"items":[Message…],"next_cursor":N?}
 GET /queues/{queue}/messages/{msg_id}    Message, 404 message_not_found
 GET /queues/{queue}/archive?from&limit   page {"items":[ArchivedMessage…],"next_cursor":N?}
@@ -377,16 +393,17 @@ page. Unknown paths answer 404 `not_found`; non-`GET` methods answer 405 `method
 
 **The error envelope and code vocabulary (owned by EP-3; reused by EP-4's `error` frames and
 documented by EP-5).** Every error body is `{"error":{"code":"…","message":"…","details":{…}?}}`.
-Codes: `not_found`, `method_not_allowed`, `queue_not_found` (SQLSTATE `42P01` from the typed
-error), `message_not_found`, `invalid_cursor`, `invalid_limit`, `invalid_message_id` (a
+Codes: `inspection_busy` (503 when admission is full), `inspection_timeout` (503 for a configured database statement deadline), `not_found`, `method_not_allowed`, `queue_not_found` (queue-scoped metadata confirms absence; `42P01` alone is insufficient), `message_not_found`, `invalid_cursor`, `invalid_limit`, `invalid_message_id` (a
 `{msg_id}` segment that is not an integer), `invalid_routing_key`,
 `websocket_upgrade_required`, `websocket_unavailable`, `database_unavailable` (503 when
-`isTransient` holds), and `database_error` (500 for every other `PgmqRuntimeError`, with the
-hasql error's message and detail rendered into `message` but its SQL text and parameters
-stripped, so no query text reaches a browser). An over-cap `limit` is capped silently; a
+`isTransient` holds), and `database_error` (500 for remaining failures). Database errors use fixed public messages
+and an allowlisted SQLSTATE only; raw server message/detail/hint, SQL, and parameters stay
+out of browser responses. An over-cap `limit` is capped silently; a
 malformed one is 400. An origin absent from the CORS list is served without CORS headers rather
-than refused. `EP-4` adds the frame-level codes `invalid_frame`, `too_many_subscriptions`, and
-`overflow`.
+than refused. `EP-4` adds `invalid_frame`, `too_many_subscriptions`, `too_many_queues`,
+`frame_too_large`, and `overflow`. Queue-not-found mapping is contextual: only a
+queue-scoped read with verified metadata may map a disappeared physical table to that code;
+a global missing table or missing schema is `database_error`.
 
 **The WebSocket protocol (owned by EP-4; documented by EP-5).** Endpoint `/ws`. Client frames:
 `{"type":"subscribe","queue":"…"}`, `{"type":"unsubscribe","queue":"…"}`, `{"type":"ping"}`.
@@ -403,9 +420,40 @@ explicit-null rule of the JSON policy);
 `applicationName "pgmq-inspect-listener"`, listens on `notifyChannelName` for every subscribed
 validated queue (refcounted `LISTEN`/`UNLISTEN`), reconnects with exponential backoff when it
 drops, and re-issues every `LISTEN` after reconnecting; subscribers keep receiving poll-sourced
-updates throughout. The poll is authoritative: every `pollIntervalUs` the server reads
-`queueMetrics` for each subscribed queue and emits an `update` with `source` `poll` whenever
+updates throughout. The `push` flag means an eligible queue has registered notification interest; it does not
+promise that LISTEN is ready, connected, or that a trigger exists. The poll is authoritative: on each poll cycle a server-wide coordinator reads
+`queueMetricsUnvalidated` once per distinct subscribed queue and fans out the result and emits an `update` with `source` `poll` whenever
 the metrics (ignoring `scrape_time`) changed.
+
+**Inspection work budget (owned by EP-3; consumed by EP-4 and EP-5).** One runtime owns
+an admission gate shared by HTTP and background reads (`maxConcurrentReads = 2`); a full gate
+fails promptly with `inspection_busy`, rather than accumulating waiting request threads.
+Deploy against a dedicated inspection pool/role with finite PostgreSQL `statement_timeout`
+(default standalone 2000 ms) and `lock_timeout` (250 ms), separate from worker connections.
+Map a configured statement deadline to `inspection_timeout`. Host-supplied runners must
+honor this contract; do not change settings on arbitrary borrowed worker connections.
+The existing blackholed-response limitation in IR-6 remains an explicit integration risk;
+`System.Timeout` is not evidence of a hard network deadline. Failure tests must demonstrate
+that stalled inspection cannot consume the worker pool or create unbounded detached work.
+
+**Shared refresh coordinator (owned by EP-4).** The coordinator owns one in-flight refresh,
+latest metrics, and one coalesced dirty flag per distinct queue. Polling, notification hints,
+and repeated subscriptions share it; connection handlers do not poll independently. Enforce
+`metricsMinRefreshUs` between starts, at most `wsMaxQueues` distinct queues, fair scheduling,
+and the EP-3 admission budget. Full metrics cost O(rows scanned), not O(1); notify debounce
+alone is not a load limit. An empty queue's fingerprint may stay unchanged, but ages advance
+on a nonempty idle queue. Snapshot publication and subscription activation are atomic, and
+generations prevent stale refresh results crossing unsubscribe/re-subscribe boundaries.
+
+**Browser and specification acceptance (owned by EP-5; codecs owned by EP-2).** Keep the
+published numeric `MessageId` encoding; require lossless parsing before JavaScript converts
+64-bit tokens to `Number`, and exact decimal cursor echo. Test 9007199254740993 and
+9223372036854775807 in a client fixture. Arbitrary JSON headers are allowed; `Nothing` and
+`Just Null` intentionally share the JSON null representation and decoding normalizes to
+`Nothing`. OpenAPI must use a relative server URL `.` so `/pgmq/openapi.json` describes
+`/pgmq/queues`, validate actual encoded response fixtures, and describe readiness 503 with
+the readiness body. Golden files alone do not prove schema agreement. Verify root and prefix
+mounts including encoded foreign names, WebSocket upgrades, and trailing-slash base URLs.
 
 **The test harness (owned by EP-3; reused by EP-4 and EP-5).** `pgmq-inspect/test/EphemeralDb.hs`
 is a copy of `pgmq-effectful/test/EphemeralDb.hs` (the family keeps per-package copies
@@ -451,12 +499,13 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 - [x] EP-1 M1: `ArchivedMessage`, the two argument records, four statements, and four sessions exist; a red-then-green `InspectionSpec` proves byte-identical `vt`/`read_ct`, exactly-once keyset paging without `OFFSET`, archive timestamps, and typed not-found (2026-10-01)
 - [x] EP-1 M2: four `Pgmq` effect constructors with plain and traced cases; umbrella re-exports and compile witnesses; foreign and mixed-case names covered on a dedicated instance; partitioned queues covered (2026-10-01)
 - [x] EP-1 M3: design note 019, capability record, Haddocks, changelogs; `IR-1` completed (2026-10-01)
+- [ ] EP-1 M4: verify numeric/time partition queue and archive plans, concurrency semantics, and cost limits; preserve M1–M3 completion evidence
 - [ ] EP-2 M1: hand-written instances for every listed record in `pgmq-core`, `pgmq-hasql`, and `pgmq-config`; golden tests pin every encoding
 - [ ] EP-2 M2: design note 020, Haddock policy on every type, capability record, changelogs; `IR-2` completed
 - [ ] EP-3 M1: `pgmq-inspect` builds under cabal and Nix with config, env, wire types, error mapping, and a router serving the descriptor, listings, metrics, and health; mock-interpreter router tests
 - [ ] EP-3 M2: browse, archive, by-id, bindings, routing-test, and throttle routes; CORS middleware; the end-to-end non-destructive test and the error-mapping tests green against ephemeral PostgreSQL
 - [ ] EP-3 M3: runner, mountable application with the rejecting WebSocket seam, registry and README wiring, design note 021, capability record, changelogs
-- [ ] EP-4 M1: frame types with golden encodings; per-connection bounded queues with overflow signaling; subscribe/snapshot/unsubscribe/ping over a poll-only listener
+- [ ] EP-4 M1: shared refresh coordinator and bounded admission; frame types with golden encodings; per-connection bounded queues with overflow signaling; subscribe/snapshot/unsubscribe/ping over a poll-only listener
 - [ ] EP-4 M2: the server-wide LISTEN connection with refcounted channels, debounce, reconnect, and re-`LISTEN`; notify-sourced updates arrive; killing the listener backend does not wedge the feed
 - [ ] EP-4 M3: Haddock protocol documentation, design note 021 WebSocket section, changelog
 - [ ] EP-5 M1: the `pgmq-inspect` executable serves the surface from a database URL; CORS origins and bind address configurable from the command line
@@ -465,6 +514,46 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 
 
 ## Surprises & Discoveries
+
+Review on 2026-10-19, against pgmq-hs `48a1ed0` and
+`mori://shinzui/keiro-ui` commit `3472a9be2e3bc8fdb793e5549fe074450b44b1a7`:
+Mori registry list/search/docs failed because the local `mori` database is absent. The
+keiro-ui manifest, conventions, ADR-1 through ADR-5, and foundation MasterPlan were read
+from its local checkout; canonical handles retain the manifest's namespace/bundle identity,
+but live Mori resolution was not verified. That checkout contains planning documents, not
+an implemented browser client, so compatibility is with its declared contract, not a tested UI.
+
+The original MasterPlan and all five children were authored by `claude-fable-5-1` with no
+recorded reviews. EP-1 and this MasterPlan also carry implementation revisions by
+`claude-opus-5-5`. Historical test claims below are preserved, not represented as reruns.
+
+The review found required changes, in descending operational impact. EP-4 planned metrics
+queries per connection and a 100 ms debounce: 100 tabs watching one queue could perform
+100 full queue scans per poll and up to about 1000 per second under sustained hints.
+The coordinator above removes the client multiplier, but each metrics query still scans rows.
+
+EP-1's implemented keyset SQL is read-only and uses unprepared table-specific statements,
+but its partition test covers only a small numeric-partitioned live queue. Time-partitioned
+parents index the timestamp, not `msg_id`; numeric archives also lack a guaranteed msg_id
+index. On disposable PostgreSQL 17.11 with the native migrations and 100,000 rows, an ordinary
+queue's late 50-row page used its primary-key index (7 buffer hits, 0.022 ms). A synthetic
+parent reproducing the time-partitioned columns and timestamp-only index scanned 100,000
+rows (99,950 filtered, 1140 buffer hits, 3.754 ms); its lookup filtered 99,999 rows. These are
+warm-cache diagnostic observations, not production benchmarks or a real pg_partman test.
+
+EP-3's `TR.decimal :: ... Int64` parser wrapped `18446744073709551617` to `1` in a direct
+GHC check. The new parse contract uses `Integer` before range checks. Its non-destructive
+HTTP test incorrectly expected read_ct zero from `pgmq.read`; the native SQL returned one.
+Its raw database error details could also contain nested SQL or payloads despite filtering
+keys named `sql` and `parameters`.
+
+EP-2's round-trip property fails for `headers = Just Null`, whose encoding is identical to
+`Nothing`. EP-5 omitted OpenAPI servers (which means origin root, losing a mounted prefix),
+replaced the readiness 503 response with a generic error envelope, and restricted headers to
+objects despite the domain accepting any JSON. The revised children add behavioral checks
+for these cases and for exact 64-bit browser cursors. EP-4's snapshot race, stale refreshes,
+listener cancellation cleanup, starvation, and nondeterministic overflow test also need the
+explicit concurrency acceptance now recorded in that child.
 
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
@@ -484,6 +573,20 @@ interactions between child plans. Provide concise evidence.
 
 
 ## Decision Log
+
+- Decision (2026-10-19): Keep the five functional work streams and their acyclic dependencies;
+  reopen only EP-1's missing M4 evidence. EP-2 owns codecs now that the type exists. EP-3 owns
+  runtime admission and configuration validation; EP-4 owns shared refresh scheduling; EP-5
+  owns executable/prefix/client/schema acceptance. Rationale: these corrections fit existing
+  ownership boundaries and prevent the same budget or interface being defined twice.
+- Decision (2026-10-19): A row limit is not a query-work bound. Require partition cost evidence,
+  finite database budgets and isolated capacity, without automatic index DDL or upstream SQL
+  overrides. Any optional index recommendation requires measurements including write/storage
+  cost. Record this and the shared polling contract in the boundary ADR.
+- Decision (2026-10-19): Preserve numeric library encodings and keiro-ui's native-position
+  convention, with explicit lossless browser parsing; freeze only after cross-surface fixture
+  checks. Document moving-view pagination: concurrent late commits or archival of older IDs
+  may be missed until a client restarts at the first page; this is not a replay feed.
 
 - Decision: Name the sister package `pgmq-inspect`, not the request's working name
   `pgmq-metrics`. Rationale: metrics are one of seven endpoint groups; the second audience (a
@@ -530,7 +633,7 @@ interactions between child plans. Provide concise evidence.
   document, and a pgmq-hs-owned user guide, as the concrete form of keiro-independence.
   Rationale: a user without keiro needs something to run, something to generate a client from,
   and somewhere to read the contract that is not another project's conventions document;
-  keiro-ui's ADR-5 already anticipates regenerating its hand-written client from a published
+  `mori://shinzui/keiro-ui/okf/adrs/concepts/ADR-5` anticipates regenerating its planned client from a published
   spec. Date: 2026-09-30
 - Decision: The HTTP surface (`EP-3`) and the WebSocket feed (`EP-4`) are separate plans with
   a hard dependency. Rationale: different verification (HTTP client versus WebSocket client
@@ -559,4 +662,21 @@ Compare the result against the original vision. Before marking the MasterPlan co
 distill durable project context from this MasterPlan and its child ExecPlans into
 docs/adr/. Keep task-local execution and coordination details here.
 
-(To be filled during and after implementation.)
+Review outcome (2026-10-19): changes requested for implementation acceptance. The existing
+four inspection reads plus lenient metrics are wired consistently through sessions, effects,
+and both interpreters. M1–M3's functional delivery remains recorded; the broad performance
+claim is not yet established. This update changes planning/architecture documentation only.
+EP-2 may proceed; EP-3 waits for EP-1 M4 and EP-2. Finish the new functional, schema,
+concurrency, and workload gates before declaring the surface ready for keiro-ui.
+
+Validation (2026-10-19): `just docs-check` and `git diff --check` passed. The SQL
+EXPLAIN/read-counter probes and bounded-integer parser probe above were run; the full Haskell
+and actual pg_partman suites were not rerun for this documentation-only update. Mori registry
+lookup failed because its local database is missing, while repository-local `mori validate`
+passed as part of docs-check. Dependency excerpts are historical; future implementation must
+verify current authoritative package releases/tags before selecting bounds or workarounds.
+
+Revision note (2026-10-19): audited the implemented reads and all five child designs against
+keiro-ui's contract, corrected API/schema/test errors, and added partition cost evidence,
+shared metrics scheduling, bounded admission, exact cursor handling, and release gates.
+No package versions, dependency pins, migration bytes, or runtime implementation changed.

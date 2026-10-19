@@ -11,6 +11,18 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-01T00:15:41Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      verdict: "changes-requested"
+      note: "Corrected cursor overflow, queue error classification, read counters and public errors; specified shared admission, deadlines and exception-safe startup."
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      mode: "update"
+      note: "Corrected cursor overflow, queue error classification, read counters and public errors; specified shared admission, deadlines and exception-safe startup."
 ---
 
 # Create the pgmq-inspect sister package with the HTTP inspection surface
@@ -66,18 +78,28 @@ the OpenAPI document, and the user guide are
 
 ## Progress
 
+- [ ] Review gates: validated configuration, shared nonblocking read admission, isolated query budgets, exact integer parsing, contextual queue errors, safe public diagnostics, prefixed route tests, and a verified Warp startup/cleanup lifecycle.
+
 - [ ] M1: `pgmq-inspect/pgmq-inspect.cabal`, `LICENSE`, `CHANGELOG.md`, and the `src/Pgmq/Inspect/` tree exist; `cabal.project` lists the package; `nix develop --command cabal build pgmq-inspect` succeeds
 - [ ] M1: `Pgmq.Inspect.Config`, `Pgmq.Inspect.Env`, `Pgmq.Inspect.Wire`, and `Pgmq.Inspect.Error` complete with Haddocks; `WireGoldenSpec` pins every wire type under `pgmq-inspect/test/golden/`
 - [ ] M1: `Pgmq.Inspect.Http` serves `/`, `/queues`, `/queues/{queue}`, `/queues/{queue}/metrics`, `/metrics`, `/health/live`, `/health/ready`, 404 and 405; `routeTable` exported; `RouterSpec` green against the mock interpreter with no database
 - [ ] M2: message, archive, by-id, bindings, routing-test, and throttle routes served; `from`/`limit`/`routing_key` parsing with 400 codes; `limit + 1` paging with `next_cursor`
 - [ ] M2: `Pgmq.Inspect.Cors` middleware; `CorsSpec` green (no headers when disabled, headers for a listed origin, none for an unlisted one, preflight answered)
-- [ ] M2: `HttpSpec` green against ephemeral PostgreSQL, including the end-to-end non-destructive check and the IR-3 acceptance 1 listing; `ErrorSpec` green (503, 404 from 42P01, 500)
+- [ ] M2: `HttpSpec` green against ephemeral PostgreSQL, including the end-to-end non-destructive check and the IR-3 acceptance 1 listing; `ErrorSpec` green (503, queue-scoped 404 and global missing-schema 500, 500)
 - [ ] M3: `Pgmq.Inspect.Server` with `withInspectApplication`, `withInspectApplicationWith`, `rejectingWebSocketApp`, `withInspectServer`, `runInspectServer`, `RunningInspectServer`; the `["ws"]` route dispatches the seam and answers 426 to a plain GET
 - [ ] M3: `nix/haskell-overlay.nix`, `flake.module.nix`, `justfile`, `mori.dhall`, README package table updated; `nix build .#pgmq-inspect` and `mori validate` succeed
 - [ ] M3: `docs/design/021-inspection-surface-wire-contract.md` written (HTTP half, WebSocket heading left for plan 30); capability record allocated with `okf id next` and indexed; `just docs-check` green; root and package changelogs carry an `Unreleased` section
 
 
 ## Surprises & Discoveries
+
+Review (2026-10-19): the fixed-width Text decimal parser returns 1 for
+18446744073709551617; the revised parser checks Integer before narrowing. Native pgmq.read
+returns read_ct after incrementing, so the five-message HTTP acceptance must expect five
+ones after the consumer read. Raw hasql error messages/details can include nested SQL/payloads.
+An async Warp launch without startup acknowledgement can hand the caller a non-listening
+server, lose bind failures, or leak an unowned socket. Config records previously admitted
+zero-capacity outboxes and maxBound page sizes, despite the limit+1 operation.
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
@@ -87,6 +109,12 @@ implementation. Provide concise evidence.
 
 ## Decision Log
 
+- Decision (2026-10-19): EP-3 owns one shared inspection admission gate and checked config;
+  EP-4 consumes them and owns metrics scheduling. Reject excess work immediately instead of
+  queuing behind worker requests. Require finite database budgets and isolation without
+  claiming System.Timeout repairs IR-6. Startup returns only after bind/listen succeeds and
+  propagates startup failure; bracket socket and server thread ownership on every path.
+
 - Decision: Handlers run through `InspectEnv.runInspection`, a host-supplied runner over the
   `Pgmq` effect, rather than over `Hasql.Session` values and a `Pool`.
   Rationale: the host picks `runPgmq` or `runPgmqTraced` without this package knowing about
@@ -94,15 +122,10 @@ implementation. Provide concise evidence.
   the 503 mapping is one call to `isTransient` instead of a re-derived classification. The
   MasterPlan records the same decision; this plan inherits it.
   Date: 2026-09-30
-- Decision: Error bodies render the hasql error through `Hasql.Errors.toMessage` into
-  `message` and through `Hasql.Errors.toDetails` into `details`, with the `sql` and
-  `parameters` keys removed.
-  Rationale: `message` must be a human sentence safe to display verbatim and `details`
-  structured context; `show` on a `StatementSessionError` would put the statement text and
-  every parameter into a browser-facing body, which the traced interpreter already refuses to
-  do for span status descriptions. The `code` field carries the SQLSTATE in `details` when the
-  server reported one.
-  Date: 2026-09-30
+- Decision (2026-10-19): Browser-visible database failures use fixed messages and only
+  an allowlisted SQLSTATE in details. Raw backend message/detail/hint may contain dynamic
+  SQL and payloads, even after keys named sql/parameters are removed. Queue-not-found is
+  decided by queue-scoped metadata lookup and recheck, never global SQLSTATE classification.
 - Decision: A non-numeric or negative `{msg_id}` path segment answers 400 `invalid_message_id`,
   added to the code vocabulary this plan owns.
   Rationale: a message id that cannot be an id is a malformed request, not a missing message;
@@ -140,7 +163,8 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Not implemented. Review corrections are applied to the design; all HTTP and runtime gates
+remain pending, including the newly reopened EP-1 M4 prerequisite.
 
 
 ## Context and Orientation
@@ -185,15 +209,15 @@ prefixes inside one server; that is what makes this package embeddable rather th
 process-owning.
 
 Two sister packages in sibling projects set the pattern this plan follows. kiroku's
-`kiroku-metrics` (read `/Users/shinzui/Keikaku/bokuno/kiroku-project/kiroku/kiroku-metrics/src/Kiroku/Metrics/Server.hs`
-and `…/Config.hs`) builds one `Application` with `websocketsOr` routing WebSocket upgrades to a
+`kiroku-metrics` (read `mori://shinzui/kiroku`, paths `kiroku-metrics/src/Kiroku/Metrics/Server.hs`
+and `kiroku-metrics/src/Kiroku/Metrics/Config.hs`, artifact-level URIs pending) builds one `Application` with `websocketsOr` routing WebSocket upgrades to a
 `WS.ServerApp` seam and everything else to an HTTP router that pattern-matches on
 `pathInfo`; its config record carries the port and feature switches; its server start uses
 `Warp.openFreePort` plus `Warp.runSettingsSocket` when the configured port is `0`, so tests
 get an OS-assigned port, and `Warp.runSettings` otherwise; it runs Warp in an `Async` and
 stops it with `cancel`. shibuya's `shibuya-metrics` (read
-`/Users/shinzui/Keikaku/bokuno/shibuya-project/shibuya/shibuya-metrics/src/Shibuya/Metrics/Server.hs`
-and `…/Config.hs`) does the same with a `host` field defaulting to loopback and a
+`mori://shinzui/shibuya`, paths `shibuya-metrics/src/Shibuya/Metrics/Server.hs`
+and `shibuya-metrics/src/Shibuya/Metrics/Config.hs`, artifact-level URIs pending) does the same with a `host` field defaulting to loopback and a
 `validateConfig` step, and returns 404 bodies as `{"error":"…"}`. Both are published and their
 shapes are frozen; this package starts fresh and uses the structured envelope below. Neither
 precedent sets CORS headers, which this package must.
@@ -242,13 +266,14 @@ PgmqSessionError
 `toDetails :: a -> [(Text, Text)]` (the dynamic details as key-value pairs), with instances
 for `ConnectionError` and `SessionError`; `StatementSessionError`'s details include
 `totalStatements`, `statementIndex`, `sql`, `parameters`, `prepared`, and then the inner
-error's pairs (`code`, `message`, `detail`, `hint`, `position` for a server error). This plan's
-error bodies use those two functions and drop the `sql` and `parameters` keys.
+error's pairs (`code`, `message`, `detail`, `hint`, `position` for a server error). Public errors use fixed messages and allowlisted SQLSTATE only: even message/detail/hint can contain SQL or payloads.
 
 ### The lenient listing and the reads this plan calls
 
-The server's only check on a queue name is its length, so a queue created by another client
-can carry a name that `Pgmq.Types.parseQueueName` rejects (uppercase, hyphens). The typed
+Names created by other clients can differ from `Pgmq.Types.parseQueueName`'s accepted
+names. Server name formatting also validates characters and lowercases names; do not assume
+every arbitrary path segment identifies an existing queue. Resolve the exact metadata name
+before reading through the lenient operations. The typed
 `listQueues` fails to decode such a row; `listQueuesUnvalidated` returns
 `UnvalidatedQueue { unvalidatedName :: Text, unvalidatedCreatedAt, unvalidatedIsPartitioned, unvalidatedIsUnlogged }`
 for every row. An inspection surface must show what exists, so every listing and every
@@ -322,7 +347,7 @@ this plan writes repeats:
 ```
 
 `queue_length` is every row in the queue table and `queue_visible_length` only the rows whose
-`vt` has passed; the difference is messages currently leased. Design note
+`vt` has passed; the difference includes both leased and delayed messages. Design note
 [docs/design/002-queue-visible-length.md](../design/002-queue-visible-length.md) is the
 contract, and the metrics route documentation must say which is which.
 `default_partition_length` is `null` on PGMQ 1.12 and for ordinary queues on 1.13, per
@@ -477,11 +502,11 @@ Write `Pgmq.Inspect.Cors` with `corsMiddleware :: CorsPolicy -> Middleware`. Wri
 for the suite, creates queues with random names through the pool, and exercises every route;
 its all-queue metrics case starts its own database. Its central case is the end-to-end
 non-destructive guarantee: send five messages, page them twice over HTTP, fetch one by id, then
-`readMessage` all five through the pool and assert every `readCount` is `0` and every message is
+`readMessage` all five through the pool and assert every `readCount` is `1` and every message is
 still returned. `ErrorSpec` proves the three outcomes of `classifyRuntimeError` through the
 HTTP layer: a pool whose connection string points at `host=127.0.0.1 port=1` answers 503
-`database_unavailable`; a mock interpreter throwing a `42P01` server error answers 404
-`queue_not_found`; a mock interpreter throwing a `23505` server error answers 500
+`database_unavailable`; a queue-scoped metadata miss answers 404 `queue_not_found`, while a global
+`42P01` failure answers 500 `database_error`; a mock interpreter throwing a `23505` server error answers 500
 `database_error`.
 
 Acceptance: `nix develop --command cabal test pgmq-inspect:pgmq-inspect-test` reports every
@@ -497,7 +522,7 @@ host can call `withInspectApplication` to get an `Application` or `runInspectSer
 
 Write `Pgmq.Inspect.Server` and the umbrella `Pgmq.Inspect`. Add the `["ws"]` case to the
 router: dispatch `websocketsApp WS.defaultConnectionOptions wsApp req`; when it returns
-`Nothing` (a plain `GET`), answer 426 `websocket_upgrade_required`. Make `httpApp` take the
+`Nothing` (a plain `GET`), answer 426 `websocket_upgrade_required`. Make `httpApp` take the shared admission budget and
 `WS.ServerApp`, and have `withInspectApplicationWith` pass it through. Switch `TestServer` to
 `withInspectServer` with `bindPort = 0`. Add a `ServerSpec` case: a plain `GET /ws` answers 426
 with the JSON envelope, and an upgrade request (`Connection: Upgrade`, `Upgrade: websocket`,
@@ -740,6 +765,7 @@ module Pgmq.Inspect.Config
   ( CorsPolicy (..),
     InspectConfig (..),
     defaultInspectConfig,
+    validateInspectConfig,
     InspectServerConfig (..),
     defaultInspectServerConfig,
   )
@@ -788,7 +814,11 @@ data InspectConfig = InspectConfig
     wsMaxSubscriptions :: !Int,
     -- | WebSocket feed: frames buffered per connection before the oldest are
     -- dropped and an in-band overflow error is sent.
-    wsQueueCapacity :: !Natural
+    wsQueueCapacity :: !Natural,
+    maxConcurrentReads :: !Int,
+    metricsMinRefreshUs :: !Int,
+    wsMaxQueues :: !Int,
+    wsMaxFrameBytes :: !Int
   }
   deriving stock (Eq, Show, Generic)
 
@@ -806,7 +836,11 @@ defaultInspectConfig =
       notifyDebounceUs = 100_000,
       wsMaxConnections = 100,
       wsMaxSubscriptions = 100,
-      wsQueueCapacity = 256
+      wsQueueCapacity = 256,
+      maxConcurrentReads = 2,
+      metricsMinRefreshUs = 1_000_000,
+      wsMaxQueues = 100,
+      wsMaxFrameBytes = 16_384
     }
 
 -- | Where the convenience runner listens.
@@ -814,8 +848,7 @@ data InspectServerConfig = InspectServerConfig
   { -- | Interface to bind. Loopback by default; bind @*@ only behind an
     -- authenticating reverse proxy or on a trusted network.
     bindHost :: !String,
-    -- | Port to bind. @0@ asks the operating system for a free port on loopback
-    -- (ignoring 'bindHost'), which is what the tests use.
+    -- | Port to bind. @0@ asks for a free port on the configured bindHost.
     bindPort :: !Int,
     inspect :: !InspectConfig
   }
@@ -827,6 +860,27 @@ defaultInspectServerConfig :: InspectServerConfig
 defaultInspectServerConfig =
   InspectServerConfig {bindHost = "127.0.0.1", bindPort = 9092, inspect = defaultInspectConfig}
 ```
+
+Validate configuration before allocating any runtime resources. Export
+`validateInspectConfig :: InspectConfig -> Either Text InspectConfig` and call it from
+every application/server entry point. Require `1 <= defaultPageLimit <= maxPageLimit`,
+`maxPageLimit < maxBound :: Int32` (room for the lookahead row), positive time intervals,
+positive connection/subscription/distinct-queue/read/frame caps, and nonzero outbox capacity.
+Reject literal `*` origins (the public ByteString constructor alone does not prohibit them),
+invalid origin strings, and ports outside 0..65535. Test zero, negative, and overflow edges.
+
+Add internal `Pgmq.Inspect.Budget` with one runtime-owned admission gate and
+`withInspectionPermit :: InspectionBudget -> IO a -> IO (Maybe a)`; `Nothing` means busy.
+Acquisition is nonblocking and release is exception-safe. HTTP handlers and EP-4's coordinator
+share this gate; do not allocate a gate per request or per connection. Thread it explicitly
+through `httpApp` and the runtime. A busy HTTP call answers 503 `inspection_busy`; the feed
+uses the same code in-band and retains a single pending retry. Admission is not a substitute
+for finite PostgreSQL query/lock budgets on a separate inspection pool. This package must
+not silently borrow or reconfigure worker capacity. Standalone setup belongs to plan 31;
+host runners document the same obligations. `inspection_timeout` (503) describes a configured
+statement deadline. The known IR-6 blackholed-network limitation remains explicit, and failure
+tests must demonstrate bounded live work and worker-pool isolation even when cancellation
+cannot finish promptly. Do not fork detached retries to hide that limitation.
 
 ### M1.4 `Pgmq.Inspect.Env`
 
@@ -1096,31 +1150,22 @@ sqlState = \case
   PgmqSessionError (HasqlErrors.ScriptSessionError _ (HasqlErrors.ServerError code _ _ _ _)) -> Just code
   _ -> Nothing
 
--- | A human message and structured details for a runtime error, with the
--- statement text and parameters removed from the details so a browser-facing
--- body never carries SQL.
+-- | Display-safe database failure. Raw driver diagnostics belong in host-side logs.
 describeRuntimeError :: PgmqRuntimeError -> (Text, Maybe Value)
-describeRuntimeError = \case
-  PgmqAcquisitionTimeout ->
-    ("Timed out waiting for a database connection from the pool.", Nothing)
-  PgmqConnectionError e -> (HasqlErrors.toMessage e, detailsValue (HasqlErrors.toDetails e))
-  PgmqSessionError e -> (HasqlErrors.toMessage e, detailsValue (HasqlErrors.toDetails e))
-  where
-    detailsValue pairs =
-      case filter (\(k, _) -> k `notElem` ["sql", "parameters"]) pairs of
-        [] -> Nothing
-        kept -> Just (object [Key.fromText k .= v | (k, v) <- kept])
+describeRuntimeError err =
+  ( "The database could not complete the inspection request.",
+    fmap (\code -> object ["sqlstate" .= code]) (sqlState err)
+  )
 
--- | Status and body for a runtime error: a missing table is a missing queue,
--- a transient failure is a 503 the client may retry, anything else is a 500.
+-- | Queue identity is established in the handler, not inferred from 42P01 here.
 classifyRuntimeError :: PgmqRuntimeError -> (Status, ErrorBody)
 classifyRuntimeError err
-  | sqlState err == Just "42P01" = (status404, ErrorBody "queue_not_found" "No queue with that name exists." details)
-  | isTransient err = (status503, ErrorBody "database_unavailable" retryMessage details)
+  | sqlState err == Just "57014" = (status503, ErrorBody "inspection_timeout" "The inspection query exceeded its configured database deadline." details)
+  | isTransient err = (status503, ErrorBody "database_unavailable" "The database is temporarily unavailable; retry the request." details)
   | otherwise = (status500, ErrorBody "database_error" message details)
   where
     (message, details) = describeRuntimeError err
-    retryMessage = "The database is temporarily unavailable; retry the request."
+
 ```
 
 The import of `Pgmq.Effectful (PgmqRuntimeError (..), isTransient)` is the only place the
@@ -1204,8 +1249,8 @@ routeTable =
     (methodGet, [Literal "ws"])
   ]
 
-httpApp :: InspectConfig -> InspectEnv -> WS.ServerApp -> Application
-httpApp cfg env wsApp req respond
+httpApp :: InspectionBudget -> InspectConfig -> InspectEnv -> WS.ServerApp -> Application
+httpApp budget cfg env wsApp req respond
   | requestMethod req /= methodGet = respond (errorResponse status405 methodNotAllowed)
   | otherwise = respond =<< route
   where
@@ -1578,6 +1623,22 @@ Intention: intention_01m3tcw9vmeeftdtqj53d1d6nb
 
 ### M2.1 Query parsing and the paged routes
 
+Every queue-scoped handler resolves the exact metadata name through `listQueuesUnvalidated`
+before reading, with one lookup per request (never `parseQueueName`). This makes missing
+bindings queues, mixed-case names, and aliases consistent with GET /queues/{queue}. If a
+later read fails with 42P01, recheck metadata: return queue_not_found only when the requested
+row disappeared; otherwise return database_error. A missing pgmq schema/global table is a
+server error, not a queue 404. The handler sketches below show the success work; factor this
+shared resolution and admission around all of them, including the metrics and bindings routes.
+Do not query private tables from the sister package. The metadata lookup cost is O(queue
+metadata rows), distinct from the much larger message-table metrics scan.
+
+Parse path/query integers in arbitrary precision before narrowing. IDs/from must be decimal
+0..9223372036854775807; limits are positive decimal and capped before Int32 conversion.
+Reject malformed and over-128-character tokens before database work. The checked config
+ensures default limits and limit+1 cannot overflow. These rules also belong in OpenAPI.
+
+
 Add to `Pgmq.Inspect.Http`:
 
 ```haskell
@@ -1590,7 +1651,7 @@ parsePage cfg req = do
     Just raw -> maybe (Left (invalidCursor raw)) (Right . Just . MessageId) (parseNonNegative raw)
   limit <- case queryParam "limit" req of
     Nothing -> Right (defaultPageLimit cfg)
-    Just raw -> case parseNonNegative raw of
+    Just raw -> case parseDecimalInteger raw of
       Just n | n > 0 -> Right (fromIntegral (min (fromIntegral (maxPageLimit cfg)) n))
       _ -> Left (invalidLimit raw)
   pure (from, limit)
@@ -1602,10 +1663,19 @@ queryParam key req =
     Just Nothing -> Just ""
     Nothing -> Nothing
 
+-- Parse arbitrary precision before narrowing; fixed-width decimal silently wraps.
+-- Bound token length so adversarial inputs do not build enormous Integers.
+parseDecimalInteger :: Text -> Maybe Integer
+parseDecimalInteger raw
+  | T.null raw || T.length raw > 128 || not (T.all (\c -> c >= '0' && c <= '9') raw) = Nothing
+  | otherwise = case TR.decimal raw of
+      Right (n, rest) | T.null rest -> Just n
+      _ -> Nothing
+
 parseNonNegative :: Text -> Maybe Int64
-parseNonNegative raw = case TR.decimal raw of
-  Right (n, rest) | T.null rest -> Just n
-  _ -> Nothing
+parseNonNegative raw = do
+  n <- parseDecimalInteger raw
+  if n <= fromIntegral (maxBound :: Int64) then Just (fromInteger n) else Nothing
 
 parseMessageId :: Text -> Either ErrorBody MessageId
 parseMessageId raw = maybe (Left (invalidMessageId raw)) (Right . MessageId) (parseNonNegative raw)
@@ -1737,15 +1807,15 @@ testCase "browsing over HTTP leaves read_ct at zero and every message available"
       replyStatus one @?= 200
     messages <- assertSession pool (Sessions.readMessage ReadMessage {queueName = queue, delay = 0, batchSize = Just 10, conditional = Nothing})
     V.length messages @?= 5
-    V.toList (V.map (^. #readCount) messages) @?= [0, 0, 0, 0, 0]
+    V.toList (V.map (^. #readCount) messages) @?= [1, 1, 1, 1, 1]
 ```
 
 where `Page` is decoded through a local `FromJSON` instance in the test (the library offers
 only `ToJSON`; the test defines `data PageOf a = PageOf { items :: [a], nextCursor :: Maybe MessageId }`
-with a `withObject` parser reading `items` and `next_cursor`). The `readMessage` with
-`delay = 0` leases for zero seconds so it changes nothing the assertion depends on; the
-assertion is on `readCount` before that read bumps it, which is exactly the value the HTTP
-browsing must have left at zero.
+with a `withObject` parser reading `items` and `next_cursor`). The real `readMessage`, even with `delay = 0`, increments read_ct and returns the updated
+row. Assert one after that read, and compare raw vt/read_ct/last_read_at before and after
+HTTP browsing to prove zero inspection writes. A native PostgreSQL check confirmed this
+on 2026-10-19; the former expected zeros were incorrect.
 
 The other cases, one `testCase` each: `GET /queues` contains the created queue (IR-3
 acceptance 1); `GET /queues/{queue}` returns the row and an unknown name is 404
@@ -1796,10 +1866,11 @@ testCase "an unreachable database answers 503 database_unavailable" $ do
   Pool.release badPool
 ```
 
-and two mock-interpreter cases built like `RouterSpec.mockEnv` but with the handler throwing
-`throwError (serverStatementError "42P01")` for `QueueMetricsUnvalidated` (expect 404
-`queue_not_found`) and `throwError (serverStatementError "23505")` (expect 500
-`database_error` and a `details.code` of `"23505"`), where `serverStatementError` is copied
+and mock-interpreter cases built like `RouterSpec.mockEnv` but with the handler throwing
+`throwError (serverStatementError "42P01")` with the queue metadata still present (expect
+500 `database_error`), a missing metadata row (404 `queue_not_found`), a concurrent drop
+confirmed by the metadata recheck (404), a missing global table (500) and `throwError (serverStatementError "23505")` (expect 500
+`database_error` and a `details.sqlstate` of `"23505"`), where `serverStatementError` is copied
 from `pgmq-effectful/test/ClassificationSpec.hs`:
 
 ```haskell
@@ -1840,6 +1911,16 @@ Intention: intention_01m3tcw9vmeeftdtqj53d1d6nb
 ```
 
 ### M3.1 `Pgmq.Inspect.Server` and the umbrella
+
+The code below is the public shape, not a complete lifecycle implementation. Before exposing
+it, validate config and bracket socket acquisition, thread start and cleanup. Use Warp's
+startup callback or an equivalent handshake and race startup against server failure: the
+continuation must never run before the server is listening. Honor bindHost even for port 0,
+report the actual socket address, and test occupied ports, invalid host, cancellation during
+startup and normal shutdown for leaked sockets/threads. Resolve the exact Warp APIs through
+Mori and pinned source rather than copying a precedent's lifecycle bugs. Both server paths
+must share the same runtime admission gate with the future feed.
+
 
 `pgmq-inspect/src/Pgmq/Inspect/Server.hs`:
 
@@ -1884,7 +1965,8 @@ withInspectApplication cfg env = withInspectApplicationWith cfg env rejectingWeb
 -- | The application with an explicit WebSocket seam.
 withInspectApplicationWith :: InspectConfig -> InspectEnv -> WS.ServerApp -> (Application -> IO a) -> IO a
 withInspectApplicationWith cfg env wsApp k =
-  k (corsMiddleware (corsPolicy cfg) (httpApp cfg env wsApp))
+  withInspectionBudget cfg $ \budget ->
+    k (corsMiddleware (corsPolicy cfg) (httpApp budget cfg env wsApp))
 
 -- | Answer every upgrade with an ordinary 503 carrying the JSON error envelope.
 rejectingWebSocketApp :: WS.ServerApp
@@ -1904,30 +1986,24 @@ data RunningInspectServer = RunningInspectServer
     serverThread :: !(Async ())
   }
 
--- | Serve the application with Warp for the duration of the continuation.
+-- Public signatures; implement using the bracketed startup protocol below.
 withInspectServer :: InspectServerConfig -> InspectEnv -> (RunningInspectServer -> IO a) -> IO a
-withInspectServer scfg env k =
-  withInspectApplication (inspect scfg) env $ \app ->
-    bracket (start app) (cancel . serverThread) k
-  where
-    start app
-      | bindPort scfg == 0 = do
-          (port, socket) <- Warp.openFreePort
-          thread <- async (Warp.runSettingsSocket (Warp.setPort port Warp.defaultSettings) socket app)
-          pure (RunningInspectServer port thread)
-      | otherwise = do
-          thread <- async (Warp.runSettings (settingsFor scfg) app)
-          pure (RunningInspectServer (bindPort scfg) thread)
-
--- | Serve the application with Warp until killed.
 runInspectServer :: InspectServerConfig -> InspectEnv -> IO ()
-runInspectServer scfg env =
-  withInspectApplication (inspect scfg) env (Warp.runSettings (settingsFor scfg))
 
 settingsFor :: InspectServerConfig -> Warp.Settings
 settingsFor scfg =
   Warp.setHost (fromString (bindHost scfg)) (Warp.setPort (bindPort scfg) Warp.defaultSettings)
 ```
+
+Implement both server entry points with one resource protocol: validate configuration,
+bracket the bound socket (including port 0) honoring `bindHost`, bracket the inspection
+runtime, and start Warp in a scoped async. Wait for Warp's ready acknowledgement or an
+exception from that thread before invoking the continuation or reporting startup. A failed
+bind must propagate synchronously. On every exit cancel/join the server and close the socket
+and runtime. Resolve the selected Warp APIs through Mori; do not use an unacknowledged
+`async runSettings` or a host-ignoring `openFreePort` as the production implementation.
+The custom-WebSocket seam and default runtime must use the same internal application builder
+with one `InspectionBudget`; EP-4 must not allocate a second independent HTTP permit pool.
 
 `pgmq-inspect/src/Pgmq/Inspect.hs`:
 
@@ -2046,8 +2122,8 @@ every route; until plan 31 lands, point at design note 021.
 Status (adopted, date, introduced by this plan); The package (what `pgmq-inspect` exports and
 the keiro-independence posture from the ADR); Routes (the table from Plan of Work, each with
 its success body, its error codes, and for `/metrics` the sentence that `pgmq.metrics_all()`
-loops over `pgmq.meta` running a `count(*)` scan per queue, so one call costs O(number of
-queues) full counts and a client should poll it every 5 to 15 seconds, never per second);
+loops over `pgmq.meta` running a `count(*)` scan per queue, so one call runs a full count per queue and cost depends on total rows scanned, so a client must measure before choosing an interval;
+use it on demand and prefer the shared feed for repeated observation);
 Pagination (`from` exclusive, `limit` default and cap, `next_cursor` present only when a next
 page exists, cursors opaque to clients); The error envelope (the shape and the complete code
 vocabulary with status and meaning, including `invalid_message_id`); CORS (explicit list,
@@ -2115,6 +2191,16 @@ Intention: intention_01m3tcw9vmeeftdtqj53d1d6nb
 
 ## Validation and Acceptance
 
+Add behavioral cases for integer maxBound, maxBound+1, 18446744073709551617, 128/129-digit
+input, invalid default/max limits, maxBound Int32 lookahead, zero outbox and wildcard origins.
+Before the SQL call, invalid input must return 400; a saturated gate must promptly return
+503 inspection_busy. A deliberately slow/locked database query must hit the configured
+inspection deadline and preserve worker-pool progress. Exercise a large payload to document
+that row caps do not cap bytes. Test database errors containing recognizable secret/SQL
+sentinels in message/detail/hint/parameters and assert none reach HTTP, readiness or WS.
+Mount under /pgmq/ with only pathInfo stripped and test HTTP, encoded queue names and /ws.
+Use the startup/cleanup tests in M3.1; do not count golden files as lifecycle evidence.
+
 Run everything from the repository root inside `nix develop`.
 
 ```bash
@@ -2152,7 +2238,7 @@ curl -s -i -H 'Origin: http://ui.example' http://127.0.0.1:9092/queues
 
 Expected: a `200` with `content-type: application/json` and a JSON array; a page object with
 `items` and, if more than two messages exist, `next_cursor`; a `404` whose body is
-`{"error":{"code":"queue_not_found","message":"No queue with that name exists.","details":{"code":"42P01",…}}}`;
+`{"error":{"code":"queue_not_found","message":"No queue with that name exists.","details":{"queue_name":"nope"}}}`;
 and, with the default configuration, no `access-control-allow-origin` header on the last
 response.
 
@@ -2204,7 +2290,7 @@ At the end of Milestone 1, these exist with these signatures:
 ```haskell
 -- Pgmq.Inspect.Config
 data CorsPolicy = CorsDisabled | CorsAllowOrigins !(NonEmpty ByteString)
-data InspectConfig = InspectConfig { corsPolicy :: !CorsPolicy, defaultPageLimit :: !Int32, maxPageLimit :: !Int32, readinessTimeoutUs :: !Int, pollIntervalUs :: !Int, notifyDebounceUs :: !Int, wsMaxConnections :: !Int, wsMaxSubscriptions :: !Int, wsQueueCapacity :: !Natural }
+data InspectConfig = InspectConfig { corsPolicy :: !CorsPolicy, defaultPageLimit :: !Int32, maxPageLimit :: !Int32, readinessTimeoutUs :: !Int, pollIntervalUs :: !Int, notifyDebounceUs :: !Int, wsMaxConnections :: !Int, wsMaxSubscriptions :: !Int, wsQueueCapacity :: !Natural, maxConcurrentReads :: !Int, metricsMinRefreshUs :: !Int, wsMaxQueues :: !Int, wsMaxFrameBytes :: !Int }
 defaultInspectConfig :: InspectConfig
 data InspectServerConfig = InspectServerConfig { bindHost :: !String, bindPort :: !Int, inspect :: !InspectConfig }
 defaultInspectServerConfig :: InspectServerConfig
@@ -2234,7 +2320,7 @@ classifyRuntimeError :: PgmqRuntimeError -> (Status, ErrorBody)
 -- Pgmq.Inspect.Http
 data PathSegment = Literal !Text | Placeholder !Text
 routeTable :: [(Method, [PathSegment])]
-httpApp :: InspectConfig -> InspectEnv -> WS.ServerApp -> Application
+httpApp :: InspectionBudget -> InspectConfig -> InspectEnv -> WS.ServerApp -> Application
 ```
 
 At the end of Milestone 2, every route in `routeTable` except `["ws"]` is served by `httpApp`,
@@ -2252,3 +2338,7 @@ seam. Plan 30 replaces `rejectingWebSocketApp` inside `withInspectApplication` a
 `listenerSettings`, `pollIntervalUs`, `notifyDebounceUs`, `wsMaxConnections`,
 `wsMaxSubscriptions`, and `wsQueueCapacity`; plan 31 reads `routeTable`, adds `openapi_path`
 to `ServiceDescriptor`, and calls `runInspectServer` from the executable.
+
+
+Revision note (2026-10-19): corrected parsing, read counters, error privacy/classification and
+metadata semantics; added shared work admission, config checks, mount tests and server lifecycle gates.

@@ -11,6 +11,18 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-01T00:15:41Z
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      verdict: "changes-requested"
+      note: "Replaced per-client scans with a shared per-queue coordinator and bounded lifecycle; tightened snapshot ordering, frame limits and listener cleanup."
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-19T18:23:59Z
+      mode: "update"
+      note: "Replaced per-client scans with a shared per-queue coordinator and bounded lifecycle; tightened snapshot ordering, frame limits and listener cleanup."
 ---
 
 # Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect
@@ -62,10 +74,12 @@ routes, which keeps the HTTP path authoritative exactly as the cross-project con
 
 ## Progress
 
+- [ ] Review acceptance: query count scales with distinct queues, one in-flight refresh per queue, bounded admission and fair scheduling, atomic snapshots/generations, bounded frames, deterministic overflow and cancellation cleanup.
+
 - [ ] M1: `Pgmq.Inspect.WebSocket` exists with the frame types, hand-written JSON instances, and golden files for every frame under `pgmq-inspect/test/golden/`
-- [ ] M1: per-connection machinery (bounded outbox with drop-oldest and overflow signaling, reader, writer, poller, hint consumer, shutdown watcher) and the shared `WebSocketState` with the connection cap
+- [ ] M1: shared refresh coordinator plus per-connection bounded outbox, reader, writer and shutdown watcher and the shared `WebSocketState` with the connection cap
 - [ ] M1: `Pgmq.Inspect.Server` gains `withInspectRuntime`; `withInspectApplication` keeps its signature and delegates; `withInspectServer` signals shutdown and drains before cancelling Warp
-- [ ] M1: `WebSocketSpec` green with no listener configured: `snapshot` with `"push":false`, poll-sourced `update`, `pong`, `queue_not_found`, `invalid_frame`, `too_many_subscriptions`, `overflow`, `goodbye`
+- [ ] M1: `WebSocketSpec` green with no listener configured: `snapshot` with `"push":false`, poll-sourced `update`, `pong`, `queue_not_found`, `invalid_frame`, `too_many_subscriptions`, `too_many_queues`, `frame_too_large`, `overflow`, `goodbye`
 - [ ] M2: `Pgmq.Inspect.Listener` exists: one server-wide `LISTEN` connection, refcounted channel registry, `threadWaitReadSTM` wait loop over `onLibpqConnection`, reconnect with exponential backoff and re-`LISTEN`, `listenerHealthy`
 - [ ] M2: subscribe registers validated, non-partitioned queues for push; `snapshot` says `"push":true`; notify-sourced updates arrive within two seconds; debounce coalesces bursts
 - [ ] M2: the backend-kill test proves the feed does not wedge and that pushes resume after reconnection
@@ -75,6 +89,14 @@ routes, which keeps the HTTP path authoritative exactly as the cross-project con
 
 ## Surprises & Discoveries
 
+Review (2026-10-19): the original one-poller/one-hint-consumer-per-client design repeated
+full queue metrics scans per tab; one shared LISTEN connection did not prevent that load.
+Set.lookupMin could starve other hot queues. Separate snapshot/state publication and
+poll/notify reads could reorder snapshots/updates or publish after unsubscribe. The proposed
+slow TCP reader test might never fill the server outbox. Nonempty idle queues change age
+fields, contradicting the former quiet-after-send test. Listener socket wait cleanup was
+not exception-safe, and push was inconsistently described as trigger availability.
+
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
@@ -82,6 +104,15 @@ implementation. Provide concise evidence.
 
 
 ## Decision Log
+
+- Decision (2026-10-19): Replace per-client polling/debounce with one bounded, fair coordinator
+  keyed by distinct queue, using plan 29's shared admission gate. Keep snapshot publication
+  atomic and generation-check refresh results. Use deterministic barriers for concurrency
+  and overflow tests; preserve numeric metrics and the structural keiro-ui frame convention.
+- Decision (2026-10-19): push means registered notification interest only. Listener health
+  and per-channel acknowledgement are separate states; no trigger inspection or mutation is
+  introduced. Require exception-safe fd wait/connection cleanup and bounded notification
+  batches. These are durable constraints in the boundary ADR.
 
 - Decision: The feed carries `QueueMetrics` and a `source` tag, never message bodies.
   Rationale: a `NOTIFY` carries no payload, is throttled, and is lossy (design note 015), so the
@@ -135,7 +166,8 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Not implemented. The revised coordinator/lifecycle design addresses the identified risks;
+query-count, concurrency and fault acceptance must pass before the feed is complete.
 
 
 ## Context and Orientation
@@ -206,8 +238,7 @@ What this plan assumes those files provide:
 - `pgmq-effectful` exposes `queueMetricsUnvalidated :: (Pgmq :> es) => Text -> Eff es QueueMetrics`
   (the `pgmq.metrics($1)` call with the name passed as text so a foreign name works), added by
   `docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md`.
-  If the grep above finds nothing, this plan adds it in Milestone 1 (see the fallback paragraph
-  there).
+  If this is absent, the prerequisite is incomplete; do not redefine it here.
 - `QueueMetrics` (in `pgmq-hasql/src/Pgmq/Hasql/Statements/Types.hs`) has the hand-written
   `ToJSON` instance from `docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md`
   with fields `queue_name`, `queue_length`, `newest_msg_age_sec`, `oldest_msg_age_sec`,
@@ -251,8 +282,9 @@ expired, so available to a consumer), `newest_msg_age_sec`, `oldest_msg_age_sec`
 PGMQ 1.13 a planner estimate `default_partition_length` for partitioned queues (`Nothing`
 otherwise; see [docs/adr/pgmq-1.12-1.13-compatibility.md](../adr/pgmq-1.12-1.13-compatibility.md)).
 Total versus visible depth is the distinction [docs/design/002-queue-visible-length.md](../design/002-queue-visible-length.md)
-explains. The poll interval therefore trades freshness against scan cost; the default of five
-seconds is conservative, and the user guide (plan 31) must say so.
+explains. The interval trades freshness against total rows scanned; five seconds is only a default,
+not a safe workload bound. The coordinator removes the client multiplier and budgets work;
+the user guide must require measurement before tuning either polling or notification refresh.
 
 ### Queue names
 
@@ -340,7 +372,7 @@ hand-written instances, `toEncoding` via `pairs` so key order is deterministic.
 
 ### Milestone 1: the protocol and the poll-driven feed
 
-Scope: the frame types and their JSON, the per-connection machinery, the shared state with the
+Scope: the frame types and their JSON, the shared refresh coordinator, transport machinery, the shared state with the
 connection cap and shutdown flag, and the Server wiring, with no `LISTEN` connection yet. At the
 end a client can subscribe, receive a `snapshot` with `"push":false`, receive poll-sourced
 updates, ping, hit every error path, overflow a tiny outbox, and read `goodbye` on shutdown.
@@ -406,208 +438,97 @@ files. `UpdateSource` encodes as the strings `"notify"` and `"poll"`. The exact 
 
 `"queue"` on an `error` frame is always present and is `null` when the fault is not about one
 queue. The frame-level codes this module emits are `invalid_frame` (an undecodable client
-frame), `too_many_subscriptions`, `overflow`, and, reusing plan 29's classifier, `queue_not_found`,
-`database_unavailable`, and `database_error`. No `FromJSON ServerFrame` is written, because
+frame), `too_many_subscriptions`, `too_many_queues`, `frame_too_large`, `overflow`, and, reusing plan 29's classifier, `queue_not_found`,
+`inspection_busy`, `inspection_timeout`, `database_unavailable`, and `database_error`. No `FromJSON ServerFrame` is written, because
 `QueueMetrics` is encode-only by plan 28; tests decode server frames to `Data.Aeson.Value`.
 
-Define the shared state, mirroring shibuya-metrics:
+Define a server-wide refresh coordinator in an internal module
+`Pgmq.Inspect.Refresh`, owned by this plan. It shares the `InspectionBudget` allocated by
+plan 29 with HTTP work. Its state is keyed by the exact metadata queue name and contains the
+queue row, latest metrics/fingerprint, subscribers, a generation, last refresh start, one
+in-flight flag, one dirty flag, and next poll deadline. A runtime may watch at most
+`wsMaxQueues` distinct queues (default 100); excess requests get `too_many_queues` without
+allocating a new worker. A connection still has its own subscription cap. Remove queue state
+and listener interest after its last subscriber leaves. Repeated subscriptions share current
+metrics or the one in-flight read; they must not launch duplicate scans.
 
-```haskell
-data WebSocketState = WebSocketState
-  { connectionCount :: !(TVar Int),
-    maxConnections :: !Int,
-    shutdownRequested :: !(TVar Bool)
-  }
+A fair coordinator scheduler processes due polls and hints. One refresh per queue may run
+at a time, globally bounded by `maxConcurrentReads` (default 2). Notify bursts set one dirty
+flag; they do not append jobs or fork threads. Enforce at least `metricsMinRefreshUs`
+(default 1,000,000) between refresh starts and coalesce within `notifyDebounceUs`. Polls
+remain scheduled independently of hints, so a constantly hot queue cannot starve others.
+Use a fair ready queue or deadlines with rotation, never repeated Set.lookupMin of a hot
+queue. If work exceeds an interval, skip/coalesce missed ticks; do not accumulate catch-up
+jobs. Each completed refresh fans the same metrics out to every current subscriber.
 
-newWebSocketState :: Int -> IO WebSocketState
-requestShutdown :: WebSocketState -> STM ()        -- sets shutdownRequested
-activeConnections :: WebSocketState -> STM Int
-```
+HTTP metrics may remain explicit on-demand reads, but share the read admission gate; they
+must not spawn their own periodic work. The coordinator calls the existing lenient metrics
+operation and does not add SQL. Metadata lookup uses plan 29's exact-name resolver; a global
+42P01 is not automatically a missing queue. Preserve subscriptions on transient errors,
+report at most one such error per connection per cycle, and retry through the bounded
+scheduler. Remove a queue only after the metadata recheck confirms it is gone.
 
-Define the per-connection state. The outbox is the only path to the socket:
+Keep only transport state per connection: subscription generations and a bounded outbox.
+The outbox is a TBQueue of ServerFrame with an overflow flag. A full enqueue drops the oldest
+frame and raises the flag in the same STM transaction. One writer atomically takes the next
+frame and flag, sends an overflow error first when needed, then sends that frame. A send
+failure ends the connection instead of being swallowed in an infinite writer loop. All JSON
+frames (including snapshots, pong, errors, goodbye) use this writer; WebSocket control ping
+uses the library's supported ping mechanism. Capacity must be positive (plan 29 validates it).
 
-```haskell
-data Outbox = Outbox
-  { frames :: !(TBQueue ServerFrame),
-    overflowed :: !(TVar Bool)
-  }
+Successful subscribe publishes the initial snapshot and activates the subscription in one
+STM transaction, after obtaining the initial metrics. Updates cannot overtake it. Every
+refresh completion checks the generation before publishing: an unsubscribe or re-subscribe
+invalidates work already in flight. Re-subscribe obtains a fresh snapshot through the same
+coalesced/rate-limited path; it is not an escape hatch around metricsMinRefreshUs. Remove
+queued updates for an unsubscribed generation or tag internal outbox entries so the writer
+can discard them. Already-written socket bytes cannot be recalled; document that boundary.
+On overflow clients treat following updates as incomplete until they re-read/re-subscribe.
 
--- | Drop-oldest enqueue. When the queue is full, the oldest frame is discarded and the
--- overflow flag is raised; the writer emits an @overflow@ error before the next frame it sends.
-enqueueFrame :: Outbox -> ServerFrame -> STM ()
-enqueueFrame Outbox {frames, overflowed} frame = do
-  full <- isFullTBQueue frames
-  when full $ do
-    _ <- readTBQueue frames
-    writeTVar overflowed True
-  writeTBQueue frames frame
+The fingerprint contains every QueueMetrics field except scrape_time. Age fields advance
+with wall time on a nonempty queue, so unchanged row counts do not imply a quiet feed. Poll
+refreshes emit when that fingerprint changes; notify refreshes may emit even when unchanged,
+within the same shared minimum refresh interval.
 
-data Subscription = Subscription
-  { subscriptionChannel :: !(Maybe (Text, SubscriberKey)),  -- Milestone 2: the LISTEN registration
-    subscriptionFingerprint :: !MetricsFingerprint
-  }
+The reader accepts type-tagged JSON and enforces wsMaxFrameBytes (default 16,384) at the
+WebSocket library's frame and assembled-message limits, before allocating an unbounded
+receive buffer. Invalid frames yield invalid_frame; oversized frames are rejected/closed
+with frame_too_large and best-effort goodbye. Validate queue-name length and client frame
+shape before allocating subscription state, while retaining server-accepted foreign names.
+Verify the pinned websockets limit APIs through Mori/source. No payload is echoed into errors.
 
-type MetricsFingerprint = (Text, Int64, Maybe Int32, Maybe Int32, Int64, Int64, Maybe Int64)
+Retain WebSocketState for connection capacity and shutdown. Acquire slots under mask and
+release them in finally, including failed handshakes. Run each reader/writer/shutdown watcher
+with structured concurrency; poll and hint threads belong to the shared coordinator, not
+each connection. Shutdown stops new subscriptions, prevents new refreshes, sends goodbye
+through each outbox, waits at most one second for delivery, then cancels/cleans all owned
+connection tasks. The embeddable application must clean up even when the host owns Warp;
+cancelling the convenience runner alone is insufficient. A physically stalled socket cannot
+be promised delivery; bound the attempted graceful drain.
 
--- | Every field of 'QueueMetrics' except @scrape_time@, which changes on every read.
-metricsFingerprint :: QueueMetrics -> MetricsFingerprint
-
-data ConnectionState = ConnectionState
-  { subscriptions :: !(TVar (Map Text Subscription)),
-    hints :: !(TVar (Set Text)),   -- queues a notification said changed, awaiting debounce
-    outbox :: !Outbox
-  }
-```
-
-In Milestone 1 `SubscriberKey` can be a placeholder newtype over `()` in this module;
-Milestone 2 moves it to `Pgmq.Inspect.Listener`. Field access follows the family convention:
-`OverloadedLabels` with `generic-lens` (`st ^. #outbox`) or plain selectors, never
-`OverloadedRecordDot`.
-
-The server application and the five threads per connection:
-
-```haskell
-websocketApp :: InspectConfig -> InspectEnv -> Maybe Listener -> WebSocketState -> WS.ServerApp
-websocketApp cfg env mListener wsState pending =
-  mask $ \restore -> do
-    outcome <- atomically (acquireConnection wsState)
-    case outcome of
-      AtCapacity -> restore (WS.rejectRequest pending "Too many connections")
-      ShuttingDown -> restore (WS.rejectRequest pending "Server shutting down")
-      Acquired ->
-        restore (serveConnection cfg env mListener wsState pending `catch` normalPeerClosure)
-          `finally` atomically (releaseConnection wsState)
-```
-
-`normalPeerClosure` swallows `WS.ConnectionClosed` and `WS.CloseRequest` and rethrows anything
-else, exactly as shibuya-metrics does. `serveConnection` accepts the request, wraps everything in
-`WS.withPingThread conn 30 (pure ())`, allocates a `ConnectionState` with an outbox of capacity
-`wsQueueCapacity cfg`, and runs the reader, writer, poller, hint consumer, and shutdown watcher
-under `race_` so that whichever ends first tears the others down; `finally` releases every
-subscription's listener registration (a no-op in Milestone 1).
-
-The **reader** loops on `WS.receiveData conn :: IO LBS.ByteString`, decodes with
-`eitherDecode'`, enqueues `ErrorFrame "invalid_frame" "…" Nothing` on failure, and otherwise
-dispatches. `Ping` enqueues `Pong`. `Unsubscribe q` removes `q` from the map and, when the
-subscription held a channel registration, unregisters it (Milestone 2). `Subscribe q` first
-checks the cap: if the map already holds `wsMaxSubscriptions cfg` entries and `q` is not among
-them, enqueue `ErrorFrame "too_many_subscriptions" "…" (Just q)` and stop. Otherwise run one
-inspection that resolves the queue row through the lenient listing and reads the metrics only
-when the row exists:
-
-```haskell
-lookupQueue :: Text -> Inspection (Maybe (UnvalidatedQueue, QueueMetrics))
-lookupQueue q = do
-  rows <- Eff.listQueuesUnvalidated
-  case find ((== q) . unvalidatedName) rows of
-    Nothing -> pure Nothing
-    Just row -> Just . (row,) <$> Eff.queueMetricsUnvalidated q
-```
-
-`Right Nothing` enqueues `ErrorFrame "queue_not_found" ("No queue named " <> q <> " exists.") (Just q)`
-and subscribes nothing. `Left err` enqueues an error frame whose code and message come from plan
-29's classifier (so a transient outage is `database_unavailable`). `Right (Just (row, metrics))`
-inserts the subscription (re-subscribing an already-watched queue keeps its existing
-registration and simply re-sends a snapshot) and enqueues `Snapshot q metrics push`, where
-`push` is computed by the Milestone 2 registration step and is `False` throughout Milestone 1.
-
-The **writer** is the only thread that touches the socket after the accept:
-
-```haskell
-writerLoop :: Outbox -> WS.Connection -> IO ()
-writerLoop ob conn = loop
-  where
-    loop = do
-      (frame, dropped) <- atomically $ (,) <$> readTBQueue (frames ob) <*> swapTVar (overflowed ob) False
-      when dropped $ sendFrame conn (ErrorFrame "overflow" overflowMessage Nothing)
-      sendFrame conn frame
-      case frame of
-        Goodbye -> WS.sendClose conn ("server shutting down" :: Text)
-        _ -> loop
-```
-
-`sendFrame conn = WS.sendTextData conn . encode`, catching `WS.ConnectionException` so a dead
-socket never turns cleanup into a second failure. Sending `Goodbye` ends the writer and therefore
-the `race_`, which closes the connection.
-
-The **poller** sleeps `pollIntervalUs cfg`, then refreshes every subscribed queue with
-`PollSource`. `refreshQueue` is shared with the hint consumer:
-
-```haskell
-refreshQueue :: InspectConfig -> InspectEnv -> Maybe Listener -> ConnectionState -> UpdateSource -> Text -> IO ()
-```
-
-It runs `queueMetricsUnvalidated q`; on `Right m` it compares `metricsFingerprint m` with the
-stored fingerprint and enqueues `Update q m source` when they differ or when `source` is
-`NotifySource`, storing the new fingerprint either way; on a `42P01` (the queue was dropped) it
-enqueues `queue_not_found` for that queue and removes the subscription (unregistering the
-channel); on any other `Left` it enqueues the classified error frame and keeps the
-subscription. The poller enqueues at most one database error frame per cycle, not one per
-queue.
-
-The **hint consumer** is Milestone 2's notification path but is written now so the thread
-structure is final:
-
-```haskell
-hintLoop cfg env mListener st = forever $ do
-  q <- atomically $ readTVar (hints st) >>= maybe retry pure . Set.lookupMin
-  threadDelay (notifyDebounceUs cfg)
-  atomically $ modifyTVar' (hints st) (Set.delete q)
-  stillWatched <- Map.member q <$> readTVarIO (subscriptions st)
-  when stillWatched $ refreshQueue cfg env mListener st NotifySource q
-```
-
-The queue name stays in the set during the debounce sleep, so a burst of notifications for one
-queue collapses into one metrics read; a notification arriving after the delete schedules the
-next cycle. In Milestone 1 nothing writes to `hints`.
-
-The **shutdown watcher** blocks on `shutdownRequested` becoming `True`, enqueues `Goodbye`, and
-then blocks forever (`atomically retry` behind a never-set flag, or `forever (threadDelay maxBound)`);
-the writer's `Goodbye` handling ends the race.
-
-Now wire the Server. Add to `Pgmq.Inspect.Server`:
+The public runtime shape remains:
 
 ```haskell
 data InspectRuntime = InspectRuntime
   { runtimeApplication :: !Application,
-    -- | Ask every WebSocket connection to send @goodbye@ and close; HTTP keeps serving.
     runtimeRequestShutdown :: !(IO ()),
-    -- | Wait until no WebSocket connection remains, for at most the given microseconds.
     runtimeAwaitDrained :: !(Int -> IO ()),
-    -- | 'False' when no listener is configured or the LISTEN connection is down (Milestone 2).
     runtimeListenerHealthy :: !(STM Bool)
   }
 
 withInspectRuntime :: InspectConfig -> InspectEnv -> (InspectRuntime -> IO a) -> IO a
-withInspectRuntime cfg env k = do
-  wsState <- newWebSocketState (wsMaxConnections cfg)
-  withOptionalListener (listenerSettings env) $ \mListener ->        -- Milestone 2; Milestone 1 passes Nothing
-    withInspectApplicationWith cfg env (websocketApp cfg env mListener wsState) $ \app ->
-      k (runtime app wsState mListener)
-        `finally` (atomically (requestShutdown wsState) >> awaitDrained wsState 1_000_000)
-
 withInspectApplication :: InspectConfig -> InspectEnv -> (Application -> IO a) -> IO a
-withInspectApplication cfg env k = withInspectRuntime cfg env (k . runtimeApplication)
 ```
 
-`awaitDrained` is `registerDelay` composed through `orElse` with `activeConnections == 0`.
-Rewrite plan 29's `withInspectServer` on top of `withInspectRuntime` so its bracket release
-runs `runtimeRequestShutdown`, then `runtimeAwaitDrained 1_000_000`, then cancels the Warp
-thread; `runInspectServer` follows. The plan 29 signatures of `withInspectApplication`,
-`withInspectServer`, and `runInspectServer` do not change. Delete the rejecting seam app if
-nothing else uses it, or keep it exported for hosts that want the HTTP surface alone; either way
-record the choice in the Decision Log.
+`withInspectRuntime` validates config, brackets one budget, coordinator and optional listener,
+then constructs the HTTP/WS application using those same resources. Keep an internal builder
+that accepts already-allocated resources so `withInspectApplicationWith` does not allocate a
+second budget. `withInspectApplication` delegates to the runtime. `withInspectServer` and
+`runInspectServer` retain plan 29's bind acknowledgement and cleanup contract and add graceful
+WS draining before Warp shutdown. Retain the rejecting seam export for HTTP-only hosts.
 
-Fallback if `queueMetricsUnvalidated` does not exist: add
-`queueMetricsUnvalidated :: Statement Text QueueMetrics` to
-`pgmq-hasql/src/Pgmq/Hasql/Statements/QueueObservability.hs` with the same SQL as
-`queueMetrics` and `E.param (E.nonNullable E.text)` as encoder, a session of the same name in
-`Pgmq.Hasql.Sessions`, an export from `Pgmq`, a constructor
-`QueueMetricsUnvalidated :: Text -> Pgmq m QueueMetrics` in `Pgmq.Effectful.Effect` with the
-smart constructor, a case in `runPgmq`, and a case in `runPgmqTracedWith` labelled
-`pgmq.metrics` with `OTel.Internal` kind and the text as destination; extend the umbrella
-witnesses and changelogs of both packages, and record it in the Decision Log as scope this plan
-absorbed.
+The existing queueMetricsUnvalidated function is an EP-1 prerequisite, already implemented.
+If it is missing, fix dependency state; do not redefine this library API in this plan.
 
 Tests for Milestone 1 live in `pgmq-inspect/test/WebSocketSpec.hs` (registered in
 `pgmq-inspect/test/Main.hs` and the cabal `other-modules`). The golden group encodes one value of
@@ -637,23 +558,23 @@ frameField :: Text -> Value -> Maybe Value
 
 The Milestone 1 cases, each on its own `withTestRuntime` with an env built by
 `poolEnv pool Nothing` (no listener) and a config derived from `defaultInspectConfig` with
-`pollIntervalUs = 200_000`:
+`pollIntervalUs = 200_000` and `metricsMinRefreshUs = 100_000` (test-only):
 
 - subscribe to a freshly created queue → the first frame is `snapshot` with `"queue"` equal to
   the name, `"push": false`, and `"metrics"."queue_length": 0`;
 - send three messages through the pool → within three poll intervals (600 ms, allow 2 s) an
-  `update` with `"source":"poll"` and `"metrics"."queue_length": 3` arrives; with nothing else
-  happening, no further `update` arrives within one second (poll stays quiet when nothing moved);
+  `update` with `"source":"poll"` and `"metrics"."queue_length": 3` arrives; age fields may keep changing even without writes. Separately test an empty queue or a
+  fixed mock fingerprint to prove equal metrics suppress poll updates;
 - `ping` → `pong`;
 - subscribe to a name no queue has → `error` with `"code":"queue_not_found"` and `"queue"` set;
   no snapshot follows;
 - send the text `not json` → `error` with `"code":"invalid_frame"`;
 - with `wsMaxSubscriptions = 1`, subscribe to two different queues → the second answer is
   `error` `too_many_subscriptions`;
-- with `wsQueueCapacity = 2` and `pollIntervalUs = 50_000`: subscribe, then without reading from
-  the socket send fifty messages one at a time with 60 ms pauses so many poll updates are
-  generated, then resume reading → an `error` with `"code":"overflow"` is observed, and after it
-  at least one `update` still arrives (the connection survives the overflow);
+- deterministically pause the writer using a test barrier, enqueue three updates into a
+  capacity-two outbox, then release it: observe overflow before the retained two updates,
+  oldest dropped, bounded memory and continued delivery. Not reading fifty small frames from
+  a TCP client is not sufficient: kernel buffering may prevent outbox overflow entirely;
 - `goodbye` on shutdown: run `withTestRuntime` in an `async` that parks on an `MVar` after
   handing out the port; connect and subscribe; fill the `MVar`; the client's next frames are
   `goodbye` and then a `WS.CloseRequest` exception from `receiveData`.
@@ -706,88 +627,29 @@ makes reconnection total.
 `withListener settings k` allocates the three `TVar`s and runs `listenerLoop settings l` under
 `withAsync`, so leaving the scope cancels the loop:
 
-```haskell
-listenerLoop :: Settings -> Listener -> IO ()
-listenerLoop settings l = go initialBackoffUs
-  where
-    initialBackoffUs = 100_000
-    maxBackoffUs = 5_000_000
-    go backoff = do
-      acquired <- Connection.acquire (settings <> Settings.applicationName "pgmq-inspect-listener")
-      case acquired of
-        Left _ -> threadDelay backoff >> go (min maxBackoffUs (backoff * 2))
-        Right conn -> do
-          becameHealthy <- (serve conn `finally` Connection.release conn) `catchSync` \_ -> pure False
-          atomically (writeTVar (healthy l) False)
-          let next = if becameHealthy then initialBackoffUs else min maxBackoffUs (backoff * 2)
-          threadDelay next
-          go next
-```
+Implement the listener as a bracketed reconnect state machine, not an unprotected
+acquire-then-serve sequence:
 
-`catchSync` catches `SomeException` but rethrows anything whose `fromException` is a
-`SomeAsyncException`, so cancellation still cancels. Appending `applicationName` last makes it
-win over any `application_name` the host's settings carried (rightmost wins), which is what the
-test relies on.
-
-`serve conn` first drains any notification libpq already buffered, then syncs LISTENs from the
-registry, marks healthy, and loops on slices:
-
-```haskell
-serve :: Connection -> IO Bool
-serve conn = do
-  synced <- syncListens conn Set.empty
-  case synced of
-    Nothing -> pure False
-    Just listening -> do
-      atomically (writeTVar (healthy l) True)
-      let loop live = do
-            outcome <- Connection.use conn (Session.onLibpqConnection (slice l))
-            case outcome of
-              Right (Right SocketReadable) -> loop live
-              Right (Right RegistryChanged) -> syncListens conn live >>= maybe (pure True) loop
-              _ -> pure True          -- a fault after we were healthy: reconnect with a fresh backoff
-      loop listening
-```
-
-`syncListens conn live` reads the registry's key set, runs
-`Connection.use conn (Session.script ("LISTEN " <> quoteIdentifier c))` for every channel in the
-registry but not in `live` and `UNLISTEN` for every channel in `live` but not in the registry,
-returning the new live set, or `Nothing` on the first `Left`. `quoteIdentifier` double-quotes and
-doubles embedded quotes. The slice:
-
-```haskell
-data Wake = SocketReadable | RegistryChanged
-data Fault = SocketLost | InputFailed
-
-slice :: Listener -> Pq.Connection -> IO (Either SessionError (Either Fault Wake), Pq.Connection)
-slice l pq = do
-  drainNotifies l pq                       -- notifications buffered by an earlier LISTEN round-trip
-  mfd <- Pq.socket pq
-  case mfd of
-    Nothing -> pure (Right (Left SocketLost), pq)
-    Just fd -> do
-      (ready, cancelWait) <- threadWaitReadSTM fd
-      wake <- atomically $
-        (ready >> pure SocketReadable)
-          `orElse` (readTVar (registryChanged l) >>= check >> writeTVar (registryChanged l) False >> pure RegistryChanged)
-      cancelWait
-      case wake of
-        RegistryChanged -> pure (Right (Right RegistryChanged), pq)
-        SocketReadable -> do
-          ok <- Pq.consumeInput pq
-          status <- Pq.status pq
-          if not ok || status /= Pq.ConnectionOk
-            then pure (Right (Left InputFailed), pq)
-            else drainNotifies l pq >> pure (Right (Right SocketReadable), pq)
-
-drainNotifies :: Listener -> Pq.Connection -> IO ()
-drainNotifies l pq = Pq.notifies pq >>= \case
-  Nothing -> pure ()
-  Just n -> do
-    let channel = decodeUtf8Lenient (Pq.notifyRelname n)
-    atomically $ readTVar (registry l) >>= maybe (pure ()) (sequence_ . Map.elems) . Map.lookup channel
-    drainNotifies l pq
-```
+1. Acquire with `bracket`, so cancellation cannot leak a connection between acquire and
+   serve. Release on every exit. Clear `healthy` in a finalizer, including cancellation.
+   Use exponential reconnect backoff from 100ms to 5s, resetting after a healthy session.
+2. Snapshot the desired registry and clear its dirty flag in one STM transaction; synchronize
+   quoted LISTEN/UNLISTEN statements from that snapshot. Changes arriving during database
+   I/O must leave the flag set for another reconciliation. Maintain an acknowledged channel
+   set for deterministic tests; connection health alone does not acknowledge a new channel.
+3. Inside a serialized `Session.onLibpqConnection` slice, drain at most 64 buffered
+   notifications, dispatching only STM dirty-flag callbacks. If the batch fills, yield and
+   recheck registry/cancellation before draining again; never wait for socket readiness
+   while libpq may still contain buffered notifications.
+4. When no buffered work remains, register `threadWaitReadSTM`, wait atomically for registry
+   changes (first `orElse` branch) or socket readiness, and unregister with `finally`,
+   including cancellation. On readiness use `consumeInput` and check connection status;
+   errors/EOF leave the bracket and reconnect. Registry changes must not be starved by a
+   continuously readable socket.
+5. Catch synchronous failures only; rethrow `SomeAsyncException`. Set
+   `application_name=pgmq-inspect-listener` using the verified settings API so tests can
+   identify and terminate precisely that backend. Confirm LISTEN acknowledgements before
+   testing acceleration, without making acknowledgement part of the public `push` meaning.
 
 `threadWaitReadSTM` (from `Control.Concurrent`, base) returns an STM action that completes when
 the socket is readable and an IO action that cancels the wait; composing the STM action with the
@@ -800,30 +662,16 @@ connection is released, and the loop reconnects after the backoff and re-`LISTEN
 in the registry. Nothing is logged (the package has no logger); `listenerHealthy` is the
 observable.
 
-Wire the listener into the feed. In `Pgmq.Inspect.Server.withInspectRuntime`,
-`withOptionalListener Nothing k = k Nothing` and
-`withOptionalListener (Just settings) k = withListener settings (k . Just)`;
-`runtimeListenerHealthy` is `maybe (pure False) listenerHealthy mListener`. In
-`Pgmq.Inspect.WebSocket`, move `SubscriberKey` to the listener module and complete the
-subscribe path: after `lookupQueue` succeeds, compute the registration
+Wire one listener registration per distinct eligible queue into the shared coordinator,
+not per client. The callback only marks that queue dirty in STM. The last subscriber leaving
+removes the registration. Eligible means a configured listener, parseQueueName success and
+non-partitioned metadata; foreign or partitioned queues stay poll-only. `push = true` means
+notification interest was registered. It does not claim LISTEN acknowledgement, current
+connectivity, or installed triggers; runtimeListenerHealthy is a separate observable.
 
-```haskell
-registerPush :: Maybe Listener -> ConnectionState -> Text -> UnvalidatedQueue -> IO (Maybe (Text, SubscriberKey))
-registerPush mListener st q row =
-  case (mListener, parseQueueName q, unvalidatedIsPartitioned row) of
-    (Just listener, Right qn, False) -> do
-      let channel = notifyChannelName qn
-      key <- subscribeChannel listener channel (modifyTVar' (hints st) (Set.insert q))
-      pure (Just (channel, key))
-    _ -> pure Nothing
-```
-
-and set `push = isJust registration`. The wake action inserts the queue name into the
-connection's `hints` set, which the hint consumer from Milestone 1 turns into one debounced
-metrics read and an `update` with `"source":"notify"`. `Unsubscribe`, the `42P01` path in
-`refreshQueue`, and the connection's `finally` all call `unsubscribeChannel` for registrations
-they drop. Because the registration is per connection and per queue, a hundred tabs watching one
-queue share one `LISTEN` and each gets its own debounced update.
+For notify-only tests, expose a test seam that waits for the target channel to be acknowledged
+by the listener, then insert. A snapshot or healthy connection alone is not proof that the
+new LISTEN completed. Reconnect reissues all desired channels, and polling remains active.
 
 Tests for Milestone 2, in the same spec, with `poolEnv pool (Just (EphemeralPg.connectionSettings db))`
 and a queue created through the pool with `enableNotifyInsert (EnableNotifyInsert q (Just 0))`
@@ -878,9 +726,8 @@ umbrella `Pgmq.Inspect`.
 In `docs/design/021-inspection-surface-wire-contract.md` (created by plan 29; if it has no
 WebSocket heading yet, add `## The WebSocket live feed`), write: the endpoint `/ws`; every client
 and server frame with the JSON examples above; the subscribe-then-snapshot discipline and that a
-connection watches nothing until it subscribes; `push` and its four conditions (a listener is
-configured, the name validates, the queue is not partitioned, and the trigger exists on the
-server side, which the server does not check); the `source` tag; the debounce; the poll
+connection watches nothing until it subscribes; `push` as registered interest (configured listener, valid name, non-partitioned queue);
+it is independent of listener health, LISTEN acknowledgement, and trigger existence; the `source` tag; the debounce; the poll
 interval and its cost; the overflow rule (bounded per-connection queue, drop-oldest, in-band
 `error` with code `overflow` before the next frame, after which the client should re-read over
 HTTP); the server-side 30-second ping; `goodbye` and the one-second drain; the listener's
@@ -907,8 +754,7 @@ All commands run from the repository root
 `/Users/shinzui/Keikaku/bokuno/libraries/pgmq-hs-project/pgmq-hs`.
 
 Verify the prerequisites with the grep block in Context and Orientation; every grep must print at
-least one line, except the `queueMetricsUnvalidated` one, whose absence triggers the fallback in
-Milestone 1.
+least one line, except the `queueMetricsUnvalidated` one, whose absence means the EP-1 prerequisite must be repaired.
 
 Milestone 1. Create the module and tests, then build and run:
 
@@ -1008,7 +854,7 @@ nix fmt
 ```text
 docs(inspect): document the WebSocket live feed contract
 
-State the frame protocol, the push flag's four conditions, the debounce and
+State the frame protocol, the push flag's registered-interest meaning, the debounce and
 poll intervals, overflow signaling, goodbye, listener reconnection, and the
 poll-is-truth rule in design note 021; record the feed as capability evidence;
 add the Unreleased changelog entries.
@@ -1028,13 +874,29 @@ nix flake check
 
 ## Validation and Acceptance
 
+Use an instrumented mock runner with a controllable clock and barriers. One hundred clients
+watching one queue must cause one scheduled metrics call per cycle, and a burst must cause
+one shared debounced call, subject to metricsMinRefreshUs. Re-subscribe storms cannot bypass
+that limit. Two hot queues must both progress; a slow read cannot overlap a second read for
+that queue; outstanding reads never exceed maxConcurrentReads; distinct queue count never
+exceeds wsMaxQueues. Full admission emits inspection_busy and coalesces retries. A configured
+SQL deadline emits inspection_timeout without disabling future polls.
+
+Pause refresh completion, unsubscribe/re-subscribe, then resume it: no stale generation may
+publish. Pause between initial metrics and publication: snapshot must precede updates. Test
+outbox capacity one and two with a writer barrier, oversized fragmented messages before full
+allocation, listener loss/recovery, cancellation while waiting on the fd, and host-owned Warp
+outliving withInspectApplication. No client slot, listener registration, socket wait, or owned
+thread may survive the runtime scope. Run a representative concurrent-consumer workload and
+record throughput/p95 plus query counts with inspection off and on; choose workload-specific
+limits rather than claiming that a default interval proves negligible overhead.
+
 Acceptance is behaviour a person can observe with a WebSocket client; the test suite automates
 it, and plan 31's executable lets you repeat it by hand. With the executable (or
 `withInspectServer`) running against a database holding a queue `orders` with insert
 notifications enabled, a client such as `websocat ws://127.0.0.1:9092/ws` that sends
 `{"type":"subscribe","queue":"orders"}` receives, in order, a `snapshot` frame with
-`"push":true`, and after `select pgmq.send('orders', '{"hello":1}')` in psql, within about a
-hundred milliseconds an `update` frame with `"source":"notify"` and `queue_length` one higher.
+`"push":true`, and after `select pgmq.send('orders', '{"hello":1}')` in psql, after the configured debounce and minimum refresh interval an `update` frame with `"source":"notify"` and `queue_length` one higher.
 Sending `{"type":"ping"}` returns `{"type":"pong"}`. Stopping the server delivers
 `{"type":"goodbye"}` before the socket closes.
 
@@ -1091,8 +953,9 @@ case issues raw statements through libpq rather than hasql.
 At the end of Milestone 1, `Pgmq.Inspect.WebSocket` exports `ClientFrame (..)`,
 `ServerFrame (..)`, `UpdateSource (..)`, `WebSocketState`, `newWebSocketState :: Int -> IO WebSocketState`,
 `requestShutdown :: WebSocketState -> STM ()`, `activeConnections :: WebSocketState -> STM Int`,
-and `websocketApp :: InspectConfig -> InspectEnv -> Maybe Listener -> WebSocketState -> WS.ServerApp`
-(with `Listener` a placeholder type the module owns until Milestone 2). `Pgmq.Inspect.Server`
+and the internal `websocketApp :: InspectConfig -> MetricsCoordinator -> WebSocketState -> WS.ServerApp`.
+The shared coordinator owns `InspectEnv`, the shared `InspectionBudget`, per-queue state and
+optional listener; it is allocated once by `withInspectRuntime`, not per connection. `Pgmq.Inspect.Server`
 exports `InspectRuntime (..)` and `withInspectRuntime :: InspectConfig -> InspectEnv -> (InspectRuntime -> IO a) -> IO a`,
 and `withInspectApplication`, `withInspectServer`, and `runInspectServer` keep plan 29's
 signatures. `pgmq-inspect/test/TestServer.hs` exports
@@ -1102,13 +965,16 @@ At the end of Milestone 2, `Pgmq.Inspect.Listener` exports `Listener`,
 `withListener :: Hasql.Connection.Settings.Settings -> (Listener -> IO a) -> IO a`,
 `SubscriberKey`, `subscribeChannel :: Listener -> Text -> STM () -> IO SubscriberKey`,
 `unsubscribeChannel :: Listener -> Text -> SubscriberKey -> IO ()`, and
-`listenerHealthy :: Listener -> STM Bool`; `websocketApp` takes the real `Maybe Listener`;
+`listenerHealthy :: Listener -> STM Bool`; the coordinator takes the real `Maybe Listener`;
 `InspectRuntime.runtimeListenerHealthy` reflects it. The listener connection carries
 `application_name = pgmq-inspect-listener`.
 
-At the end of Milestone 3, `Pgmq.Inspect` re-exports both modules and `withInspectRuntime`,
+At the end of Milestone 3, `Pgmq.Inspect` re-exports public frame types and `withInspectRuntime`
+(the coordinator, listener registry and budget stay internal),
 `docs/design/021-inspection-surface-wire-contract.md` has the WebSocket section, the capability
 record lists `pgmq-inspect/test/WebSocketSpec.hs` as evidence, and both changelogs carry
-`Unreleased` entries. Nothing in `pgmq-core`, `pgmq-hasql`, or `pgmq-effectful` changes unless
-the `queueMetricsUnvalidated` fallback was needed, in which case the Decision Log says so and
-those packages' changelogs gain an entry.
+`Unreleased` entries. The existing library operations are consumed unchanged; EP-1 owns their contract.
+
+
+Revision note (2026-10-19): replaced per-client scans with shared bounded scheduling; specified
+snapshot/generation ordering, push semantics, deterministic overflow, frame caps and cancellation gates.
