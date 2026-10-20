@@ -228,7 +228,7 @@ path for foreign and mixed-case names).
 | 1 | Add non-destructive peek, archive, and lookup reads across the pgmq layers | docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md | None | EP-2 (integration: `ArchivedMessage` codec) | Complete |
 | 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | Complete |
 | 3 | Create the pgmq-inspect sister package with the HTTP inspection surface | docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md | EP-1, EP-2 | None | Complete |
-| 4 | Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect | docs/plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md | EP-3 | None | In Progress |
+| 4 | Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect | docs/plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md | EP-3 | None | Complete |
 | 5 | Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide | docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md | EP-3, EP-4 | None | Not Started |
 
 EP-1 M1–M4 are complete. M4 adds the performance and concurrency evidence missing
@@ -240,8 +240,8 @@ Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3
 
 ## Dependency Graph
 
-Wave one is complete: EP-1 and EP-2 have passed their acceptance gates. EP-3
-(the HTTP inspection surface) is the next ready plan.
+Wave one is complete: EP-1 and EP-2 have passed their acceptance gates. EP-3 and EP-4
+(the HTTP surface and shared live feed) are complete; EP-5 is the next ready plan.
 The two foundation plans have no hard dependency on one another. The `ArchivedMessage`
 record and its codecs now exist; EP-2 owns the codec contract. The integration
 rule below records that ownership.
@@ -438,7 +438,7 @@ explicit-null rule of the JSON policy);
 validated queue (refcounted `LISTEN`/`UNLISTEN`), reconnects with exponential backoff when it
 drops, and re-issues every `LISTEN` after reconnecting; subscribers keep receiving poll-sourced
 updates throughout. The `push` flag means an eligible queue has registered notification interest; it does not
-promise that LISTEN is ready, connected, or that a trigger exists. The poll is authoritative: on each poll cycle a server-wide coordinator reads
+promise that LISTEN is ready, connected, or that a trigger exists. InspectRuntime exposes connection health and per-channel LISTEN acknowledgement separately; neither changes the push flag or HTTP readiness. The poll is authoritative: on each poll cycle a server-wide coordinator reads
 `queueMetricsUnvalidated` once per distinct subscribed queue and fans out the result and emits an `update` with `source` `poll` whenever
 the metrics (ignoring `scrape_time`) changed.
 
@@ -524,7 +524,7 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 - [x] EP-3 M3: runner, mountable application with the rejecting WebSocket seam, registry and README wiring, design note 021, capability record, changelogs
 - [x] EP-4 M1: shared refresh coordinator and bounded admission; frame types with golden encodings; per-connection bounded queues with overflow signaling; subscribe/snapshot/unsubscribe/ping over a poll-only listener
 - [x] EP-4 M2: the server-wide LISTEN connection with refcounted channels, debounce, reconnect, and re-`LISTEN`; notify-sourced updates arrive; killing the listener backend does not wedge the feed
-- [ ] EP-4 M3: Haddock protocol documentation, design note 021 WebSocket section, changelog
+- [x] EP-4 M3: Haddock protocol documentation, design note 021 WebSocket section, changelog
 - [ ] EP-5 M1: the `pgmq-inspect` executable serves the surface from a database URL; CORS origins and bind address configurable from the command line
 - [ ] EP-5 M2: `GET /openapi.json` serves the programmatically built document; golden and route-coverage tests green
 - [ ] EP-5 M3: `docs/user/queue-inspection.md`, README section, capability records, `IR-3` completed, release handoff recorded
@@ -732,6 +732,14 @@ interactions between child plans. Provide concise evidence.
 
 
 ## Outcomes & Retrospective
+
+EP-4 complete (2026-10-20 UTC): shared poll/notify metrics refresh, bounded transport,
+atomic snapshots/generations, a refcounted reconnecting listener and scoped cleanup
+are implemented and documented. All 107 native/stock inspection tests, the full
+six-suite family run, final host Nix flake check, Haddock, source distribution and
+strict docs checks pass. A 106-test snapshot also passed twenty stock stress runs.
+The boundary ADR and retained workload report distill resource ownership and real
+cost. Four children are complete; EP-5 is now ready and continuation is authorized.
 
 EP-3 complete (2026-10-20 UTC): HTTP inspection, shared admission, checked config,
 safe contextual errors and the bracketed Warp lifecycle pass 60 native/stock tests.

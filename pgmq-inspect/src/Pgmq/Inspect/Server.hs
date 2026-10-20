@@ -23,6 +23,7 @@ import Control.Monad (void)
 import Data.Aeson (encode)
 import Data.ByteString.Lazy qualified as LBS
 import Data.Text (Text)
+import GHC.Clock (getMonotonicTimeNSec)
 import Hasql.Connection.Settings qualified
 import Network.Wai (Application)
 import Network.WebSockets qualified as WS
@@ -48,7 +49,10 @@ data InspectRuntime = InspectRuntime
   { runtimeApplication :: !Application,
     runtimeRequestShutdown :: !(IO ()),
     runtimeAwaitDrained :: !(Int -> IO ()),
+    -- | Current-session LISTEN acknowledgement for a channel. Resolve channel
+    -- names with notifyChannelName; health alone does not acknowledge a channel.
     runtimeListenerAcknowledged :: !(Text -> STM Bool),
+    -- | Connection health, independent of HTTP readiness and trigger existence.
     runtimeListenerHealthy :: !(STM Bool)
   }
 
@@ -59,7 +63,16 @@ withInspectRuntime cfg env k = do
     withInspectionBudget cfg $ \budget ->
       withCoordinator cfg env budget (pushHooks <$> listener) $ \coordinator -> do
         state <- Feed.newWebSocketState (wsMaxConnections cfg)
-        let shutdown = atomically (stopCoordinator coordinator >> Feed.requestShutdown state)
+        shutdownStarted <- newTVarIO Nothing
+        let shutdown = do
+              now <- getMonotonicTimeNSec
+              atomically $ do
+                stopCoordinator coordinator
+                Feed.requestShutdown state
+                started <- readTVar shutdownStarted
+                case started of
+                  Nothing -> writeTVar shutdownStarted (Just now)
+                  Just _ -> pure ()
             runtime =
               InspectRuntime
                 { runtimeApplication = corsMiddleware (corsPolicy cfg) (httpApp budget cfg env (Feed.websocketApp cfg coordinator state)),
@@ -68,7 +81,13 @@ withInspectRuntime cfg env k = do
                   runtimeListenerAcknowledged = maybe (const (pure False)) Listener.listenerAcknowledged listener,
                   runtimeListenerHealthy = maybe (pure False) Listener.listenerHealthy listener
                 }
-            cleanup = shutdown >> Feed.awaitDrained state 1000000 >> Feed.closeConnections state
+            cleanup = do
+              shutdown
+              now <- getMonotonicTimeNSec
+              started <- readTVarIO shutdownStarted
+              let elapsedUs = maybe 0 (\start -> min 1000000 ((now - start) `div` 1000)) started
+              Feed.awaitDrained state (1000000 - fromIntegral elapsedUs)
+              Feed.closeConnections state
         k runtime `finally` cleanup
 
 -- | The application with an explicit WebSocket seam.

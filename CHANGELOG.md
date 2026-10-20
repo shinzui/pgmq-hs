@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+`pgmq-inspect` adds metrics subscriptions over WebSocket: shared rate-limited
+refreshes, bounded queues and frames, snapshot/generation ordering, overflow and
+goodbye, plus a single refcounted reconnecting LISTEN backend. Polling stays
+authoritative. `withInspectRuntime` owns cleanup; listener health and channel
+acknowledgement are separate observables. Workload evidence records real cost.
+
 New `pgmq-inspect` package: mountable read-only HTTP inspection and scoped Warp
 runner, non-destructive message/archive paging, domain JSON, metrics, bindings,
 routing tests, throttles and health probes. Checked configuration, shared

@@ -15,6 +15,18 @@
 -- retained frame; re-read HTTP or re-subscribe after loss. Unsubscribe invalidates
 -- queued generations. Bytes already handed to the socket writer cannot be recalled.
 -- @goodbye@ precedes a server close, with a bounded best-effort shutdown drain.
+--
+-- Server JSON examples (QueueMetrics uses its owning domain encoding):
+--
+-- > {"type":"snapshot","queue":"orders","metrics":{"queue_name":"orders","queue_length":3,"newest_msg_age_sec":1,"oldest_msg_age_sec":9,"total_messages":12,"scrape_time":"2026-09-30T12:00:00Z","queue_visible_length":2,"default_partition_length":null},"push":true}
+--
+-- > {"type":"update","queue":"orders","metrics":{"queue_name":"orders","queue_length":3,"newest_msg_age_sec":1,"oldest_msg_age_sec":9,"total_messages":12,"scrape_time":"2026-09-30T12:00:00Z","queue_visible_length":2,"default_partition_length":null},"source":"notify"}
+--
+-- > {"type":"pong"}
+--
+-- > {"type":"error","code":"overflow","message":"The server dropped frames because this connection was not reading them; re-subscribe or re-read the queue over HTTP.","queue":null}
+--
+-- > {"type":"goodbye"}
 module Pgmq.Inspect.WebSocket
   ( module Pgmq.Inspect.Frames,
     WebSocketState,

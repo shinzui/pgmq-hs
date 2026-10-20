@@ -184,5 +184,17 @@ databaseTests database =
           update <- awaitFrame 2000000 connection (\frame -> frameType frame == Just "update" && (frameField "metrics" frame >>= frameField "queue_length") == Just (Number 3))
           case update of
             Nothing -> assertFailure "poll failed to converge"
-            Just frame -> frameField "source" frame @?= Just (String "poll")
+            Just frame -> frameField "source" frame @?= Just (String "poll"),
+      testCase "nonempty idle queues emit age changes even without writes" $ do
+        (pool, _) <- database
+        withQueue pool $ \queue -> do
+          void (sendN pool queue 1)
+          withTestRuntime config (poolEnv pool Nothing) $ \port _ -> withWs port $ \connection -> do
+            sendClient connection (Subscribe (queueNameToText queue))
+            snapshot <- receive connection
+            let initialAge = frameField "metrics" snapshot >>= frameField "oldest_msg_age_sec"
+            update <- awaitFrame 2000000 connection (\frame -> frameType frame == Just "update" && (frameField "metrics" frame >>= frameField "oldest_msg_age_sec") /= initialAge)
+            case update of
+              Nothing -> assertFailure "idle age change was suppressed"
+              Just frame -> frameField "source" frame @?= Just (String "poll")
     ]

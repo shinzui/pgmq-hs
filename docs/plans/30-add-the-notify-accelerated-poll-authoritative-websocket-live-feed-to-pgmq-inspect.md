@@ -88,8 +88,8 @@ routes, which keeps the HTTP path authoritative exactly as the cross-project con
 - [x] M2: `Pgmq.Inspect.Listener` exists: one server-wide `LISTEN` connection, refcounted channel registry, `threadWaitReadSTM` wait loop over `onLibpqConnection`, reconnect with exponential backoff and re-`LISTEN`, `listenerHealthy`
 - [x] M2: subscribe registers validated, non-partitioned queues for push; `snapshot` says `"push":true`; notify-sourced updates arrive within two seconds; debounce coalesces bursts
 - [x] M2: the backend-kill test proves the feed does not wedge and that pushes resume after reconnection
-- [ ] M3: Haddock on `Pgmq.Inspect.WebSocket` is the protocol reference; the WebSocket section of `docs/design/021-inspection-surface-wire-contract.md` is written
-- [ ] M3: the capability record plan 29 created lists the feed and `WebSocketSpec` as evidence; `pgmq-inspect/CHANGELOG.md` and root `CHANGELOG.md` carry `Unreleased` entries; `just docs-check` passes
+- [x] M3: Haddock on `Pgmq.Inspect.WebSocket` is the protocol reference; the WebSocket section of `docs/design/021-inspection-surface-wire-contract.md` is written
+- [x] M3: the capability record plan 29 created lists the feed and `WebSocketSpec` as evidence; `pgmq-inspect/CHANGELOG.md` and root `CHANGELOG.md` carry `Unreleased` entries; `just docs-check` passes
 
 
 ## Surprises & Discoveries
@@ -151,6 +151,12 @@ Active queues stay capped at wsMaxQueues; active plus cooldown entries stay at
 
 
 ## Decision Log
+
+- Decision (2026-10-20 UTC): Share the one-second default graceful delivery window
+  across convenience-runner and runtime finalizers, instead of restarting a full
+  window in both phases. Keep database cancellation/cleanup outside that delivery
+  guarantee. Document and test idle nonempty age updates and safe invalid-frame
+  errors without echoing client payloads.
 
 - Decision (2026-10-20 UTC): Expose per-channel LISTEN acknowledgement separately
   from connection health; keep push as registered interest. Coalesce coincident
@@ -229,11 +235,20 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-M1 and M2 complete: 106 native/stock cases and 20 stock stress reruns pass. Shared
-read scheduling, generations, bounded frames/outboxes, a refcounted reconnecting
-listener and scoped shutdown are implemented. Workload evidence records real cost
-and query counts. M3 documentation, capability evidence and final family/Nix checks
-remain before closing this child.
+Complete (2026-10-20 UTC): shared read scheduling, generations, bounded frames and
+outboxes, refcounted reconnecting listener and scoped shutdown are implemented.
+The final suite passes 107 tests on native and stock schemas; an earlier 106-case
+snapshot passed twenty full stock stress runs. The full family passes all six
+suites (72 core, 111 hasql, 79 effectful, 11 migration, 70 config, 107 inspection).
+The final aarch64-darwin Nix flake check, Haddock, source distribution, strict docs
+and formatting checks pass. Nine frame goldens remain strict missing-fixture tests.
+
+Haddock and design note 021 describe every frame, source/push meaning, coalescing,
+limits, overflow, recovery and cleanup. CAP-12 and changelogs record the feed.
+The boundary ADR distills scheduler/listener ownership and the shared one-second
+graceful delivery window; workload evidence records both shared query counts and
+material observed worker cost. IR-6 remains explicitly outside this work. EP-5 can
+now deliver the executable, OpenAPI, guide and least-privilege acceptance.
 
 
 ## Context and Orientation
@@ -579,6 +594,7 @@ data InspectRuntime = InspectRuntime
   { runtimeApplication :: !Application,
     runtimeRequestShutdown :: !(IO ()),
     runtimeAwaitDrained :: !(Int -> IO ()),
+    runtimeListenerAcknowledged :: !(Text -> STM Bool),
     runtimeListenerHealthy :: !(STM Bool)
   }
 
@@ -758,7 +774,8 @@ and a queue created through the pool with `enableNotifyInsert (EnableNotifyInser
   a mixed-case `pgmq.meta` row poisons `listQueues` for every concurrent test) → `snapshot` with
   `"push":false`, then a poll-sourced `update` after a raw insert;
 - the backend kill, `IR-3` acceptance 4: with `pollIntervalUs = 500_000`, subscribe (`push:true`),
-  wait until `runtimeListenerHealthy` reads `True`, then run through the pool
+  wait until `runtimeListenerAcknowledged runtime (notifyChannelName queue)` is true,
+  capture that listener PID, then run through the pool
 
   ```sql
   select count(pg_terminate_backend(pid))::int
@@ -768,8 +785,8 @@ and a queue created through the pool with `enableNotifyInsert (EnableNotifyInser
 
   and assert the count is at least one; send a message immediately; within two seconds an
   `update` arrives (its source may be `poll` or, if the reconnect won the race, `notify`; the
-  assertion is that one arrives at all, which is the no-wedge guarantee); then poll
-  `runtimeListenerHealthy` with `registerDelay` until it is `True` again (allow ten seconds);
+  assertion is that one arrives at all, which is the no-wedge guarantee); then wait for a different listener PID and
+  the channel acknowledgement on that replacement session (allow ten seconds);
   send another message; within two seconds an `update` with `"source":"notify"` arrives, which
   proves re-`LISTEN` after reconnection;
 - optionally, when `PGMQ_REQUIRE_PARTMAN=1`, a partitioned queue → `"push":false`.

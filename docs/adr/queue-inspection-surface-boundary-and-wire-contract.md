@@ -207,7 +207,8 @@ the due poll deadline; neither driver creates a duplicate scan.
 Lifecycle verification checks the actual owned socket descriptor and joined
 thread, with a deterministic after-bind cancellation barrier. Rebinding a freed
 ephemeral port is not reliable evidence: kernel state or another allocation can
-outlive/reuse it. The scoped runner API remains unchanged.
+outlive/reuse it. The scoped runner API remains unchanged. Runner and runtime cleanup share one
+one-second graceful delivery deadline instead of restarting it in each phase.
 
 Retained workload evidence shows that removing the per-client query multiplier
 still has real cost. Connection/poll limits require worker SLO measurements;

@@ -1,7 +1,7 @@
 # Inspection surface wire contract
 
-Status: adopted, 2026-10-20 UTC. Introduced by ExecPlan 29; the feed and standalone
-server extend this contract in ExecPlans 30 and 31.
+Status: adopted, 2026-10-20 UTC. Introduced by ExecPlan 29; the feed extends this contract in ExecPlan 30. The standalone server and OpenAPI
+document are delivered by ExecPlan 31.
 
 ## The package
 
@@ -138,7 +138,121 @@ fixtures whose absence fails tests rather than generating a passing fixture.
 
 ## WebSocket
 
-Filled by [ExecPlan 30](../plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md).
+Open `/ws` and explicitly subscribe; a new connection watches no queues. Every
+successful subscription atomically publishes a snapshot and activates updates,
+so an update cannot overtake its initial snapshot. Re-subscribe obtains a current
+shared snapshot through the same rate-limited coordinator; it cannot bypass the
+minimum refresh interval. Unsubscribe invalidates queued frames for that generation.
+Bytes already handed to the socket writer cannot be recalled.
+
+The exact client and server frames are:
+
+```json
+{"type":"subscribe","queue":"orders"}
+```
+
+```json
+{"type":"unsubscribe","queue":"orders"}
+```
+
+```json
+{"type":"ping"}
+```
+
+```json
+{"type":"snapshot","queue":"orders","metrics":{"queue_name":"orders","queue_length":3,"newest_msg_age_sec":1,"oldest_msg_age_sec":9,"total_messages":12,"scrape_time":"2026-09-30T12:00:00Z","queue_visible_length":2,"default_partition_length":null},"push":true}
+```
+
+```json
+{"type":"update","queue":"orders","metrics":{"queue_name":"orders","queue_length":3,"newest_msg_age_sec":1,"oldest_msg_age_sec":9,"total_messages":12,"scrape_time":"2026-09-30T12:00:00Z","queue_visible_length":2,"default_partition_length":null},"source":"notify"}
+```
+
+```json
+{"type":"update","queue":"orders","metrics":{"queue_name":"orders","queue_length":3,"newest_msg_age_sec":1,"oldest_msg_age_sec":9,"total_messages":12,"scrape_time":"2026-09-30T12:00:00Z","queue_visible_length":2,"default_partition_length":null},"source":"poll"}
+```
+
+```json
+{"type":"pong"}
+```
+
+```json
+{"type":"error","code":"overflow","message":"The server dropped frames because this connection was not reading them; re-subscribe or re-read the queue over HTTP.","queue":null}
+```
+
+```json
+{"type":"goodbye"}
+```
+
+Frames carry metrics only; re-read messages through HTTP. Error frames have code,
+a safe human message and an always-present queue key (null when not queue-specific).
+Codes are invalid_frame, too_many_subscriptions, too_many_queues, frame_too_large,
+overflow, queue_not_found, inspection_busy, inspection_timeout,
+database_unavailable and database_error. Invalid frames never echo raw payloads.
+A full connection cap rejects the upgrade with HTTP 429 and the inspection_busy
+envelope. A host can still select rejectingWebSocketApp for HTTP-only use.
+
+Push means registered notification interest for a validated, non-partitioned queue
+with a configured listener. It does not promise trigger installation, connection
+health or LISTEN acknowledgement. Foreign and partitioned queues, and runtimes
+without listener settings, are poll-only (push false). A valid queue without an
+insert trigger can have push true and still receive only poll updates.
+
+One runtime-wide listener backend (application_name pgmq-inspect-listener) owns
+refcounted channel interest, using notifyChannelName rather than re-deriving names.
+It reconciles LISTEN/UNLISTEN, drains at most 64 buffered notifications per slice,
+and brackets its socket-read registration on every exit. After failure it reconnects
+with exponential backoff from 100ms to 5s and reissues desired LISTENs. Connection
+health and per-channel acknowledgement are separate read-only runtime observations;
+neither is HTTP readiness. Polls keep running during listener failure.
+
+A shared coordinator reads metrics once per distinct eligible queue, never per
+browser tab. Notifications set one dirty flag per queue and coalesce for the
+100ms default debounce. Polling defaults to 5s; starts for a queue are separated by
+at least metricsMinRefreshUs (default 1s). HTTP and feed reads share maxConcurrentReads
+(default 2). Least-recently-started eligible work keeps a hot queue from starving
+another. Missed ticks coalesce; no catch-up jobs accumulate. A ready hint and due
+poll can share one notify-tagged read while advancing the poll deadline.
+
+Poll updates emit when any metrics field except scrape_time changes. Ages advance
+on nonempty idle queues, so unchanged row counts do not imply a quiet feed. Notify
+updates emit even with an unchanged fingerprint. The source tag identifies the
+refresh driver, not a reliable event, a message or a replay position.
+
+Per connection, wsMaxSubscriptions defaults to 100, and wsQueueCapacity to 256.
+There are at most 100 connections and wsMaxQueues (default 100) active distinct
+queues per runtime. After the last subscriber leaves, listener interest and cached
+metrics are removed. A minimal cooldown lease survives through the minimum-refresh
+window; active plus cooldown entries are capped at twice wsMaxQueues, and exhausted
+cooldown capacity answers inspection_busy. This prevents subscription churn from
+resetting the refresh floor without retaining an unbounded historical map.
+
+Both individual frames and assembled messages are capped at wsMaxFrameBytes
+(default 16,384) by the WebSocket library before unbounded receive accumulation.
+One bounded writer handles every JSON frame. Full outboxes drop oldest frames and
+send an overflow error before the next retained frame. Treat subsequent updates as
+incomplete until re-reading HTTP or re-subscribing. The writer stops on send failure.
+WebSocket control pings run every 30s; JSON ping/pong remains available.
+
+Shutdown stops new subscriptions and refreshes, queues goodbye and attempts a
+one-second graceful delivery window before cancelling/joining transports. The runner
+keeps Warp alive for that attempt; host-owned Warp need not stop for runtime cleanup.
+The one-second window is shared across runner and runtime cleanup, not restarted
+in each phase. A stalled socket may prevent delivery. Database cleanup still has
+the explicit IR-6 cancellation limitation; this delivery window is not a network
+or total process-exit deadline.
+
+Polling is truth, notifications are wake-up hints. A client that misses every
+notification still converges through authoritative metrics reads; there is no
+push-only inspection information. Those reads scan rows. The retained
+[workload evidence](evidence/021-inspection-feed/README.md) shows shared query counts
+and material observed throughput/p95 costs with 100 subscribers, even on a short
+ordinary-queue fixture. Measure against worker SLOs before tuning caps/intervals;
+isolated pools do not isolate database CPU/IO. Use on-demand HTTP reads when
+continuous observation cannot meet that budget.
+
+These frame fields are a compatibility surface once released: additive changes
+only; incompatible protocol changes need a new path. The owning JSON policies
+and explicit-null rules apply unchanged.
 
 ## Related documents
 
