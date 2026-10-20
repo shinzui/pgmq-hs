@@ -153,6 +153,22 @@ an older ID behind an archive cursor. Restarting at the first page finds both;
 continuing from that cursor does not. Exactly-once visitation is a property of a
 quiescent fixture, not a replay guarantee under concurrent writes.
 
+## HTTP runtime boundary
+
+The implemented HTTP runtime owns one nonblocking read gate. Validate page limits
+(including lookahead room), intervals, capacities and literal origins before allocation.
+Parse IDs as bounded-length arbitrary-precision decimal before narrowing to int64.
+Resolve queue identity from exact lenient metadata; recheck metadata after a scoped
+42P01 rather than treating missing global tables as missing queues. Public errors
+carry fixed messages and SQLSTATE only, never raw SQL, parameters or server diagnostics.
+
+A host supplies a dedicated inspection runner with finite database statement/lock
+budgets and separate capacity from workers. A scoped Warp runner binds the requested
+host even on port 0 and races its startup acknowledgement against server failure.
+Sockets, threads and application resources have bracketed ownership. Tests cover
+saturated admission, deadline/worker isolation, prefix routing/upgrades and cleanup;
+these do not establish a hard deadline for the separate IR-6 blackholed-reply problem.
+
 ## Consequences
 
 Adopting pgmq-hs never means adopting a web server; adopting `pgmq-inspect` never means

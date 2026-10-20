@@ -4,6 +4,7 @@ packages:
   pgmq-effectful
   pgmq-migration
   pgmq-config
+  pgmq-inspect
   pgmq-bench
 
 with-compiler: ghc-9.12.4

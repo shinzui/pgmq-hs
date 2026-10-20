@@ -1,0 +1,1 @@
+{"error":{"code":"invalid_cursor","details":{"from":"x"},"message":"from must be a non-negative integer msg_id."}}

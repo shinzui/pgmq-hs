@@ -23,6 +23,11 @@ provenance:
       at: 2026-10-19T18:23:59Z
       mode: "update"
       note: "Corrected cursor overflow, queue error classification, read counters and public errors; specified shared admission, deadlines and exception-safe startup."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-20T04:18:09Z
+      mode: "implement"
+      note: "Implement HTTP package, shared admission, checked configuration and server lifecycle"
 ---
 
 # Create the pgmq-inspect sister package with the HTTP inspection surface
@@ -80,13 +85,13 @@ the OpenAPI document, and the user guide are
 
 - [ ] Review gates: validated configuration, shared nonblocking read admission, isolated query budgets, exact integer parsing, contextual queue errors, safe public diagnostics, prefixed route tests, and a verified Warp startup/cleanup lifecycle.
 
-- [ ] M1: `pgmq-inspect/pgmq-inspect.cabal`, `LICENSE`, `CHANGELOG.md`, and the `src/Pgmq/Inspect/` tree exist; `cabal.project` lists the package; `nix develop --command cabal build pgmq-inspect` succeeds
-- [ ] M1: `Pgmq.Inspect.Config`, `Pgmq.Inspect.Env`, `Pgmq.Inspect.Wire`, and `Pgmq.Inspect.Error` complete with Haddocks; `WireGoldenSpec` pins every wire type under `pgmq-inspect/test/golden/`
-- [ ] M1: `Pgmq.Inspect.Http` serves `/`, `/queues`, `/queues/{queue}`, `/queues/{queue}/metrics`, `/metrics`, `/health/live`, `/health/ready`, 404 and 405; `routeTable` exported; `RouterSpec` green against the mock interpreter with no database
-- [ ] M2: message, archive, by-id, bindings, routing-test, and throttle routes served; `from`/`limit`/`routing_key` parsing with 400 codes; `limit + 1` paging with `next_cursor`
-- [ ] M2: `Pgmq.Inspect.Cors` middleware; `CorsSpec` green (no headers when disabled, headers for a listed origin, none for an unlisted one, preflight answered)
-- [ ] M2: `HttpSpec` green against ephemeral PostgreSQL, including the end-to-end non-destructive check and the IR-3 acceptance 1 listing; `ErrorSpec` green (503, queue-scoped 404 and global missing-schema 500, 500)
-- [ ] M3: `Pgmq.Inspect.Server` with `withInspectApplication`, `withInspectApplicationWith`, `rejectingWebSocketApp`, `withInspectServer`, `runInspectServer`, `RunningInspectServer`; the `["ws"]` route dispatches the seam and answers 426 to a plain GET
+- [x] M1: `pgmq-inspect/pgmq-inspect.cabal`, `LICENSE`, `CHANGELOG.md`, and the `src/Pgmq/Inspect/` tree exist; `cabal.project` lists the package; `nix develop --command cabal build pgmq-inspect` succeeds
+- [x] M1: `Pgmq.Inspect.Config`, `Pgmq.Inspect.Env`, `Pgmq.Inspect.Wire`, and `Pgmq.Inspect.Error` complete with Haddocks; `WireGoldenSpec` pins every wire type under `pgmq-inspect/test/golden/`
+- [x] M1: `Pgmq.Inspect.Http` serves `/`, `/queues`, `/queues/{queue}`, `/queues/{queue}/metrics`, `/metrics`, `/health/live`, `/health/ready`, 404 and 405; `routeTable` exported; `RouterSpec` green against the mock interpreter with no database
+- [x] M2: message, archive, by-id, bindings, routing-test, and throttle routes served; `from`/`limit`/`routing_key` parsing with 400 codes; `limit + 1` paging with `next_cursor`
+- [x] M2: `Pgmq.Inspect.Cors` middleware; `CorsSpec` green (no headers when disabled, headers for a listed origin, none for an unlisted one, preflight answered)
+- [x] M2: `HttpSpec` green against ephemeral PostgreSQL, including the end-to-end non-destructive check and the IR-3 acceptance 1 listing; `ErrorSpec` green (503, queue-scoped 404 and global missing-schema 500, 500)
+- [x] M3: `Pgmq.Inspect.Server` with `withInspectApplication`, `withInspectApplicationWith`, `rejectingWebSocketApp`, `withInspectServer`, `runInspectServer`, `RunningInspectServer`; the `["ws"]` route dispatches the seam and answers 426 to a plain GET
 - [ ] M3: `nix/haskell-overlay.nix`, `flake.module.nix`, `justfile`, `mori.dhall`, README package table updated; `nix build .#pgmq-inspect` and `mori validate` succeed
 - [ ] M3: `docs/design/021-inspection-surface-wire-contract.md` written (HTTP half, WebSocket heading left for plan 30); capability record allocated with `okf id next` and indexed; `just docs-check` green; root and package changelogs carry an `Unreleased` section
 
@@ -104,10 +109,29 @@ zero-capacity outboxes and maxBound page sizes, despite the limit+1 operation.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+Implementation (2026-10-20 UTC): Mori lookup still fails because its local database
+is absent. Verified cached Hackage sources and authoritative preferred-version lists:
+warp 3.4.16, wai 3.2.5, wai-websockets 3.0.1.2, websockets 0.13.0.0,
+wai-cors 0.2.7, network 3.2.9.0. Retained compatible family caret ranges.
+Warp uses streaming-commons bindPortTCP, so the runner uses the same host-aware
+binding API and a before-main-loop acknowledgement raced against thread failure.
+The effect umbrella does not export listQueuesUnvalidated; import it from Effect.
+
+Validation: all 59 tests pass natively without --accept, including seven reviewed,
+strict missing-fixture goldens; non-destructive raw-cell comparison, exact int64
+parsing, contextual errors, saturated admission, safe diagnostics, dedicated-pool
+statement timeout, 1 MiB payload, mounting and server cleanup. Database fixtures
+are acquired lazily so selecting mock tests needs no PostgreSQL startup. Remaining:
+Nix/registry/docs wiring, final family and supported-schema checks.
 
 
 ## Decision Log
+
+- Decision (2026-10-20 UTC): Implement the complete small router and scoped server
+  together, then validate the M1/M2 gates together; splitting working handlers into
+  temporary 404 stubs would add no useful integration evidence. M3 retains package
+  wiring and documentation. Dedicated pools remain a host obligation; the test uses
+  PostgreSQL deadlines and checks worker progress without claiming a hard IR-6 fix.
 
 - Decision (2026-10-19): EP-3 owns one shared inspection admission gate and checked config;
   EP-4 consumes them and owns metrics scheduling. Reject excess work immediately instead of
