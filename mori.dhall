@@ -109,6 +109,20 @@ in  Schema.Project::{ project =
           , thirdPartyDep "effectful/effectful:effectful-core"
           ]
         }
+      , Schema.Package::{ name = "pgmq-inspect"
+        , type = Schema.PackageType.Library
+        , language = Schema.Language.Haskell
+        , path = Some "./pgmq-inspect"
+        , description = Some
+            "Embeddable HTTP and WebSocket queue inspection surface"
+        , dependencies =
+          [ internalDep "pgmq-core"
+          , internalDep "pgmq-hasql"
+          , internalDep "pgmq-effectful"
+          , thirdPartyDep "hasql/hasql:hasql"
+          , thirdPartyDep "effectful/effectful:effectful-core"
+          ]
+        }
       , Schema.Package::{ name = "pgmq-bench"
         , type = Schema.PackageType.Tool
         , language = Schema.Language.Haskell
@@ -128,13 +142,14 @@ in  Schema.Project::{ project =
     , bundles =
       [ Schema.PackageBundle::{ name = "pgmq-hs"
         , description = Some
-            "pgmq-core + pgmq-hasql + pgmq-effectful + pgmq-migration + pgmq-config"
+            "pgmq-core + pgmq-hasql + pgmq-effectful + pgmq-migration + pgmq-config + pgmq-inspect"
         , packages =
           [ "pgmq-core"
           , "pgmq-hasql"
           , "pgmq-effectful"
           , "pgmq-migration"
           , "pgmq-config"
+          , "pgmq-inspect"
           ]
         , primary = "pgmq-hasql"
         }

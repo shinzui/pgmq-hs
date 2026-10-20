@@ -15,6 +15,7 @@ The API may evolve before 1.0.
 | `pgmq-core` | Core types and type classes |
 | `pgmq-hasql` | Hasql-based implementation |
 | `pgmq-effectful` | Effectful effects for pgmq, with OpenTelemetry-traced interpreters |
+| `pgmq-inspect` | Embeddable HTTP and WebSocket queue inspection surface |
 | `pgmq-config` | Declarative queue configuration (idempotent reconciliation at startup) |
 | `pgmq-migration` | Schema migrations without pgmq extension |
 
@@ -116,6 +117,26 @@ main = do
 ```
 
 Supports standard, unlogged, and partitioned queues; `LISTEN/NOTIFY` throttles; FIFO indexes; and topic bindings. `ensureQueuesReport` returns a list of `ReconcileAction` values so you can log exactly what changed. An `effectful` integration (`Pgmq.Config.Effectful`) is enabled by default via a cabal flag. See [`docs/user/queue-configuration.md`](docs/user/queue-configuration.md) for the full reference.
+
+## pgmq-inspect
+
+Mount a read-only WAI application with `withInspectApplication`, or serve it on
+`127.0.0.1:9092` with CORS disabled:
+
+```haskell
+import Pgmq.Inspect
+
+-- inspectionPool is dedicated capacity with finite PostgreSQL statement_timeout
+-- and lock_timeout, separate from worker connections.
+serveInspection inspectionPool =
+  runInspectServer defaultInspectServerConfig (poolEnv inspectionPool Nothing)
+```
+
+Listings, total/visible metrics, message/archive browsing, bindings, routing,
+throttles and health probes use the domain JSON encodings. Configure an explicit
+CORS origin list for browser access. See the
+[wire contract](docs/design/021-inspection-surface-wire-contract.md) for routes,
+costs and mounting. Deploy on a trusted network or behind an authenticating proxy.
 
 ## pgmq-migration
 

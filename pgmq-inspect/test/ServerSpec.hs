@@ -1,15 +1,19 @@
 module ServerSpec (tests) where
 
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad (replicateM_)
 import Data.Aeson (Value (..))
 import Data.IORef
+import Network.HTTP.Client qualified as Http
+import Network.HTTP.Types (statusCode)
 import Network.Wai (pathInfo)
 import Network.Wai.Handler.Warp qualified as Warp
 import Pgmq.Inspect
 import RouterSpec (errorCodeOf, mockEnv)
+import System.IO.Error (isAlreadyInUseError)
 import Test.Tasty
 import Test.Tasty.HUnit
 import TestServer
@@ -56,10 +60,10 @@ tests =
         withInspectServer config mockEnv $ \server -> putMVar saved server
         server <- takeMVar saved
         poll (serverThread server) >>= (\state -> assertBool "server joined" (maybe False (const True) state))
-        withInspectServer config {bindPort = serverPort server} mockEnv (const (pure ()))
+        probeRebind (serverPort server)
         result <- try @IOException $ withInspectServer config {bindPort = serverPort server} mockEnv (const (throwIO (userError "intentional")))
         assertBool "callback exception propagated" (either (const True) (const False) result)
-        withInspectServer config {bindPort = serverPort server} mockEnv (const (pure ())),
+        probeRebind (serverPort server),
       testCase "cancellation during startup or callback releases all scoped server resources" $ do
         replicateM_ 10 $ do
           worker <- async (withInspectServer config mockEnv (const (threadBlock)))
@@ -69,14 +73,26 @@ tests =
         withAsync (withInspectServer config mockEnv (\s -> putMVar started s >> threadBlock)) $ \worker -> do
           server <- takeMVar started
           cancel worker
-          withInspectServer config {bindPort = serverPort server} mockEnv (const (pure ())),
+          probeRebind (serverPort server),
       testCase "port 0 honors configured loopback host" $
-        withInspectServer config {bindHost = "127.0.0.1"} mockEnv $ \server -> do
+        withInspectServer config {bindHost = "::1"} mockEnv $ \server -> do
           assertBool "OS assigned port" (serverPort server > 0)
-          r <- get (serverPort server) "/health/live"
-          replyStatus r @?= 200
+          manager <- Http.newManager Http.defaultManagerSettings
+          req <- Http.parseRequest ("http://[::1]:" <> show (serverPort server) <> "/health/live")
+          response <- Http.httpLbs req manager
+          statusCode (Http.responseStatus response) @?= 200
     ]
   where
+    -- Once released, the OS may immediately assign the port to another test's
+    -- outbound socket or listener. A joined server must permit a rebind within
+    -- this short bound; a persistent leak still fails.
+    probeRebind port = retryBind (5 :: Int)
+      where
+        retryBind remaining =
+          withInspectServer config {bindPort = port} mockEnv (const (pure ())) `catch` \e ->
+            if isAlreadyInUseError e && remaining > 0
+              then threadDelay 20000 >> retryBind (remaining - 1)
+              else throwIO e
     config = defaultInspectServerConfig {bindPort = 0}
     threadBlock = newEmptyMVar >>= takeMVar :: IO ()
     upgradeHeaders = [("Connection", "Upgrade"), ("Upgrade", "websocket"), ("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="), ("Sec-WebSocket-Version", "13")]

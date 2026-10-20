@@ -90,6 +90,7 @@ nix-build:
     nix build .#pgmq-hasql
     nix build .#pgmq-effectful
     nix build .#pgmq-migration
+    nix build .#pgmq-inspect
 
 # Build a specific package with Nix
 [group("nix")]

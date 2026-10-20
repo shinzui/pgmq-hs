@@ -81,3 +81,16 @@ Until someone adds those six `callCabal2nix` entries (all the directories exist 
 tree; `exporter-otlp` additionally drags `proto-lens`), the effect layer's behavioural evidence
 comes from `cabal test all`, not from `nix flake check`. Do not re-add the check without
 fixing the overlay first.
+
+
+## Inspection web dependency compatibility
+
+ExecPlan 29 adds the sister package to the Nix overlay and library checks, with
+its ephemeral database suite run by Cabal. The package-set Warp 3.4.9 uses
+crypton-x509 1.7.7 for optional certificate metadata. That version’s <1.1 crypton
+bound is real: raising it against the SDK’s existing 1.1.4 pin fails because the
+new crypto keys use ram rather than memory byte arrays. The overlay supplies
+`prev.crypton` only to crypton-x509, preserving its compatible package-set APIs
+while the SDK retains its existing pin. Do not blindly jailbreak this boundary.
+Newer certificate releases must be reviewed as a coordinated dependency family.
+No wai-websockets executable-dependency override is required on this pin.

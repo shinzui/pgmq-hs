@@ -21,7 +21,7 @@ import Pgmq.Effectful.Effect (Pgmq (..))
 import Pgmq.Inspect.Config
 import Pgmq.Inspect.Env
 import Pgmq.Types (UnvalidatedQueue (..))
-import RouterSpec (errorCodeOf, mockEnv)
+import RouterSpec (errorCodeOf, lookupKey, mockEnv)
 import System.Timeout (timeout)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -113,6 +113,10 @@ tests =
             case outcome of
               Nothing -> assertFailure "admission queued a request"
               Just r -> (replyStatus r @?= 503) >> (errorCodeOf r >>= (@?= String "inspection_busy"))
+            ready <- get port "/health/ready"
+            replyStatus ready @?= 503
+            body <- decodeReply ready
+            lookupKey "ready" body @?= Just (Bool False)
             readIORef calls >>= (@?= 1)
             get port "/health/live" >>= (\r -> replyStatus r @?= 200)
             putMVar release ()

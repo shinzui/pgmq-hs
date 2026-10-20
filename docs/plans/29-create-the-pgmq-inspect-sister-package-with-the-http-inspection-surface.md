@@ -83,7 +83,7 @@ the OpenAPI document, and the user guide are
 
 ## Progress
 
-- [ ] Review gates: validated configuration, shared nonblocking read admission, isolated query budgets, exact integer parsing, contextual queue errors, safe public diagnostics, prefixed route tests, and a verified Warp startup/cleanup lifecycle.
+- [x] Review gates: validated configuration, shared nonblocking read admission, isolated query budgets, exact integer parsing, contextual queue errors, safe public diagnostics, prefixed route tests, and a verified Warp startup/cleanup lifecycle.
 
 - [x] M1: `pgmq-inspect/pgmq-inspect.cabal`, `LICENSE`, `CHANGELOG.md`, and the `src/Pgmq/Inspect/` tree exist; `cabal.project` lists the package; `nix develop --command cabal build pgmq-inspect` succeeds
 - [x] M1: `Pgmq.Inspect.Config`, `Pgmq.Inspect.Env`, `Pgmq.Inspect.Wire`, and `Pgmq.Inspect.Error` complete with Haddocks; `WireGoldenSpec` pins every wire type under `pgmq-inspect/test/golden/`
@@ -92,8 +92,8 @@ the OpenAPI document, and the user guide are
 - [x] M2: `Pgmq.Inspect.Cors` middleware; `CorsSpec` green (no headers when disabled, headers for a listed origin, none for an unlisted one, preflight answered)
 - [x] M2: `HttpSpec` green against ephemeral PostgreSQL, including the end-to-end non-destructive check and the IR-3 acceptance 1 listing; `ErrorSpec` green (503, queue-scoped 404 and global missing-schema 500, 500)
 - [x] M3: `Pgmq.Inspect.Server` with `withInspectApplication`, `withInspectApplicationWith`, `rejectingWebSocketApp`, `withInspectServer`, `runInspectServer`, `RunningInspectServer`; the `["ws"]` route dispatches the seam and answers 426 to a plain GET
-- [ ] M3: `nix/haskell-overlay.nix`, `flake.module.nix`, `justfile`, `mori.dhall`, README package table updated; `nix build .#pgmq-inspect` and `mori validate` succeed
-- [ ] M3: `docs/design/021-inspection-surface-wire-contract.md` written (HTTP half, WebSocket heading left for plan 30); capability record allocated with `okf id next` and indexed; `just docs-check` green; root and package changelogs carry an `Unreleased` section
+- [x] M3: `nix/haskell-overlay.nix`, `flake.module.nix`, `justfile`, `mori.dhall`, README package table updated; `nix build .#pgmq-inspect` and `mori validate` succeed
+- [x] M3: `docs/design/021-inspection-surface-wire-contract.md` written (HTTP half, WebSocket heading left for plan 30); capability record allocated with `okf id next` and indexed; `just docs-check` green; root and package changelogs carry an `Unreleased` section
 
 
 ## Surprises & Discoveries
@@ -121,8 +121,24 @@ Validation: all 59 tests pass natively without --accept, including seven reviewe
 strict missing-fixture goldens; non-destructive raw-cell comparison, exact int64
 parsing, contextual errors, saturated admission, safe diagnostics, dedicated-pool
 statement timeout, 1 MiB payload, mounting and server cleanup. Database fixtures
-are acquired lazily so selecting mock tests needs no PostgreSQL startup. Remaining:
-Nix/registry/docs wiring, final family and supported-schema checks.
+are acquired lazily so selecting mock tests needs no PostgreSQL startup. The final native suite passes 60 tests. Stock 1.12 also passes 60; the full family
+run passed core 72, migration 11, config 70, hasql 111, effectful 79 and the then-59
+inspection tests. Final Nix build, Haddock, sdist and strict docs checks pass.
+The copied stock SQL fixture retains upstream whitespace byte-for-byte.
+
+Nix discovery: crypton-x509 1.7.7's <1.1 crypton bound is a real byte-array API
+boundary, confirmed by a failed bound-only relaxation. Override only its crypton
+argument to prev.crypton; the SDK keeps its existing pin. Current registry x509
+1.10.0 and upstream tags were checked before choosing this narrow compatibility
+fix. A first final stock run hit a transient address-in-use on a just-released ephemeral
+port under concurrent network tests. One hundred isolated cancellation runs and
+one hundred concurrent lifecycle groups passed. Rebind probes now retry only that
+OS error for at most 100ms; persistent leaks still fail, and thread-join checks remain. Ten full concurrent
+stock-schema reruns then passed (600 tests), in addition to the final native/stock
+60-test runs.
+No wai-websockets executable override was needed. The older pinned http-types
+lacks status426, so use mkStatus 426 instead. Readiness keeps its readiness body
+also on saturated admission. Port-zero tests now use ::1 to verify host selection.
 
 
 ## Decision Log
@@ -181,6 +197,19 @@ Nix/registry/docs wiring, final family and supported-schema checks.
 
 
 ## Outcomes & Retrospective
+
+Complete (2026-10-20 UTC): the version-0.1.0.0 sister package serves every HTTP
+route and exports scoped application/server builders with the rejecting WS seam.
+CAP-12, design note 021, the README, changelogs, Nix, Justfile and Mori wiring
+are complete. Sixty integration/unit/golden cases cover non-destructive raw cells,
+exact cursor edges, CORS, error privacy and context, admission, statement/lock
+budgets, worker isolation, a large payload, prefix mounts and lifecycle cleanup.
+Native/stock, family, Nix, Haddock, source distribution and docs gates pass.
+
+The two durable dependency/runtime lessons are distilled in the boundary and
+bounds ADRs. Known IR-6 network cancellation limits remain explicit; query tests
+establish server-side budgets and isolated capacity, not a universal IO deadline.
+EP-4 consumes the single runtime budget and keeps the existing public signatures.
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose. Before marking the plan complete,
@@ -1539,6 +1568,10 @@ belongs to Milestone 2's handler; in Milestone 1 it passes trivially only if `pa
 before the stubbed handler, so write `parsePage` in Milestone 1 and have the stub call it.
 
 `pgmq-inspect/test/WireGoldenSpec.hs`:
+
+Implementation refinement: wrap the actual suite in `localOption (NoCreateFile True)`
+using tasty-golden 2.3.6, as EP-2 established. Create/review placeholder fixtures
+before intentional --accept runs; an absent committed golden must fail.
 
 ```haskell
 module WireGoldenSpec (tests) where

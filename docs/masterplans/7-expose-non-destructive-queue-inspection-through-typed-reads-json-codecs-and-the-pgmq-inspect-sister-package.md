@@ -227,7 +227,7 @@ path for foreign and mixed-case names).
 |---|-------|------|-----------|-----------|--------|
 | 1 | Add non-destructive peek, archive, and lookup reads across the pgmq layers | docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md | None | EP-2 (integration: `ArchivedMessage` codec) | Complete |
 | 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | Complete |
-| 3 | Create the pgmq-inspect sister package with the HTTP inspection surface | docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md | EP-1, EP-2 | None | In Progress |
+| 3 | Create the pgmq-inspect sister package with the HTTP inspection surface | docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md | EP-1, EP-2 | None | Complete |
 | 4 | Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect | docs/plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md | EP-3 | None | Not Started |
 | 5 | Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide | docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md | EP-3, EP-4 | None | Not Started |
 
@@ -521,7 +521,7 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 - [x] EP-2 M2: design note 020, CAP-11, four changelogs and IR-2 closure; strict missing-fixture guards, build/Haddock/sdist, docs/format and final aarch64-darwin Nix checks passed (2026-10-20 UTC)
 - [x] EP-3 M1: `pgmq-inspect` builds under cabal and Nix with config, env, wire types, error mapping, and a router serving the descriptor, listings, metrics, and health; mock-interpreter router tests
 - [x] EP-3 M2: browse, archive, by-id, bindings, routing-test, and throttle routes; CORS middleware; the end-to-end non-destructive test and the error-mapping tests green against ephemeral PostgreSQL
-- [ ] EP-3 M3: runner, mountable application with the rejecting WebSocket seam, registry and README wiring, design note 021, capability record, changelogs
+- [x] EP-3 M3: runner, mountable application with the rejecting WebSocket seam, registry and README wiring, design note 021, capability record, changelogs
 - [ ] EP-4 M1: shared refresh coordinator and bounded admission; frame types with golden encodings; per-connection bounded queues with overflow signaling; subscribe/snapshot/unsubscribe/ping over a poll-only listener
 - [ ] EP-4 M2: the server-wide LISTEN connection with refcounted channels, debounce, reconnect, and re-`LISTEN`; notify-sourced updates arrive; killing the listener backend does not wedge the feed
 - [ ] EP-4 M3: Haddock protocol documentation, design note 021 WebSocket section, changelog
@@ -535,8 +535,8 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 EP-3 M1/M2 (2026-10-20 UTC): the new HTTP package and scoped server pass 59 tests,
 including non-destructive browsing, exact/capped parsing, metadata-contextual errors,
 safe diagnostics, shared nonblocking admission, statement deadlines on separate
-inspection capacity, prefix upgrades and startup/cleanup. Nix wiring and the HTTP
-contract documents remain before EP-3 closes. Continuous execution between children
+inspection capacity, prefix upgrades and startup/cleanup. Nix wiring, CAP-12 and design note 021 are now complete; the final 60-test suites
+and Nix/Haddock/docs gates close EP-3. Continuous execution between children
 is explicitly authorized by the user.
 
 EP-2 M1 (2026-10-20 UTC): a concrete Pair helper both increased allocation and
@@ -722,6 +722,12 @@ interactions between child plans. Provide concise evidence.
 
 
 ## Outcomes & Retrospective
+
+EP-3 complete (2026-10-20 UTC): HTTP inspection, shared admission, checked config,
+safe contextual errors and the bracketed Warp lifecycle pass 60 native/stock tests.
+Family validation, Nix build, Haddock, source distribution and strict docs checks
+pass. CAP-12 and design note 021 are published locally; no versions or migration
+bytes changed. EP-4 is ready, and the user has authorized automatic continuation.
 
 EP-2 completed (2026-10-20 UTC): thirteen encoders and four record decoders are
 implemented with 53 reviewed goldens, arbitrary JSON header normalization, exact

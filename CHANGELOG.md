@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+New `pgmq-inspect` package: mountable read-only HTTP inspection and scoped Warp
+runner, non-destructive message/archive paging, domain JSON, metrics, bindings,
+routing tests, throttles and health probes. Checked configuration, shared
+nonblocking read admission, safe errors and explicit-origin CORS. Hosts supply
+isolated inspection capacity with finite database budgets. See design note 021.
+
 Add stable JSON wire encodings (IR-2) for queues, live/archive messages, metrics,
 topic and notification records, and reconciliation reports. Hand-written instances
 use pgmq's snake_case column names, emit optional fields as null, and are a

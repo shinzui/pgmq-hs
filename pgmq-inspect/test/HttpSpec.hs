@@ -11,6 +11,7 @@ import Data.Time (UTCTime)
 import Data.Vector qualified as V
 import EphemeralDb
 import EphemeralPg qualified as Pg
+import Hasql.Connection qualified as Connection
 import Hasql.Decoders qualified as D
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as PC
@@ -63,7 +64,23 @@ tests :: IO (Pool.Pool, Pg.Database) -> TestTree
 tests database =
   testGroup
     "HTTP database integration"
-    [ testCase "browsing over HTTP leaves read_ct at zero and every message available" $ do
+    [ testCase "lock deadline bounds inspection while a consumer uses worker capacity" $ do
+        result <- withPgmqDb $ \workers database' -> withQueue workers $ \q -> do
+          void (sendN workers q 1)
+          bracket (Connection.acquire (Pg.connectionSettings database') >>= either (assertFailure . show) pure) Connection.release $ \locker -> do
+            Connection.use locker (Session.script "BEGIN; LOCK TABLE pgmq.meta IN ACCESS EXCLUSIVE MODE") >>= either (assertFailure . show) pure
+            bracket (Pool.acquire (PC.settings [PC.size 1, PC.acquisitionTimeout 1, PC.staticConnectionSettings (Pg.connectionSettings database'), PC.initSession (Session.script "SET statement_timeout = '1s'; SET lock_timeout = '50ms'")])) Pool.release $ \inspectionPool ->
+              withTestServer defaultInspectConfig (poolEnv inspectionPool Nothing) $ \port -> do
+                outcome <- timeout 2000000 (get port "/queues")
+                case outcome of
+                  Nothing -> assertFailure "lock deadline failed"
+                  Just r -> do
+                    replyStatus r @?= 503
+                    errorCodeOf r >>= (@?= String "database_unavailable")
+                consumed <- timeout 500000 (session workers (S.readMessage (H.ReadMessage q 0 (Just 1) Nothing)))
+                fmap V.length consumed @?= Just 1
+        either (assertFailure . show) pure result,
+      testCase "browsing over HTTP leaves read_ct at zero and every message available" $ do
         (pool, _) <- database
         withQueue pool $ \q -> do
           ids <- sendN pool q 5

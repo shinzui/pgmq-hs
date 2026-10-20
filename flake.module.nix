@@ -99,11 +99,12 @@
         pgmq-effectful = haskellPackages.pgmq-effectful;
         pgmq-migration = haskellPackages.pgmq-migration;
         pgmq-config = haskellPackages.pgmq-config;
+        pgmq-inspect = haskellPackages.pgmq-inspect;
         default = haskellPackages.pgmq-hasql;
       };
 
       checks = {
-        inherit (haskellPackages) pgmq-core pgmq-hasql pgmq-effectful pgmq-migration pgmq-config;
+        inherit (haskellPackages) pgmq-core pgmq-hasql pgmq-effectful pgmq-migration pgmq-config pgmq-inspect;
         pgmq-hasql-tests = withTests haskellPackages.pgmq-hasql;
         pgmq-migration-tests = withTests haskellPackages.pgmq-migration;
         pgmq-config-tests = withTests haskellPackages.pgmq-config;

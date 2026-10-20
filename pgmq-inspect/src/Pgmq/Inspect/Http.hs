@@ -23,11 +23,11 @@ import GHC.Clock (getMonotonicTimeNSec)
 import Network.HTTP.Types
   ( Method,
     methodGet,
+    mkStatus,
     status200,
     status400,
     status404,
     status405,
-    status426,
     status503,
   )
 import Network.Wai (Application, Request, Response, pathInfo, queryString, requestMethod)
@@ -78,7 +78,10 @@ httpApp budget cfg env wsApp req respond
       | pathInfo req `elem` [[], ["health", "live"], ["ws"]] = route
       | not (any (matches (pathInfo req) . snd) routeTable) = route
       | Left bad <- validateInput = pure (errorResponse status400 bad)
-      | otherwise = maybe (errorResponse status503 inspectionBusy) id <$> withInspectionPermit budget route
+      | otherwise = maybe busyResponse id <$> withInspectionPermit budget route
+    busyResponse
+      | pathInfo req == ["health", "ready"] = jsonResponse status503 (encode (ReadinessBody False [DependencyCheck "postgres" False Nothing (Just "Inspection capacity is busy; retry the probe.")]))
+      | otherwise = errorResponse status503 inspectionBusy
     validateInput = case pathInfo req of
       ["queues", _, kind] | kind `elem` ["messages", "archive"] -> () <$ parsePage cfg req
       ["queues", _, kind, mid] | kind `elem` ["messages", "archive"] -> () <$ parseMessageId mid
@@ -106,7 +109,7 @@ httpApp budget cfg env wsApp req respond
       ["notify", "throttles"] -> throttlesRoute env
       ["health", "live"] -> pure (jsonResponse status200 (encode (LivenessBody True)))
       ["health", "ready"] -> readinessRoute cfg env
-      ["ws"] -> pure (maybe (errorResponse status426 websocketUpgradeRequired) id (WaiWS.websocketsApp WS.defaultConnectionOptions wsApp req))
+      ["ws"] -> pure (maybe (errorResponse (mkStatus 426 "Upgrade Required") websocketUpgradeRequired) id (WaiWS.websocketsApp WS.defaultConnectionOptions wsApp req))
       _ -> pure (errorResponse status404 notFound)
 
 descriptor :: Response

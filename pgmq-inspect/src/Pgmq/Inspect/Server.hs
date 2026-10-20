@@ -68,7 +68,7 @@ data RunningInspectServer = RunningInspectServer
     serverThread :: !(Async ())
   }
 
--- Public signatures; implement using the bracketed startup protocol below.
+-- | Bind, acknowledge startup, and serve within the continuation’s scope.
 withInspectServer :: InspectServerConfig -> InspectEnv -> (RunningInspectServer -> IO a) -> IO a
 withInspectServer scfg env k = do
   checked (inspect scfg)

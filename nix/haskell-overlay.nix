@@ -37,6 +37,12 @@ final: prev: {
     }
     { }));
 
+  # Warp's optional certificate support uses crypton-x509 1.7.7, which needs
+  # the package set's pre-1.1 crypton/memory APIs. The SDK uses our 1.1.4 pin
+  # (ram APIs). Preserve that dependency's compatible crypton instead of
+  # jailbreaking its real API bound or upgrading the entire certificate family.
+  crypton-x509 = prev.crypton-x509.override { crypton = prev.crypton; };
+
   # ── Git dependencies: hasql 1.10 ecosystem ──────────────────────────
 
   postgresql-binary = dontCheck (doJailbreak (final.callCabal2nix "postgresql-binary"
@@ -188,6 +194,8 @@ final: prev: {
     dontCheck (doJailbreak (final.callCabal2nix "pgmq-migration" combinedSrc { }));
 
   pgmq-config = dontCheck (doJailbreak (final.callCabal2nix "pgmq-config" ../pgmq-config { }));
+
+  pgmq-inspect = dontCheck (doJailbreak (final.callCabal2nix "pgmq-inspect" ../pgmq-inspect { }));
 
   pgmq-bench = dontCheck (doJailbreak (final.callCabal2nix "pgmq-bench" ../pgmq-bench { }));
 }
