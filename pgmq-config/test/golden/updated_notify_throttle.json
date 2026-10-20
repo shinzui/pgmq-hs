@@ -1,0 +1,1 @@
+{"action":"updated_notify_throttle","queue":"orders","observed_throttle_interval_ms":250,"declared_throttle_interval_ms":1000}

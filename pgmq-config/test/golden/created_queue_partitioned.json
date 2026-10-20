@@ -1,0 +1,1 @@
+{"action":"created_queue","queue":"orders","queue_type":{"type":"partitioned","partition_interval":"daily","retention_interval":"7 days","premake":2}}

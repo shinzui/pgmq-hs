@@ -26,6 +26,11 @@ provenance:
       at: 2026-10-20T02:35:44Z
       mode: "implement"
       note: "Coordinate reopened EP-1 M4 implementation and validation"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-20T02:56:34Z
+      mode: "implement"
+      note: "Coordinate EP-2 JSON codec implementation"
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -216,7 +221,7 @@ path for foreign and mixed-case names).
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Add non-destructive peek, archive, and lookup reads across the pgmq layers | docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md | None | EP-2 (integration: `ArchivedMessage` codec) | Complete |
-| 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | Not Started |
+| 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | In Progress |
 | 3 | Create the pgmq-inspect sister package with the HTTP inspection surface | docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md | EP-1, EP-2 | None | Not Started |
 | 4 | Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect | docs/plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md | EP-3 | None | Not Started |
 | 5 | Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide | docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md | EP-3, EP-4 | None | Not Started |
@@ -505,7 +510,7 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 - [x] EP-1 M2: four `Pgmq` effect constructors with plain and traced cases; umbrella re-exports and compile witnesses; foreign and mixed-case names covered on a dedicated instance; partitioned queues covered (2026-10-01)
 - [x] EP-1 M3: design note 019, capability record, Haddocks, changelogs; `IR-1` completed (2026-10-01)
 - [x] EP-1 M4: real 100,000-row live/archive plans on both schemas with required pg_partman, deterministic moving-view tests, exception-safe consumer worker, and documented cost/isolation limits; full native/stock/partman and effectful validation passed (2026-10-20 UTC)
-- [ ] EP-2 M1: hand-written instances for every listed record in `pgmq-core`, `pgmq-hasql`, and `pgmq-config`; golden tests pin every encoding
+- [x] EP-2 M1: thirteen hand-written encoders and four record decoders with 53 reviewed goldens, arbitrary-header normalization and exact int64 fixtures; three full suites pass (2026-10-20 UTC)
 - [ ] EP-2 M2: design note 020, Haddock policy on every type, capability record, changelogs; `IR-2` completed
 - [ ] EP-3 M1: `pgmq-inspect` builds under cabal and Nix with config, env, wire types, error mapping, and a router serving the descriptor, listings, metrics, and health; mock-interpreter router tests
 - [ ] EP-3 M2: browse, archive, by-id, bindings, routing-test, and throttle routes; CORS middleware; the end-to-end non-destructive test and the error-mapping tests green against ephemeral PostgreSQL
@@ -519,6 +524,16 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 
 
 ## Surprises & Discoveries
+
+EP-2 M1 (2026-10-20 UTC): a concrete Pair helper both increased allocation and
+lost nested record encoding order. Shared polymorphic KeyValue fields preserve
+one field definition while generating Value or Series directly; this keeps the
+planned wire fields/order. Fifty 1 MiB encodes allocate 55,710,944 bytes in the
+library, and 100,000 small encodes use about 46% less allocation than the Pair
+prototype. Exact fixtures above JavaScript's safe integer range are now available
+in `pgmq-core/test/golden/` for EP-5. Null-header normalization is explicit, and
+all record encoders have toJSON/toEncoding parity checks. Full suites pass;
+EP-2 M2 and the final Nix gate remain in progress.
 
 EP-1 M4 implementation (2026-10-20 UTC): real pg_partman fixtures confirm that
 numeric archive late pages scan the remaining default (50,001 rows), while time

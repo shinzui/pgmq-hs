@@ -30,7 +30,7 @@ module Pgmq.Types
   )
 where
 
-import Data.Aeson (FromJSON (..), ToJSON, Value)
+import Data.Aeson (Encoding, FromJSON (..), KeyValue, Series, ToJSON (..), Value, object, pairs, withObject, (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Char (isAlphaNum, isAscii, isDigit, isLower)
 import Data.Int (Int32, Int64)
@@ -255,3 +255,168 @@ data NotifyInsertThrottle = NotifyInsertThrottle
 -- Consumers must keep a poll fallback regardless of LISTEN.
 notifyChannelName :: QueueName -> Text
 notifyChannelName q = "pgmq.q_" <> T.toLower (queueNameToText q) <> ".INSERT"
+
+-- JSON wire encodings ---------------------------------------------------------
+
+-- | Encode fields directly as a 'Series', preserving nested record encoders
+-- and written key order. The shared 'KeyValue' field lists also build 'Value'
+-- objects for 'toJSON', without making 'toEncoding' pass through those objects.
+encodeFields :: [Series] -> Encoding
+encodeFields = pairs . mconcat
+
+-- | Wire keys are the @pgmq.list_queues()@ column names. The encoding is a
+-- published compatibility surface; see @docs/design/020-json-wire-encodings.md@.
+-- 'Queue' and 'UnvalidatedQueue' encode identically; only decoding differs.
+queueFields :: (KeyValue e kv) => Queue -> [kv]
+queueFields q =
+  [ "queue_name" .= name q,
+    "is_partitioned" .= isPartitioned q,
+    "is_unlogged" .= isUnlogged q,
+    "created_at" .= createdAt q
+  ]
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON Queue where
+  toJSON = object . queueFields
+  toEncoding = encodeFields . queueFields
+
+-- | Decoding validates @queue_name@ through 'parseQueueName' (the 'FromJSON'
+-- 'QueueName' instance), so a foreign or mixed-case name fails here and must
+-- be decoded as 'UnvalidatedQueue' instead.
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance FromJSON Queue where
+  parseJSON = withObject "Queue" $ \o ->
+    Queue
+      <$> o .: "queue_name"
+      <*> o .: "created_at"
+      <*> o .: "is_partitioned"
+      <*> o .: "is_unlogged"
+
+-- | Same wire shape as 'Queue'; see @docs/design/020-json-wire-encodings.md@.
+unvalidatedQueueFields :: (KeyValue e kv) => UnvalidatedQueue -> [kv]
+unvalidatedQueueFields q =
+  [ "queue_name" .= unvalidatedName q,
+    "is_partitioned" .= unvalidatedIsPartitioned q,
+    "is_unlogged" .= unvalidatedIsUnlogged q,
+    "created_at" .= unvalidatedCreatedAt q
+  ]
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON UnvalidatedQueue where
+  toJSON = object . unvalidatedQueueFields
+  toEncoding = encodeFields . unvalidatedQueueFields
+
+-- | Decodes any server-accepted name; nothing is validated.
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance FromJSON UnvalidatedQueue where
+  parseJSON = withObject "UnvalidatedQueue" $ \o ->
+    UnvalidatedQueue
+      <$> o .: "queue_name"
+      <*> o .: "created_at"
+      <*> o .: "is_partitioned"
+      <*> o .: "is_unlogged"
+
+-- | Wire keys are the @pgmq.message_record@ column names: @msg_id@, @read_ct@,
+-- @enqueued_at@, @last_read_at@, @vt@, @message@, @headers@. Optional columns
+-- are always present and encode as @null@. The encoding is a published
+-- compatibility surface; see @docs/design/020-json-wire-encodings.md@.
+messageFields :: (KeyValue e kv) => Message -> [kv]
+messageFields m =
+  [ "msg_id" .= messageId m,
+    "read_ct" .= readCount m,
+    "enqueued_at" .= enqueuedAt m,
+    "last_read_at" .= lastReadAt m,
+    "vt" .= visibilityTime m,
+    "message" .= body m,
+    "headers" .= headers m
+  ]
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON Message where
+  toJSON = object . messageFields
+  toEncoding = encodeFields . messageFields
+
+-- | A missing @last_read_at@ or @headers@ key decodes as 'Nothing', as does
+-- an explicit @null@.
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance FromJSON Message where
+  parseJSON = withObject "Message" $ \o ->
+    Message
+      <$> o .: "msg_id"
+      <*> o .: "vt"
+      <*> o .: "enqueued_at"
+      <*> o .:? "last_read_at"
+      <*> o .: "read_ct"
+      <*> o .: "message"
+      <*> o .:? "headers"
+
+-- | The 'Message' encoding with one more key, @archived_at@, flattened into
+-- the same object. See @docs/design/020-json-wire-encodings.md@.
+archivedMessageFields :: (KeyValue e kv) => ArchivedMessage -> [kv]
+archivedMessageFields a =
+  messageFields (archivedMessage a) <> ["archived_at" .= archivedAt a]
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON ArchivedMessage where
+  toJSON = object . archivedMessageFields
+  toEncoding = encodeFields . archivedMessageFields
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance FromJSON ArchivedMessage where
+  parseJSON = withObject "ArchivedMessage" $ \o ->
+    ArchivedMessage
+      <$> parseJSON (Aeson.Object o)
+      <*> o .: "archived_at"
+
+-- | Wire keys are the @pgmq.list_topic_bindings()@ columns. Encode-only; see
+-- @docs/design/020-json-wire-encodings.md@.
+topicBindingFields :: (KeyValue e kv) => TopicBinding -> [kv]
+topicBindingFields b =
+  [ "pattern" .= bindingPattern b,
+    "queue_name" .= bindingQueueName b,
+    "bound_at" .= bindingBoundAt b,
+    "compiled_regex" .= bindingCompiledRegex b
+  ]
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON TopicBinding where
+  toJSON = object . topicBindingFields
+  toEncoding = encodeFields . topicBindingFields
+
+-- | Wire keys are the @pgmq.test_routing()@ columns. Encode-only.
+routingMatchFields :: (KeyValue e kv) => RoutingMatch -> [kv]
+routingMatchFields m =
+  [ "pattern" .= matchPattern m,
+    "queue_name" .= matchQueueName m,
+    "compiled_regex" .= matchCompiledRegex m
+  ]
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON RoutingMatch where
+  toJSON = object . routingMatchFields
+  toEncoding = encodeFields . routingMatchFields
+
+-- | Wire keys are the @pgmq.send_batch_topic()@ result columns. Encode-only.
+topicSendResultFields :: (KeyValue e kv) => TopicSendResult -> [kv]
+topicSendResultFields r =
+  [ "queue_name" .= sentToQueue r,
+    "msg_id" .= sentMessageId r
+  ]
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON TopicSendResult where
+  toJSON = object . topicSendResultFields
+  toEncoding = encodeFields . topicSendResultFields
+
+-- | Wire keys are the @pgmq.list_notify_insert_throttles()@ columns. Encode-only.
+notifyInsertThrottleFields :: (KeyValue e kv) => NotifyInsertThrottle -> [kv]
+notifyInsertThrottleFields t =
+  [ "queue_name" .= throttleQueueName t,
+    "throttle_interval_ms" .= throttleIntervalMs t,
+    "last_notified_at" .= throttleLastNotifiedAt t
+  ]
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON NotifyInsertThrottle where
+  toJSON = object . notifyInsertThrottleFields
+  toEncoding = encodeFields . notifyInsertThrottleFields

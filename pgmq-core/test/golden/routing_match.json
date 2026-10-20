@@ -1,0 +1,1 @@
+{"pattern":"orders.*","queue_name":"orders","compiled_regex":"^orders\\.[^.]+$"}

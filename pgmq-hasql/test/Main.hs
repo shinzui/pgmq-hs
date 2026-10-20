@@ -10,6 +10,7 @@ import EphemeralDb (withPgmqDb)
 import InspectionCostSpec qualified
 import InspectionForeignNameSpec qualified
 import InspectionSpec qualified
+import JsonGoldenSpec qualified
 import MessageSpec qualified
 import MetricsSpec qualified
 import MixedCaseRemediationSpec qualified
@@ -33,7 +34,8 @@ main = do
     let tree =
           testGroup
             "pgmq-hasql"
-            ( [ QueueSpec.tests pool,
+            ( [ JsonGoldenSpec.tests,
+                QueueSpec.tests pool,
                 MessageSpec.tests pool,
                 InspectionSpec.tests pool db,
                 InspectionCostSpec.tests pool,

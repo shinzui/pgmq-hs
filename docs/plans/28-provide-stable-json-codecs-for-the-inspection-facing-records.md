@@ -23,6 +23,11 @@ provenance:
       at: 2026-10-19T18:23:59Z
       mode: "update"
       note: "Corrected Aeson imports and optional JSON-null normalization; added exact int64 and encoder parity acceptance."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-20T02:56:34Z
+      mode: "implement"
+      note: "Implement stable inspection JSON codecs, normalization, integer boundaries and golden tests"
 ---
 
 # Provide stable JSON codecs for the inspection-facing records
@@ -71,17 +76,17 @@ import Pgmq.Types (Queue (..), parseQueueName)
 
 ## Progress
 
-- [ ] M1 review acceptance: import Pair from Data.Aeson.Types; cover null header normalization, arbitrary header JSON, encoder parity, and exact int64 boundary fixtures.
+- [x] M1 review acceptance: use shared KeyValue field lists after measuring Pair conversion; cover null header normalization, arbitrary header JSON, encoder parity, and exact int64 boundary fixtures.
 
-- [ ] M1: `aeson` added to `pgmq-config`'s library `build-depends`; `tasty-golden` and `bytestring` added to the three test suites; golden directories created and registered in `extra-source-files`
-- [ ] M1: hand-written `ToJSON`/`FromJSON` for `Queue`, `UnvalidatedQueue`, `Message` and `ToJSON` for `TopicBinding`, `RoutingMatch`, `TopicSendResult`, `NotifyInsertThrottle` in `pgmq-core/src/Pgmq/Types.hs`
-- [ ] M1: `ArchivedMessage` instances, normalized round-trip tests and golden file added here; the type already exists.
-- [ ] M1: `ToJSON QueueMetrics` in `pgmq-hasql/src/Pgmq/Hasql/Statements/Types.hs`
-- [ ] M1: `ToJSON` for `ReconcileAction`, `QueueType`, `PartitionConfig`, `ObservedQueueType` in `pgmq-config/src/Pgmq/Config/Types.hs`
-- [ ] M1: `pgmq-core/test/JsonGoldenSpec.hs` with one golden file per record, a decode test for the validated-versus-lenient queue split, and a round-trip test; wired into `pgmq-core/test/Main.hs`
-- [ ] M1: `pgmq-hasql/test/JsonGoldenSpec.hs` with the `QueueMetrics` goldens and the hedgehog round-trip property for `Message`; wired into `pgmq-hasql/test/Main.hs`
-- [ ] M1: `pgmq-config/test/JsonGoldenSpec.hs` with one golden per `ReconcileAction` constructor; wired into `pgmq-config/test/Main.hs`
-- [ ] M1: all three suites green under `nix develop --command cabal test`; `nix fmt` clean; M1 committed
+- [x] M1 (2026-10-20 UTC): `aeson` added to `pgmq-config`'s library `build-depends`; `tasty-golden` and `bytestring` added to the three test suites; golden directories created and registered in `extra-source-files`
+- [x] M1 (2026-10-20 UTC): hand-written `ToJSON`/`FromJSON` for `Queue`, `UnvalidatedQueue`, `Message` and `ToJSON` for `TopicBinding`, `RoutingMatch`, `TopicSendResult`, `NotifyInsertThrottle` in `pgmq-core/src/Pgmq/Types.hs`
+- [x] M1 (2026-10-20 UTC): `ArchivedMessage` instances, normalized round-trip tests and golden file added here; the type already exists.
+- [x] M1 (2026-10-20 UTC): `ToJSON QueueMetrics` in `pgmq-hasql/src/Pgmq/Hasql/Statements/Types.hs`
+- [x] M1 (2026-10-20 UTC): `ToJSON` for `ReconcileAction`, `QueueType`, `PartitionConfig`, `ObservedQueueType` in `pgmq-config/src/Pgmq/Config/Types.hs`
+- [x] M1 (2026-10-20 UTC): `pgmq-core/test/JsonGoldenSpec.hs` with one golden file per record, a decode test for the validated-versus-lenient queue split, and a round-trip test; wired into `pgmq-core/test/Main.hs`
+- [x] M1 (2026-10-20 UTC): `pgmq-hasql/test/JsonGoldenSpec.hs` with the `QueueMetrics` goldens and the hedgehog round-trip property for `Message`; wired into `pgmq-hasql/test/Main.hs`
+- [x] M1 (2026-10-20 UTC): `pgmq-config/test/JsonGoldenSpec.hs` with one golden per `ReconcileAction` constructor; wired into `pgmq-config/test/Main.hs`
+- [x] M1 (2026-10-20 UTC): all three suites pass without `--accept` (core 72, hasql 111, config 70); `nix fmt` clean (2026-10-20 UTC)
 - [ ] M2: `docs/design/020-json-wire-encodings.md` written; Haddock on every instance points at it
 - [ ] M2: capability record created with the handle `okf id next` returned; `docs/capabilities/index.md` and `log.md` updated; `just docs-check` green
 - [ ] M2: `Unreleased` sections in `CHANGELOG.md`, `pgmq-core/CHANGELOG.md`, `pgmq-hasql/CHANGELOG.md`, `pgmq-config/CHANGELOG.md`
@@ -94,16 +99,44 @@ Review (2026-10-19): `ArchivedMessage` already exists, so its codec is mandatory
 `headers :: Maybe Value` distinguishes `Nothing` from `Just Null` in Haskell, but both encode
 as JSON null; the proposed `.:?` parser normalizes both to `Nothing`. The original unrestricted
 round-trip property therefore fails. Keep the wire contract and test normalization explicitly.
-`Pair` must be imported from `Data.Aeson.Types`, not `Data.Aeson` (verified against upstream
+When a concrete `[Pair]` is needed, `Pair` comes from `Data.Aeson.Types`, not `Data.Aeson` (verified against upstream
 aeson 2.2.3.0 source after Mori registry lookup failed). No dependency bounds were changed.
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-Implementation has not started; the findings above are review evidence.
+Implementation evidence (2026-10-20 UTC): the original `[Pair]` helper allocated
+2,288,739,088 bytes for 100,000 64-byte payloads, versus 1,176,000,888 for direct
+Series and 1,228,800,128 for the final library encoder. With fifty 1 MiB payloads,
+the figures were 56,240,992 / 55,685,304 / 55,710,944 bytes. The Pair helper also
+reordered nested QueueType fields via Value. The polymorphic `KeyValue` field list
+fixes that while keeping one hand-written list per record. Full source, conditions
+and reproduction are in `docs/design/evidence/020-json-encodings/README.md`.
+
+The hasql prelude re-exports lens's `(.=)`, so its codec import must hide that
+operator. `tasty-golden` 2.3.6 automatically creates missing files even without
+`--accept`; a deliberate `queue_name` to `name` mutation against an existing golden
+failed exactly one of four selected tests, proving the incompatible rename is caught.
+IR-2 is currently `accepted`, not `proposed`; closure will preserve its metadata.
+
+Mori registry list/search/show/docs still fail because its local database is absent.
+APIs were read from locally cached Hackage sources. Authoritative Hackage and git
+release tags confirm tasty-golden 2.3.6 and latest aeson 2.3.2.0 (also the retained
+2.2.5.1 release). Keep the family's existing `aeson ^>=2.2` compatibility line,
+which both build paths exercise; this plan does not add 2.3 support or change pins.
+Registry verification sources: https://hackage-content.haskell.org/package/aeson
+and https://hackage-content.haskell.org/package/tasty-golden. These are package
+registry records, not cross-repository artifact handles.
 
 
 ## Decision Log
+
+- Decision (2026-10-20 UTC): Instantiate each hand-written field list through
+  `KeyValue` as Pair for `toJSON` and Series for `toEncoding`. Rationale: the
+  concrete Pair conversion nearly doubles small-message allocations and discards
+  nested record encoding order. This preserves the planned field shapes/order,
+  parity and freeze policy without duplicating field lists. Retain the probe as
+  evidence rather than introducing a timing-sensitive test gate.
 
 - Decision (2026-10-19): Define Message/ArchivedMessage round trips modulo
   `headers = Just Null` becoming `Nothing`. Require separate golden/decoder cases for both,
@@ -119,7 +152,7 @@ Implementation has not started; the findings above are review evidence.
   can change silently; a hand-written field list is the policy made executable, and the
   golden tests pin it. Date: 2026-09-30
 - Decision: Encoders define both `toJSON` (via `object`) and `toEncoding` (via `pairs`) from
-  one shared field list per record. Rationale: `encode` uses `toEncoding`, and `pairs`
+  one shared `KeyValue` field list per record. The field list instantiates to `[Pair]` for `toJSON` and `[Series]` for `toEncoding`, preserving nested streaming encoders. Rationale: `encode` uses `toEncoding`, and `pairs`
   preserves the written key order, so the golden bytes are deterministic; a `Value` built by
   `object` is backed by a hash map whose iteration order is not a promise across `aeson` or
   `hashable` versions, so pinning `encode (toJSON x)` alone would make the goldens fragile.
@@ -161,8 +194,15 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-Not implemented. The 2026-10-19 review corrected import and round-trip specifications;
-the boundary fixtures and all codec implementation/validation remain pending.
+M1 completed (2026-10-20 UTC). All thirteen ToJSON instances and four record
+FromJSON instances are implemented, with 53 reviewed golden files. Three full
+suites pass without `--accept`: core 72, hasql 111, config 70. Arbitrary message
+bodies/headers round-trip modulo explicit-null header normalization for both live
+and archived messages. Exact numeric IDs 9007199254740993 and 9223372036854775807
+survive encoding/decoding. Every record has encoder parity coverage, and the
+incompatible queue-key mutation demonstrably fails its existing golden. The
+allocation evidence supports shared KeyValue fields. M2 documentation, capability,
+request closure and the required final Nix gate remain pending.
 
 
 ## Context and Orientation
@@ -456,7 +496,7 @@ and `pgmq-config.cabal` (they currently list only the 1.12 fixture) with the sam
 
 Then write the instances, package by package, in the order given in Concrete Steps. In
 `pgmq-core/src/Pgmq/Types.hs` extend the aeson import to bring in `ToJSON (..)`, `object`,
-`pairs`, `withObject`, `(.:)`, `(.:?)`, `(.=)`, `Encoding`, and `Pair`, add one private
+`pairs`, `withObject`, `(.:)`, `(.:?)`, `(.=)`, `Encoding`, and `KeyValue`/`Series`, add one private
 helper that turns a field list into an `Encoding`, and then add, directly below each record,
 its field-list function and its instances. In `pgmq-hasql/src/Pgmq/Hasql/Statements/Types.hs`
 import the same handful of aeson names (the module's prelude supplies `ToJSON` and
@@ -574,8 +614,7 @@ mkdir -p pgmq-core/test/golden pgmq-hasql/test/golden pgmq-config/test/golden
 Replace the aeson import line with:
 
 ```haskell
-import Data.Aeson (Encoding, FromJSON (..), ToJSON (..), Value, object, pairs, withObject, (.:), (.:?), (.=))
-import Data.Aeson.Types (Pair)
+import Data.Aeson (Encoding, KeyValue, Series, FromJSON (..), ToJSON (..), Value, object, pairs, withObject, (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 ```
 
@@ -586,8 +625,8 @@ Add one private helper near the top of the definitions:
 -- | Encode a field list in its written order. 'pairs' preserves order, which
 -- is what makes the golden tests in @pgmq-core/test/JsonGoldenSpec.hs@
 -- deterministic; an 'object' alone would be a hash map with no order promise.
-encodeFields :: [Pair] -> Encoding
-encodeFields = pairs . foldMap (uncurry (.=))
+encodeFields :: [Series] -> Encoding
+encodeFields = pairs . mconcat
 ```
 
 Directly below `data Queue`:
@@ -596,7 +635,7 @@ Directly below `data Queue`:
 -- | Wire keys are the @pgmq.list_queues()@ column names. The encoding is a
 -- published compatibility surface; see @docs/design/020-json-wire-encodings.md@.
 -- 'Queue' and 'UnvalidatedQueue' encode identically; only decoding differs.
-queueFields :: Queue -> [Pair]
+queueFields :: (KeyValue e kv) => Queue -> [kv]
 queueFields q =
   [ "queue_name" .= name q,
     "is_partitioned" .= isPartitioned q,
@@ -624,7 +663,7 @@ Directly below `data UnvalidatedQueue`:
 
 ```haskell
 -- | Same wire shape as 'Queue'; see @docs/design/020-json-wire-encodings.md@.
-unvalidatedQueueFields :: UnvalidatedQueue -> [Pair]
+unvalidatedQueueFields :: (KeyValue e kv) => UnvalidatedQueue -> [kv]
 unvalidatedQueueFields q =
   [ "queue_name" .= unvalidatedName q,
     "is_partitioned" .= unvalidatedIsPartitioned q,
@@ -653,7 +692,7 @@ Directly below `data Message`:
 -- @enqueued_at@, @last_read_at@, @vt@, @message@, @headers@. Optional columns
 -- are always present and encode as @null@. The encoding is a published
 -- compatibility surface; see @docs/design/020-json-wire-encodings.md@.
-messageFields :: Message -> [Pair]
+messageFields :: (KeyValue e kv) => Message -> [kv]
 messageFields m =
   [ "msg_id" .= messageId m,
     "read_ct" .= readCount m,
@@ -691,7 +730,7 @@ Add the following instances for the existing `ArchivedMessage` type:
 ```haskell
 -- | The 'Message' encoding with one more key, @archived_at@, flattened into
 -- the same object. See @docs/design/020-json-wire-encodings.md@.
-archivedMessageFields :: ArchivedMessage -> [Pair]
+archivedMessageFields :: (KeyValue e kv) => ArchivedMessage -> [kv]
 archivedMessageFields a =
   messageFields (archivedMessage a) <> ["archived_at" .= archivedAt a]
 
@@ -712,7 +751,7 @@ Directly below `data TopicBinding`, `data RoutingMatch`, `data TopicSendResult`,
 ```haskell
 -- | Wire keys are the @pgmq.list_topic_bindings()@ columns. Encode-only; see
 -- @docs/design/020-json-wire-encodings.md@.
-topicBindingFields :: TopicBinding -> [Pair]
+topicBindingFields :: (KeyValue e kv) => TopicBinding -> [kv]
 topicBindingFields b =
   [ "pattern" .= bindingPattern b,
     "queue_name" .= bindingQueueName b,
@@ -725,7 +764,7 @@ instance ToJSON TopicBinding where
   toEncoding = encodeFields . topicBindingFields
 
 -- | Wire keys are the @pgmq.test_routing()@ columns. Encode-only.
-routingMatchFields :: RoutingMatch -> [Pair]
+routingMatchFields :: (KeyValue e kv) => RoutingMatch -> [kv]
 routingMatchFields m =
   [ "pattern" .= matchPattern m,
     "queue_name" .= matchQueueName m,
@@ -737,7 +776,7 @@ instance ToJSON RoutingMatch where
   toEncoding = encodeFields . routingMatchFields
 
 -- | Wire keys are the @pgmq.send_batch_topic()@ result columns. Encode-only.
-topicSendResultFields :: TopicSendResult -> [Pair]
+topicSendResultFields :: (KeyValue e kv) => TopicSendResult -> [kv]
 topicSendResultFields r =
   [ "queue_name" .= sentToQueue r,
     "msg_id" .= sentMessageId r
@@ -748,7 +787,7 @@ instance ToJSON TopicSendResult where
   toEncoding = encodeFields . topicSendResultFields
 
 -- | Wire keys are the @pgmq.list_notify_insert_throttles()@ columns. Encode-only.
-notifyInsertThrottleFields :: NotifyInsertThrottle -> [Pair]
+notifyInsertThrottleFields :: (KeyValue e kv) => NotifyInsertThrottle -> [kv]
 notifyInsertThrottleFields t =
   [ "queue_name" .= throttleQueueName t,
     "throttle_interval_ms" .= throttleIntervalMs t,
@@ -773,8 +812,7 @@ Add to the imports (the module's `Pgmq.Hasql.Prelude` already brings `ToJSON`, `
 `toEncoding`, `Text`, `Int32`, `Int64`, `UTCTime`):
 
 ```haskell
-import Data.Aeson (Encoding, object, pairs, (.=))
-import Data.Aeson.Types (Pair)
+import Data.Aeson (Encoding, KeyValue, Series, object, pairs, (.=))
 ```
 
 Directly below `data QueueMetrics`:
@@ -792,7 +830,7 @@ Directly below `data QueueMetrics`:
 --
 -- The pattern is positional because @queueName@ is a duplicate record field in
 -- this module and its selector is ambiguous under GHC 9.12.
-queueMetricsFields :: QueueMetrics -> [Pair]
+queueMetricsFields :: (KeyValue e kv) => QueueMetrics -> [kv]
 queueMetricsFields (QueueMetrics qn len newest oldest total scrape visible dpl) =
   [ "queue_name" .= qn,
     "queue_length" .= len,
@@ -806,7 +844,7 @@ queueMetricsFields (QueueMetrics qn len newest oldest total scrape visible dpl) 
 
 instance ToJSON QueueMetrics where
   toJSON = object . queueMetricsFields
-  toEncoding = pairs . foldMap (uncurry (.=)) . queueMetricsFields
+  toEncoding = pairs . mconcat . queueMetricsFields
 ```
 
 The positional pattern must list exactly eight fields in declaration order; if a later plan
@@ -819,21 +857,20 @@ Add imports:
 
 ```haskell
 import Control.Lens ((%~), (&), (^.))
-import Data.Aeson (Encoding, ToJSON (..), object, pairs, (.=))
-import Data.Aeson.Types (Pair)
+import Data.Aeson (Encoding, KeyValue, Series, ToJSON (..), object, pairs, (.=))
 ```
 
 (`Control.Lens` is already imported for `(%~)` and `(&)`; extend that line.) Then add, below
 the `ReconcileAction` definition:
 
 ```haskell
-encodeFields :: [Pair] -> Encoding
-encodeFields = pairs . foldMap (uncurry (.=))
+encodeFields :: [Series] -> Encoding
+encodeFields = pairs . mconcat
 
 -- | Encodes as @{"type":"standard"}@, @{"type":"unlogged"}@, or
 -- @{"type":"partitioned","partition_interval":…,"retention_interval":…,"premake":…}@.
 -- See @docs/design/020-json-wire-encodings.md@.
-queueTypeFields :: QueueType -> [Pair]
+queueTypeFields :: (KeyValue e kv) => QueueType -> [kv]
 queueTypeFields qt = case qt of
   StandardQueue -> ["type" .= ("standard" :: Text)]
   UnloggedQueue -> ["type" .= ("unlogged" :: Text)]
@@ -845,7 +882,7 @@ instance ToJSON QueueType where
 
 -- | @premake@ is @null@ when creation uses the server default. See
 -- @docs/design/020-json-wire-encodings.md@.
-partitionConfigFields :: PartitionConfig -> [Pair]
+partitionConfigFields :: (KeyValue e kv) => PartitionConfig -> [kv]
 partitionConfigFields pc =
   [ "partition_interval" .= (pc ^. #partitionInterval),
     "retention_interval" .= (pc ^. #retentionInterval),
@@ -875,7 +912,7 @@ instance ToJSON ObservedQueueType where
 -- @docs/design/020-json-wire-encodings.md@. Every constructor added later
 -- must be encoded by the same rule and pinned in
 -- @pgmq-config/test/JsonGoldenSpec.hs@.
-reconcileActionFields :: ReconcileAction -> [Pair]
+reconcileActionFields :: (KeyValue e kv) => ReconcileAction -> [kv]
 reconcileActionFields action = case action of
   CreatedQueue q t ->
     ["action" .= tag "created_queue", "queue" .= q, "queue_type" .= t]
@@ -1490,8 +1527,9 @@ numbers, strings, arrays and objects; explicitly test the `Just Null` normalizat
 Message and ArchivedMessage. The property generator keeps all JSON values. Add int64 boundary
 goldens and decode them without rounding; compare `toJSON` and the decoded `toEncoding` output
 for every record. Measure representative large message encoding allocations before adding
-extra intermediate conversions. The shared `[Pair]` helper materializes Value nodes, so it
-is not a promise of allocation-free streaming; retain it only if measured cost is acceptable.
+extra intermediate conversions. The original shared `[Pair]` helper materialized Value nodes and discarded nested
+record key order. The implementation uses polymorphic `KeyValue` fields instead;
+retain representative allocation measurements for that choice.
 
 `IR-2` lists four acceptance items; each maps to something you can run.
 
@@ -1624,3 +1662,7 @@ text in Step 2.
 
 Revision note (2026-10-19): fixed the aeson import, defined null normalization, made archive
 codec ownership explicit, and added encoder parity and lossless integer acceptance.
+
+Revision note (2026-10-20 UTC): implementing codecs and 53 initial goldens, with
+normalized arbitrary-header round trips and exact int64 fixtures. Replaced the
+concrete Pair encoding helper with measured polymorphic KeyValue fields.

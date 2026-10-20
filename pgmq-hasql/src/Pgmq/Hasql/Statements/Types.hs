@@ -39,8 +39,8 @@ module Pgmq.Hasql.Statements.Types
   )
 where
 
-import Data.Aeson (Value)
-import Pgmq.Hasql.Prelude
+import Data.Aeson (KeyValue, Value, object, pairs, (.=))
+import Pgmq.Hasql.Prelude hiding ((.=))
 import Pgmq.Types (MessageBody, MessageHeaders, MessageId, QueueName, RoutingKey, TopicPattern)
 
 type Delay = Int32
@@ -353,3 +353,34 @@ data LookupMessage = LookupMessage
     messageId :: !MessageId
   }
   deriving stock (Generic)
+
+-- JSON wire encodings ---------------------------------------------------------
+
+-- | Wire keys are the @pgmq.metrics_result@ columns. Two of them are easy to
+-- confuse and must not be: @queue_length@ is the total number of rows in the
+-- queue table, and @queue_visible_length@ is the subset whose visibility
+-- timeout has expired and are therefore available to a reader (see
+-- @docs/design/002-queue-visible-length.md@). @default_partition_length@ is
+-- @null@ when the metric is unavailable (PGMQ 1.12) or inapplicable (a
+-- non-partitioned queue); @null@ never means zero. Encode-only. The encoding is
+-- a published compatibility surface; see
+-- @docs/design/020-json-wire-encodings.md@.
+--
+-- The pattern is positional because @queueName@ is a duplicate record field in
+-- this module and its selector is ambiguous under GHC 9.12.
+queueMetricsFields :: (KeyValue e kv) => QueueMetrics -> [kv]
+queueMetricsFields (QueueMetrics qn len newest oldest total scrape visible dpl) =
+  [ "queue_name" .= qn,
+    "queue_length" .= len,
+    "newest_msg_age_sec" .= newest,
+    "oldest_msg_age_sec" .= oldest,
+    "total_messages" .= total,
+    "scrape_time" .= scrape,
+    "queue_visible_length" .= visible,
+    "default_partition_length" .= dpl
+  ]
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON QueueMetrics where
+  toJSON = object . queueMetricsFields
+  toEncoding = pairs . mconcat . queueMetricsFields

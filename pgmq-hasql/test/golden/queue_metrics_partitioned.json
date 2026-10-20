@@ -1,0 +1,1 @@
+{"queue_name":"events","queue_length":120,"newest_msg_age_sec":2,"oldest_msg_age_sec":3600,"total_messages":9000,"scrape_time":"2026-08-19T12:34:56.123Z","queue_visible_length":115,"default_partition_length":7}

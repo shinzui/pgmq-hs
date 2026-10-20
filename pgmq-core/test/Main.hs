@@ -1,5 +1,6 @@
 module Main (main) where
 
+import JsonGoldenSpec qualified
 import QueueNameSpec qualified
 import Test.Tasty (defaultMain, testGroup)
 
@@ -8,5 +9,6 @@ main =
   defaultMain $
     testGroup
       "pgmq-core"
-      [ QueueNameSpec.tests
+      [ JsonGoldenSpec.tests,
+        QueueNameSpec.tests
       ]

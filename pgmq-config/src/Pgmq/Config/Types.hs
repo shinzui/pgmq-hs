@@ -29,7 +29,8 @@ module Pgmq.Config.Types
   )
 where
 
-import Control.Lens ((%~), (&))
+import Control.Lens ((%~), (&), (^.))
+import Data.Aeson (Encoding, KeyValue, Series, ToJSON (..), object, pairs, (.=))
 import Data.Generics.Labels ()
 import Data.Int (Int32)
 import Data.Text (Text)
@@ -181,3 +182,95 @@ withFifoIndex cfg = cfg {fifoIndex = True}
 withTopicBinding :: TopicPattern -> QueueConfig -> QueueConfig
 withTopicBinding pat cfg =
   cfg & #topicBindings %~ (++ [pat])
+
+-- JSON wire encodings ---------------------------------------------------------
+
+encodeFields :: [Series] -> Encoding
+encodeFields = pairs . mconcat
+
+-- | Encodes as @{"type":"standard"}@, @{"type":"unlogged"}@, or
+-- @{"type":"partitioned","partition_interval":…,"retention_interval":…,"premake":…}@.
+-- See @docs/design/020-json-wire-encodings.md@.
+queueTypeFields :: (KeyValue e kv) => QueueType -> [kv]
+queueTypeFields qt = case qt of
+  StandardQueue -> ["type" .= ("standard" :: Text)]
+  UnloggedQueue -> ["type" .= ("unlogged" :: Text)]
+  PartitionedQueue pc -> ("type" .= ("partitioned" :: Text)) : partitionConfigFields pc
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON QueueType where
+  toJSON = object . queueTypeFields
+  toEncoding = encodeFields . queueTypeFields
+
+-- | @premake@ is @null@ when creation uses the server default. See
+-- @docs/design/020-json-wire-encodings.md@.
+partitionConfigFields :: (KeyValue e kv) => PartitionConfig -> [kv]
+partitionConfigFields pc =
+  [ "partition_interval" .= (pc ^. #partitionInterval),
+    "retention_interval" .= (pc ^. #retentionInterval),
+    "premake" .= (pc ^. #premake)
+  ]
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON PartitionConfig where
+  toJSON = object . partitionConfigFields
+  toEncoding = encodeFields . partitionConfigFields
+
+-- | Encodes as the bare strings @"standard"@, @"unlogged"@, @"partitioned"@.
+observedQueueTypeText :: ObservedQueueType -> Text
+observedQueueTypeText ot = case ot of
+  ObservedStandard -> "standard"
+  ObservedUnlogged -> "unlogged"
+  ObservedPartitioned -> "partitioned"
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON ObservedQueueType where
+  toJSON = toJSON . observedQueueTypeText
+  toEncoding = toEncoding . observedQueueTypeText
+
+-- | A tagged object: @"action"@ holds the snake_case constructor name and the
+-- remaining keys name the fields. @enabled_notify@'s @throttle_interval_ms@
+-- is @null@ when the config declared the pgmq default ('defaultThrottleMs')
+-- rather than a number; that is a different fact from declaring @250@.
+-- Encode-only. The encoding is a published compatibility surface; see
+-- @docs/design/020-json-wire-encodings.md@. Every constructor added later
+-- must be encoded by the same rule and pinned in
+-- @pgmq-config/test/JsonGoldenSpec.hs@.
+reconcileActionFields :: (KeyValue e kv) => ReconcileAction -> [kv]
+reconcileActionFields action = case action of
+  CreatedQueue q t ->
+    ["action" .= tag "created_queue", "queue" .= q, "queue_type" .= t]
+  EnabledNotify q ms ->
+    ["action" .= tag "enabled_notify", "queue" .= q, "throttle_interval_ms" .= ms]
+  CreatedFifoIndex q ->
+    ["action" .= tag "created_fifo_index", "queue" .= q]
+  BoundTopic q p ->
+    ["action" .= tag "bound_topic", "queue" .= q, "pattern" .= p]
+  SkippedQueue q ->
+    ["action" .= tag "skipped_queue", "queue" .= q]
+  SkippedNotify q ->
+    ["action" .= tag "skipped_notify", "queue" .= q]
+  SkippedFifoIndex q ->
+    ["action" .= tag "skipped_fifo_index", "queue" .= q]
+  SkippedTopicBinding q p ->
+    ["action" .= tag "skipped_topic_binding", "queue" .= q, "pattern" .= p]
+  UpdatedNotifyThrottle q observed declared ->
+    [ "action" .= tag "updated_notify_throttle",
+      "queue" .= q,
+      "observed_throttle_interval_ms" .= observed,
+      "declared_throttle_interval_ms" .= declared
+    ]
+  DetectedQueueTypeDrift q declared observed ->
+    [ "action" .= tag "detected_queue_type_drift",
+      "queue" .= q,
+      "declared" .= declared,
+      "observed" .= observed
+    ]
+  where
+    tag :: Text -> Text
+    tag = id
+
+-- | JSON wire contract: @docs/design/020-json-wire-encodings.md@.
+instance ToJSON ReconcileAction where
+  toJSON = object . reconcileActionFields
+  toEncoding = encodeFields . reconcileActionFields

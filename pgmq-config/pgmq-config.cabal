@@ -27,7 +27,9 @@ maintainer: Nadeem Bitar
 category: Database
 build-type: Simple
 extra-doc-files: CHANGELOG.md
-extra-source-files: test/fixtures/pgmq-1.12.0.sql
+extra-source-files:
+  test/fixtures/pgmq-1.12.0.sql
+  test/golden/*.json
 
 flag effectful
   description: Enable effectful integration
@@ -64,6 +66,7 @@ library
     OverloadedStrings
 
   build-depends:
+    aeson ^>=2.2,
     base >=4.18 && <5,
     containers >=0.6 && <0.8,
     generic-lens ^>=2.2 || ^>=2.3,
@@ -97,6 +100,7 @@ test-suite pgmq-config-test
     ConfigSpec
     EphemeralDb
     ForeignQueueSpec
+    JsonGoldenSpec
     NotifyCrashSpec
     PartitionSpec
 
@@ -127,6 +131,7 @@ test-suite pgmq-config-test
     postgresql-libpq >=0.10.1 && <0.12,
     random ^>=1.2,
     tasty ^>=1.5,
+    tasty-golden ^>=2.3,
     tasty-hunit ^>=0.10,
     text,
     time ^>=1.14,
