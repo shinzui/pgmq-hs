@@ -1,6 +1,7 @@
 # Capability catalog log
 
 ## 2026-10-20
+* **Addition**: CAP-11: stable domain JSON codecs with normalized arbitrary headers, exact int64 fixtures and 53 reviewed golden files (ExecPlan 28)
 * **Update**: CAP-10: document moving-view paging and inspection cost/isolation limits; add real partition workload evidence
 
 ## 2026-10-01

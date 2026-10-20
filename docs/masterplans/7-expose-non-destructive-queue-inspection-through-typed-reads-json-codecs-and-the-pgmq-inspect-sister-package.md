@@ -221,7 +221,7 @@ path for foreign and mixed-case names).
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Add non-destructive peek, archive, and lookup reads across the pgmq layers | docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md | None | EP-2 (integration: `ArchivedMessage` codec) | Complete |
-| 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | In Progress |
+| 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | Complete |
 | 3 | Create the pgmq-inspect sister package with the HTTP inspection surface | docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md | EP-1, EP-2 | None | Not Started |
 | 4 | Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect | docs/plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md | EP-3 | None | Not Started |
 | 5 | Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide | docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md | EP-3, EP-4 | None | Not Started |
@@ -235,10 +235,11 @@ Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3
 
 ## Dependency Graph
 
-Wave one: EP-1 is complete; EP-2 is the next ready plan. EP-3 waits only for EP-2.
+Wave one is complete: EP-1 and EP-2 have passed their acceptance gates. EP-3
+(the HTTP inspection surface) is the next ready plan.
 The two foundation plans have no hard dependency on one another. The `ArchivedMessage`
-record already exists; EP-2 owns its codecs. The integration rule below records that
-ownership.
+record and its codecs now exist; EP-2 owns the codec contract. The integration
+rule below records that ownership.
 
 Wave two: `EP-3` hard-depends on `EP-1` (its browse, archive, and message-by-id handlers call
 `peekMessages`, `peekArchivedMessages`, `lookupMessage`, and `lookupArchivedMessage` through the
@@ -265,7 +266,8 @@ the release coordination note in Integration Points.
 **`ArchivedMessage` (type owned by EP-1, codec now owned solely by EP-2).** `EP-1` adds
 `data ArchivedMessage = ArchivedMessage { archivedMessage :: !Message, archivedAt :: !UTCTime }`
 to `pgmq-core/src/Pgmq/Types.hs` and exports it from `Pgmq` and `Pgmq.Effectful`. Its JSON
-encoding is the flattened `Message` encoding plus `"archived_at"`. EP-1 has landed without codecs, so EP-2 must implement the codec and golden. The original
+encoding is the flattened `Message` encoding plus `"archived_at"`. EP-1 landed without codecs; EP-2 has now implemented the flattened codec and
+reviewed goldens, including null normalization and exact int64 fixtures. The original
 order-independent rule below describes the historical decomposition only. The rule: if `Pgmq.Types` already holds the policy
 Haddock and instances when `EP-1` runs, `EP-1` adds the `ArchivedMessage` instances and golden
 file; if `ArchivedMessage` already exists when `EP-2` runs, `EP-2` covers it like every other
@@ -511,7 +513,7 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 - [x] EP-1 M3: design note 019, capability record, Haddocks, changelogs; `IR-1` completed (2026-10-01)
 - [x] EP-1 M4: real 100,000-row live/archive plans on both schemas with required pg_partman, deterministic moving-view tests, exception-safe consumer worker, and documented cost/isolation limits; full native/stock/partman and effectful validation passed (2026-10-20 UTC)
 - [x] EP-2 M1: thirteen hand-written encoders and four record decoders with 53 reviewed goldens, arbitrary-header normalization and exact int64 fixtures; three full suites pass (2026-10-20 UTC)
-- [ ] EP-2 M2: design note 020, Haddock policy on every type, capability record, changelogs; `IR-2` completed
+- [x] EP-2 M2: design note 020, CAP-11, four changelogs and IR-2 closure; strict missing-fixture guards, build/Haddock/sdist, docs/format and final aarch64-darwin Nix checks passed (2026-10-20 UTC)
 - [ ] EP-3 M1: `pgmq-inspect` builds under cabal and Nix with config, env, wire types, error mapping, and a router serving the descriptor, listings, metrics, and health; mock-interpreter router tests
 - [ ] EP-3 M2: browse, archive, by-id, bindings, routing-test, and throttle routes; CORS middleware; the end-to-end non-destructive test and the error-mapping tests green against ephemeral PostgreSQL
 - [ ] EP-3 M3: runner, mountable application with the rejecting WebSocket seam, registry and README wiring, design note 021, capability record, changelogs
@@ -532,8 +534,12 @@ planned wire fields/order. Fifty 1 MiB encodes allocate 55,710,944 bytes in the
 library, and 100,000 small encodes use about 46% less allocation than the Pair
 prototype. Exact fixtures above JavaScript's safe integer range are now available
 in `pgmq-core/test/golden/` for EP-5. Null-header normalization is explicit, and
-all record encoders have toJSON/toEncoding parity checks. Full suites pass;
-EP-2 M2 and the final Nix gate remain in progress.
+all record encoders have toJSON/toEncoding parity checks. Final full suites pass 72/111/70 tests. Design note 020, CAP-11, changelogs,
+IR-2 closure, source distributions and the boundary ADR are complete. The final
+Nix gate passes on aarch64-darwin, including core golden tests with aeson 2.2.4.1
+(Cabal uses 2.2.5.1). Golden suites now require tasty-golden 2.3.6's public
+NoCreateFile option, so a missing fixture fails instead of silently being created.
+EP-2 is complete and EP-3 is ready.
 
 EP-1 M4 implementation (2026-10-20 UTC): real pg_partman fixtures confirm that
 numeric archive late pages scan the remaining default (50,001 rows), while time
@@ -606,6 +612,12 @@ interactions between child plans. Provide concise evidence.
 
 
 ## Decision Log
+
+- Decision (2026-10-20 UTC): Close EP-2 after the three full suites, strict
+  missing-fixture and incompatible-rename failures, packaging audits and final
+  Nix gate pass. Preserve numeric MessageId tokens and normalize null headers,
+  as planned; EP-5 inherits the committed exact-int64 fixtures. EP-3 must use
+  the owning domain instances, while defining only its own surface envelopes.
 
 - Decision (2026-10-20 UTC): Close EP-1 after real layout evidence and full
   validation rather than adding automatic indexes. Preserve EP-2 codec ownership,
@@ -697,13 +709,21 @@ interactions between child plans. Provide concise evidence.
 
 ## Outcomes & Retrospective
 
+EP-2 completed (2026-10-20 UTC): thirteen encoders and four record decoders are
+implemented with 53 reviewed goldens, arbitrary JSON header normalization, exact
+int64 fixtures and encoder parity. The three full suites pass 72/111/70 tests;
+build, Haddock, source-distribution audits, docs/format checks and the final
+host Nix gate pass. Design note 020 and the boundary ADR distill the contract;
+CAP-11 and IR-2 completion are recorded. Two of five child plans are complete.
+EP-3's HTTP package is the next ready child; EP-4/EP-5 keep their existing dependencies.
+
 EP-1 completed (2026-10-20 UTC): all four milestones are complete, including
 real numeric/time live/archive plans, deterministic moving-view scenarios and
 consumer failure propagation. Full hasql suites pass on native and stock schemas
 with and without required pg_partman; both effectful interpreter witnesses pass.
 The boundary ADR now distills the scan-cost and cursor lessons; 64 full EXPLAINs
-are retained beside design note 019. EP-2 (stable JSON codecs) is ready; EP-3
-continues to wait for those codecs. The rest of this initiative remains unimplemented.
+are retained beside design note 019. At that milestone EP-2 was next; its
+completion above now makes EP-3 ready. The HTTP/feed/server work remains unimplemented.
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision. Before marking the MasterPlan complete,
@@ -732,3 +752,7 @@ No package versions, dependency pins, migration bytes, or runtime implementation
 Revision note (2026-10-20 UTC): closed EP-1 M4 with real partition query evidence,
 moving-view/failure-propagation tests and full supported-schema validation.
 EP-2 is next; the remaining ownership and dependency graph are unchanged.
+
+Revision note (2026-10-20 UTC): completed EP-2 with thirteen domain encoders,
+four record decoders, 53 strict goldens, numeric/null boundary fixtures and all
+required gates. EP-3 is next; the remaining dependency graph is unchanged.

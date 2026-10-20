@@ -64,6 +64,18 @@ pgmq's SQL column names in snake_case; `Maybe` fields are always present and enc
 instances are hand-written so no deriving option can move a field; golden tests pin every
 encoding. `Queue` and `UnvalidatedQueue` encode identically.
 
+The domain codecs were implemented by
+[ExecPlan 28](../plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md).
+[Design note 020](../design/020-json-wire-encodings.md) owns the full key and
+report-tag contract, with 53 golden files across the three owning packages.
+Queue/UnvalidatedQueue and live/archive Message decode; other records remain
+encode-only. Reconciliation reports preserve declared defaults as null. Every
+record's Value and streaming encoders have parity coverage. Golden suites reject
+missing fixtures as well as byte drift, so a packaging omission cannot silently
+regenerate the expected output. The shared field
+lists retain nested streaming encoders; measurement details stay in the design
+note rather than becoming an architectural performance promise.
+
 **Inspection reads accept any server-accepted name and never lease.** The peek, archive, and
 lookup reads take the queue name as plain `Text`, resolve the physical table through
 `pgmq.format_table_name` on the server, and run an unprepared `SELECT` ordered by `msg_id` with

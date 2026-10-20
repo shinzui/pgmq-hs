@@ -76,7 +76,7 @@ import Pgmq.Types (Queue (..), parseQueueName)
 
 ## Progress
 
-- [x] M1 review acceptance: use shared KeyValue field lists after measuring Pair conversion; cover null header normalization, arbitrary header JSON, encoder parity, and exact int64 boundary fixtures.
+- [x] M1 review acceptance (2026-10-20 UTC): use shared KeyValue field lists after measuring Pair conversion; cover null header normalization, arbitrary header JSON, encoder parity, and exact int64 boundary fixtures.
 
 - [x] M1 (2026-10-20 UTC): `aeson` added to `pgmq-config`'s library `build-depends`; `tasty-golden` and `bytestring` added to the three test suites; golden directories created and registered in `extra-source-files`
 - [x] M1 (2026-10-20 UTC): hand-written `ToJSON`/`FromJSON` for `Queue`, `UnvalidatedQueue`, `Message` and `ToJSON` for `TopicBinding`, `RoutingMatch`, `TopicSendResult`, `NotifyInsertThrottle` in `pgmq-core/src/Pgmq/Types.hs`
@@ -87,10 +87,11 @@ import Pgmq.Types (Queue (..), parseQueueName)
 - [x] M1 (2026-10-20 UTC): `pgmq-hasql/test/JsonGoldenSpec.hs` with the `QueueMetrics` goldens and the hedgehog round-trip property for `Message`; wired into `pgmq-hasql/test/Main.hs`
 - [x] M1 (2026-10-20 UTC): `pgmq-config/test/JsonGoldenSpec.hs` with one golden per `ReconcileAction` constructor; wired into `pgmq-config/test/Main.hs`
 - [x] M1 (2026-10-20 UTC): all three suites pass without `--accept` (core 72, hasql 111, config 70); `nix fmt` clean (2026-10-20 UTC)
-- [ ] M2: `docs/design/020-json-wire-encodings.md` written; Haddock on every instance points at it
-- [ ] M2: capability record created with the handle `okf id next` returned; `docs/capabilities/index.md` and `log.md` updated; `just docs-check` green
-- [ ] M2: `Unreleased` sections in `CHANGELOG.md`, `pgmq-core/CHANGELOG.md`, `pgmq-hasql/CHANGELOG.md`, `pgmq-config/CHANGELOG.md`
-- [ ] M2: `IR-2` set to `completed` with `completedAt` and `resolution`; improvement-requests log appended; M2 committed
+- [x] M2 (2026-10-20 UTC): design note 020 written; every instance points at the contract
+- [x] M2 (2026-10-20 UTC): allocated CAP-11, added its record/index/log, and passed `just docs-check`
+- [x] M2 (2026-10-20 UTC): four Unreleased changelogs describe the new instances, null/freeze policy, aeson library dependency and release handoff
+- [x] M2 (2026-10-20 UTC): IR-2 completed with timestamp/resolution and logged; boundary ADR updated
+- [x] M2 (2026-10-20 UTC): downstream build, Haddock, all sdists and final `nix flake check` passed on aarch64-darwin; outcomes/ADR distilled and registry completed
 
 
 ## Surprises & Discoveries
@@ -115,9 +116,13 @@ and reproduction are in `docs/design/evidence/020-json-encodings/README.md`.
 
 The hasql prelude re-exports lens's `(.=)`, so its codec import must hide that
 operator. `tasty-golden` 2.3.6 automatically creates missing files even without
-`--accept`; a deliberate `queue_name` to `name` mutation against an existing golden
+`--accept`; the suites now explicitly set its public `NoCreateFile True` option,
+with a test-only lower bound of 2.3.6 because that option was introduced there.
+New golden files need an empty placeholder before `--accept`. Removing queue.json
+was verified to fail without recreating it. Cabal exercises aeson 2.2.5.1; Nix
+resolves aeson 2.2.4.1. A deliberate `queue_name` to `name` mutation against an existing golden
 failed exactly one of four selected tests, proving the incompatible rename is caught.
-IR-2 is currently `accepted`, not `proposed`; closure will preserve its metadata.
+IR-2 was `accepted`, not `proposed`; closure preserves its other metadata.
 
 Mori registry list/search/show/docs still fail because its local database is absent.
 APIs were read from locally cached Hackage sources. Authoritative Hackage and git
@@ -131,6 +136,12 @@ registry records, not cross-repository artifact handles.
 
 ## Decision Log
 
+- Decision (2026-10-20 UTC): Require tasty-golden 2.3.6 in tests and set its
+  public `NoCreateFile True` option. Rationale: the default creates a missing
+  fixture and passes, masking accidental fixture omission. The new lower bound
+  is the actual API introduction, verified in released source; Nix already uses
+  2.3.6. For a new golden, create an empty placeholder and run `--accept`; do not
+  hand-author JSON bytes.
 - Decision (2026-10-20 UTC): Instantiate each hand-written field list through
   `KeyValue` as Pair for `toJSON` and Series for `toEncoding`. Rationale: the
   concrete Pair conversion nearly doubles small-message allocations and discards
@@ -194,15 +205,26 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-M1 completed (2026-10-20 UTC). All thirteen ToJSON instances and four record
-FromJSON instances are implemented, with 53 reviewed golden files. Three full
+M1 and M2 completed (2026-10-20 UTC). Thirteen ToJSON instances and four record
+FromJSON instances are implemented, with 53 reviewed golden files. The final full
 suites pass without `--accept`: core 72, hasql 111, config 70. Arbitrary message
 bodies/headers round-trip modulo explicit-null header normalization for both live
 and archived messages. Exact numeric IDs 9007199254740993 and 9223372036854775807
-survive encoding/decoding. Every record has encoder parity coverage, and the
-incompatible queue-key mutation demonstrably fails its existing golden. The
-allocation evidence supports shared KeyValue fields. M2 documentation, capability,
-request closure and the required final Nix gate remain pending.
+survive encoding/decoding. Every record has encoder parity coverage. Deliberate
+queue-key drift and a missing queue.json both fail their golden; restoring the
+fixture passes all 72 core cases. Existing newtype instances and QueueName
+validation were verified unchanged.
+
+M1 committed as `cb3c047`; M2 records design note 020, CAP-11, four changelogs,
+IR-2 closure and boundary-ADR distillation. The allocation evidence supports
+shared KeyValue fields and keeps timing details outside the architecture contract.
+The downstream build and Haddock generation pass, retaining existing unresolved-link
+warnings. All three sdists contain their specs and 29/2/22 goldens. The final
+required `nix flake check` passes on aarch64-darwin, including core golden tests,
+hasql/configuration/migration checks and formatting. Cabal uses aeson 2.2.5.1 and
+Nix 2.2.4.1; other systems were not built. Test suites use the verified public
+NoCreateFile API with tasty-golden >=2.3.6. No package version, dependency pin or
+existing newtype instance changed. EP-3 can now consume these domain codecs directly.
 
 
 ## Context and Orientation
@@ -485,7 +507,7 @@ for arbitrary bodies and headers. Commands: the three `cabal test` invocations i
 Steps. Acceptance: `IR-2` items 1, 3, and 4.
 
 Start with the build files. Add `aeson ^>=2.2` to the `library` `build-depends` of
-`pgmq-config/pgmq-config.cabal` (the test suite already has it). Add `tasty-golden ^>=2.3`
+`pgmq-config/pgmq-config.cabal` (the test suite already has it). Add `tasty-golden ^>=2.3.6`
 and `bytestring` to the `build-depends` of `pgmq-core-test`, `pgmq-hasql-test`, and
 `pgmq-config-test`; `pgmq-hasql-test` and `pgmq-config-test` already have `bytestring` or
 `aeson` where noted in the cabal files, so add only what is missing. Add `JsonGoldenSpec` to
@@ -509,8 +531,8 @@ now with the path it will have.
 Then write the three golden specs. Each one builds fixed sample values (one `UTCTime` with
 a fractional second, one with none, every `Maybe` exercised in both states), calls
 `encode`, appends a newline, and hands the bytes to `goldenVsString` with a path under
-`test/golden/`. On the first run the files do not exist and `tasty-golden` reports them as
-missing; run the suite once with `--accept` to create them, open each file and compare it to
+`test/golden/`. On the first run the files do not exist and the strict golden option reports them as
+missing. Create empty placeholders, run once with `--accept` to fill them, then compare each to
 the shape written in Concrete Steps, and only then commit. `pgmq-core`'s spec also contains
 a decode test (`{"queue_name":"MyQueue",…}` fails as `Queue` because `parseQueueName` rejects
 uppercase, and succeeds as `UnvalidatedQueue`), a round-trip test for each record that has
@@ -584,14 +606,14 @@ test-suite pgmq-core-test
     bytestring >=0.11 && <0.13,
     pgmq-core >=0.6 && <0.7,
     tasty ^>=1.5,
-    tasty-golden ^>=2.3,
+    tasty-golden ^>=2.3.6,
     tasty-hunit ^>=0.10,
     text ^>=2.1,
     time ^>=1.14,
 ```
 
 In `pgmq-hasql/pgmq-hasql.cabal` change `extra-source-files` to list both patterns and add
-`JsonGoldenSpec` to `other-modules` and `tasty-golden ^>=2.3` plus `bytestring` to the test
+`JsonGoldenSpec` to `other-modules` and `tasty-golden ^>=2.3.6` plus `bytestring` to the test
 suite's `build-depends`:
 
 ```cabal
@@ -601,12 +623,16 @@ extra-source-files:
 ```
 
 In `pgmq-config/pgmq-config.cabal` do the same for its test suite (it already depends on
-`aeson` and `bytestring`; add `tasty-golden ^>=2.3` and `time` is already there).
+`aeson` and `bytestring`; add `tasty-golden ^>=2.3.6` and `time` is already there).
 
-Create the directories:
+Create the directories. For each new golden path named by the spec, create an
+empty placeholder before running `--accept`; NoCreateFile intentionally rejects
+a missing path:
 
 ```bash
 mkdir -p pgmq-core/test/golden pgmq-hasql/test/golden pgmq-config/test/golden
+# Example for a new fixture; repeat for each new path in its spec.
+touch pgmq-core/test/golden/queue.json
 ```
 
 ### Step 2: `pgmq-core/src/Pgmq/Types.hs`
@@ -812,7 +838,14 @@ Add to the imports (the module's `Pgmq.Hasql.Prelude` already brings `ToJSON`, `
 `toEncoding`, `Text`, `Int32`, `Int64`, `UTCTime`):
 
 ```haskell
-import Data.Aeson (Encoding, KeyValue, Series, object, pairs, (.=))
+import Data.Aeson (KeyValue, object, pairs, (.=))
+```
+
+Hide lens's unrelated `(.=)` from the existing prelude import (do not add a
+second unrestricted import):
+
+```haskell
+import Pgmq.Hasql.Prelude hiding ((.=))
 ```
 
 Directly below `data QueueMetrics`:
@@ -980,12 +1013,13 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
 import Data.Time (UTCTime (..), fromGregorian)
 import Pgmq.Types
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Golden (goldenVsString)
+import Test.Tasty (TestTree, localOption, testGroup)
+import Test.Tasty.Golden (NoCreateFile (..), goldenVsString)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
 tests :: TestTree
 tests =
+  localOption (NoCreateFile True) $
   testGroup
     "JSON wire encodings"
     [ goldens,
@@ -1090,7 +1124,8 @@ main =
       ]
 ```
 
-Create the goldens, then inspect them:
+Create empty placeholder files for the goldens listed in the spec, generate them from
+the real encoder, then inspect them:
 
 ```bash
 nix develop --command cabal test pgmq-core:pgmq-core-test --test-options=--accept
@@ -1162,12 +1197,13 @@ import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Pgmq.Hasql.Statements.Types (QueueMetrics (..))
 import Pgmq.Types (Message (..), MessageId (..))
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Golden (goldenVsString)
+import Test.Tasty (TestTree, localOption, testGroup)
+import Test.Tasty.Golden (NoCreateFile (..), goldenVsString)
 import Test.Tasty.Hedgehog (testProperty)
 
 tests :: TestTree
 tests =
+  localOption (NoCreateFile True) $
   testGroup
     "JSON wire encodings"
     [ goldenVsString "queue_metrics" "test/golden/queue_metrics.json" (pure (encode sampleMetrics <> "\n")),
@@ -1241,11 +1277,12 @@ module JsonGoldenSpec (tests) where
 import Data.Aeson (encode)
 import Pgmq.Config.Types
 import Pgmq.Types (QueueName, TopicPattern, parseQueueName, parseTopicPattern)
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Golden (goldenVsString)
+import Test.Tasty (TestTree, localOption, testGroup)
+import Test.Tasty.Golden (NoCreateFile (..), goldenVsString)
 
 tests :: TestTree
 tests =
+  localOption (NoCreateFile True) $
   testGroup
     "ReconcileAction wire encodings"
     [ golden "created_queue_standard" (CreatedQueue q StandardQueue),
@@ -1584,8 +1621,9 @@ end of Milestone 2, but it must pass before the plan is marked complete.
 
 Every step is safe to repeat. Instances and field lists are plain additions; applying them
 twice is a compile error that tells you where the duplicate is. Golden generation with
-`--accept` overwrites files; if a golden ever looks wrong, delete it and regenerate after
-fixing the instance, never edit the file by hand. The cabal edits are reformatted by
+`--accept` overwrites files; if a golden ever looks wrong, replace it with an
+empty placeholder and regenerate after fixing the instance; never hand-author the
+JSON bytes. The cabal edits are reformatted by
 `nix fmt`; running it twice is a no-op.
 
 If `pgmq-core`'s tests fail under `nix flake check` with an unresolved `tasty-golden`, the
@@ -1610,7 +1648,7 @@ To roll back a milestone, revert its commit; nothing outside the repository is t
 ## Interfaces and Dependencies
 
 Libraries: `aeson ^>=2.2` (already a dependency of `pgmq-core` and `pgmq-hasql`; added to
-`pgmq-config`'s library by this plan), `tasty-golden ^>=2.3` (new, test suites only; 2.3.6
+`pgmq-config`'s library by this plan), `tasty-golden ^>=2.3.6` (new, test suites only; 2.3.6
 in the pinned Nix set), `bytestring` (test suites), and the existing `hedgehog`,
 `tasty-hedgehog`, `tasty`, `tasty-hunit`, `text`, `time`.
 
@@ -1666,3 +1704,8 @@ codec ownership explicit, and added encoder parity and lossless integer acceptan
 Revision note (2026-10-20 UTC): implementing codecs and 53 initial goldens, with
 normalized arbitrary-header round trips and exact int64 fixtures. Replaced the
 concrete Pair encoding helper with measured polymorphic KeyValue fields.
+
+Completion note (2026-10-20 UTC): M1 and M2 are complete. Final full suites pass
+72/111/70 tests; build, Haddock, three sdists, docs/format checks and the final
+aarch64-darwin Nix gate pass. CAP-11 and IR-2 closure are recorded. The strict
+missing-fixture guard uses the verified tasty-golden 2.3.6 API.

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Add hand-written ToJSON instances for Queue, UnvalidatedQueue, Message,
+ArchivedMessage, TopicBinding, RoutingMatch, TopicSendResult and NotifyInsertThrottle,
+and FromJSON instances for the first four. Encodings use pgmq's snake_case columns
+and explicit null optional fields; archived messages flatten the Message object.
+Queue decoding validates names while UnvalidatedQueue preserves text. Arbitrary JSON
+headers decode with explicit-null normalization; existing newtype instances and
+numeric MessageId encoding are unchanged. Goldens and exact int64 fixtures pin the
+published compatibility surface described in design note 020. Test suites require
+tasty-golden 2.3.6 to reject missing fixtures as well as changed bytes. These added
+instances are a PVP minor change carried by the next lockstep release.
+
 Add `ArchivedMessage`, a `Message` plus its `archivedAt` timestamp, returned by the archive
 inspection reads in `pgmq-hasql` (IR-1). It has no JSON instances yet; the inspection wire
 codecs are added separately.

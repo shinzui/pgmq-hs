@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Add ToJSON QueueMetrics with pgmq's snake_case field names and explicit nulls.
+The encoding keeps queue_length (total depth) distinct from queue_visible_length
+(available depth); null default_partition_length remains unavailable/inapplicable,
+not zero. Golden tests and encoder-parity properties pin this published compatibility
+surface under design note 020. This instance addition is a PVP minor change carried
+by the next lockstep release.
+
 ### Verification and limits
 
 Inspection tests now cover late lower-ID commits and late archival, propagate consumer

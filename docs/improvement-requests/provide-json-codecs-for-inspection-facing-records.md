@@ -10,7 +10,15 @@ generated:
   by: anthropic/claude-fable-5
   at: "2026-08-19T00:00:00Z"
 requestId: IR-2
-status: accepted
+status: completed
+completedAt: "2026-10-20T03:00:58Z"
+resolution: >-
+  ExecPlan 28 adds thirteen hand-written encoders and four record decoders across
+  pgmq-core, pgmq-hasql and pgmq-config, including flattened ArchivedMessage.
+  Fifty-three reviewed goldens pin pgmq snake_case fields, explicit nulls,
+  normalized arbitrary headers, exact int64 fixtures and encoder parity.
+  Design note 020 records the compatibility policy; existing newtype instances
+  remain unchanged and metrics distinguish total from visible depth.
 targetPlan: docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md
 origin: mori://shinzui/keiro-ui
 ---
@@ -18,6 +26,10 @@ origin: mori://shinzui/keiro-ui
 # Improvement Request: Provide JSON Codecs for Inspection-Facing Records
 
 ## Status
+
+Completed by [ExecPlan 28](../plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md)
+on 2026-10-20 UTC. The [wire contract](../design/020-json-wire-encodings.md),
+instances and 53 golden files are implemented; all three package suites pass.
 
 Proposed by the keiro runtime UI initiative
 (`mori://shinzui/keiro-ui/masterplans/1-keiro-runtime-ui-foundations`, filed under

@@ -134,7 +134,7 @@ test-suite pgmq-hasql-test
     random ^>=1.2,
     scientific ^>=0.3,
     tasty ^>=1.5,
-    tasty-golden ^>=2.3,
+    tasty-golden ^>=2.3.6,
     tasty-hedgehog ^>=1.4,
     tasty-hunit ^>=0.10,
     text,

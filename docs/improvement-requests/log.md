@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-20
+* **Update**: IR-2 completed: stable JSON codecs with 53 goldens, exact integer fixtures and design note 020 (ExecPlan 28)
+
 ## 2026-10-01
 * **Update**: IR-1 completed: non-destructive peek, archive, and lookup reads shipped across pgmq-hasql and pgmq-effectful with lenient names and keyset paging (ExecPlan 27)
 * **Update**: IR-4 completed: disconnect shapes classify transient, fault tests added, design note 017 revised (ExecPlan 26)

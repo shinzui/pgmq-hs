@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Add stable JSON wire encodings (IR-2) for queues, live/archive messages, metrics,
+topic and notification records, and reconciliation reports. Hand-written instances
+use pgmq's snake_case column names, emit optional fields as null, and are a
+published compatibility surface under design note 020. Four records also decode;
+explicit JSON-null headers normalize to Nothing, while IDs remain exact numeric
+int64 tokens. Fifty-three golden files pin the shapes. Adding instances is a PVP
+minor change, carried by the next lockstep release; downstream orphan instances
+for these types must be removed.
+
 Document inspection paging as a moving view: late commits and late archival require
 a first-page refresh. Real 100,000-row live/archive fixtures on PGMQ 1.12 and 1.13
 show scan/sort costs in time partitions and numeric archives; row limits are not

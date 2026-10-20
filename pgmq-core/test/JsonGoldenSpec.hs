@@ -16,21 +16,22 @@ import Data.Either (isLeft)
 import Data.Int (Int64)
 import Data.Time (UTCTime (..), fromGregorian)
 import Pgmq.Types
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.Golden (goldenVsString)
+import Test.Tasty (TestTree, localOption, testGroup)
+import Test.Tasty.Golden (NoCreateFile (..), goldenVsString)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
 tests :: TestTree
 tests =
-  testGroup
-    "JSON wire encodings"
-    [ goldens,
-      decoding,
-      testGroup "all header JSON forms" (map headerCase headerValues),
-      testCase "Queue and UnvalidatedQueue share bytes" $
-        assertEqual "same encoding" (encode sampleQueue) (encode (UnvalidatedQueue "orders" fractionalTime False False)),
-      testGroup "exact int64 positions" (map integerCase [9007199254740993, maxBound])
-    ]
+  localOption (NoCreateFile True) $
+    testGroup
+      "JSON wire encodings"
+      [ goldens,
+        decoding,
+        testGroup "all header JSON forms" (map headerCase headerValues),
+        testCase "Queue and UnvalidatedQueue share bytes" $
+          assertEqual "same encoding" (encode sampleQueue) (encode (UnvalidatedQueue "orders" fractionalTime False False)),
+        testGroup "exact int64 positions" (map integerCase [9007199254740993, maxBound])
+      ]
 
 -- | 2026-08-19T12:34:56.123Z: a fractional second, so the golden shows how
 -- aeson renders one (trailing zeros trimmed).

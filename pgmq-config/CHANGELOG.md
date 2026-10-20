@@ -1,5 +1,15 @@
 # Revision history for pgmq-config
 
+## Unreleased
+
+Add hand-written ToJSON instances for ReconcileAction, QueueType, PartitionConfig
+and ObservedQueueType, with a new aeson ^>=2.2 library dependency. Reports use
+snake_case action tags and field names; optional throttle/premake values encode
+as null, preserving a declared server default. Goldens cover every current action
+and supporting queue shape. The encoding is a published compatibility surface
+under design note 020. These added instances are a PVP minor change carried by
+the next lockstep release; no version is bumped here.
+
 ## 0.6.1.1 -- 2026-09-25
 
 Coordinated family version bump; the library is unchanged from 0.6.1.0.

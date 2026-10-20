@@ -131,7 +131,7 @@ test-suite pgmq-config-test
     postgresql-libpq >=0.10.1 && <0.12,
     random ^>=1.2,
     tasty ^>=1.5,
-    tasty-golden ^>=2.3,
+    tasty-golden ^>=2.3.6,
     tasty-hunit ^>=0.10,
     text,
     time ^>=1.14,

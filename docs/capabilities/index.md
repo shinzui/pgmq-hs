@@ -21,6 +21,7 @@ evidence you can open:
 | [CAP-8](predecessor-history-import.md) | Predecessor-history ledger import + schema contract | pgmq-migration | 0.4.0.0 |
 | [CAP-9](declarative-queue-reconciliation.md) | Declarative queue reconciliation | pgmq-config | 0.1.3.0 |
 | [CAP-10](non-destructive-queue-inspection.md) | Non-destructive queue inspection reads | pgmq-hasql, pgmq-effectful, pgmq-core | unreleased |
+| [CAP-11](json-wire-encodings.md) | JSON wire encodings of domain records | pgmq-core, pgmq-hasql, pgmq-config | unreleased |
 
 Every capability is `stability: experimental`: pgmq-hs is pre-1.0 and makes no
 cross-version compatibility promise yet. The field is uniform because the promise is
