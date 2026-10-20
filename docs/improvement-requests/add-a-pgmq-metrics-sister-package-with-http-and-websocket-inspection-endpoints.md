@@ -10,8 +10,17 @@ generated:
   by: anthropic/claude-fable-5
   at: "2026-08-19T00:00:00Z"
 requestId: IR-3
-status: accepted
-targetPlan: docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md
+status: completed
+completedAt: "2026-10-20T05:56:41Z"
+resolution: >-
+  ExecPlans 29 through 31 deliver pgmq-inspect: a standalone executable and
+  mountable read-only HTTP/WebSocket application, stable domain JSON, bounded
+  shared inspection reads, explicit-origin CORS and a reconnecting listener
+  over authoritative shared polling. Served OpenAPI, actual response/status
+  schema checks, exact int64 root/prefix client tests, least-privilege access
+  tests and the owned inspection guide support independent adoption. Workload
+  evidence records worker costs and IR-6 remains an explicit limitation.
+targetPlan: docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md
 origin: mori://shinzui/keiro-ui
 ---
 

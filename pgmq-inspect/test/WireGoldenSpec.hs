@@ -21,7 +21,7 @@ tests =
         goldenVsString "error envelope without details" "test/golden/error-plain.json" $
           pure (encode (ErrorBody "not_found" "No route matches this path." Nothing)),
         goldenVsString "service descriptor" "test/golden/descriptor.json" $
-          pure (encode (ServiceDescriptor "pgmq-inspect" "0.1.0.0" "ws")),
+          pure (encode (ServiceDescriptor "pgmq-inspect" "0.1.0.0" "ws" "openapi.json")),
         goldenVsString "liveness" "test/golden/health-live.json" $
           pure (encode (LivenessBody True)),
         goldenVsString "readiness" "test/golden/health-ready.json" $

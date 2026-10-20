@@ -18,7 +18,8 @@ All paths are GET and relative to the mount root. Bodies are JSON.
 
 | Path | Success body | Route-specific failures |
 |---|---|---|
-| `/` | `{service, version, websocket_path:"ws"}` | — |
+| `/` | `{service, version, websocket_path:"ws", openapi_path:"openapi.json"}` | — |
+| `/openapi.json` | OpenAPI 3 document with relative server `.` | — |
 | `/queues` | array of lenient queue records | — |
 | `/queues/{queue}` | exact metadata queue record | `queue_not_found` |
 | `/queues/{queue}/metrics` | QueueMetrics | `queue_not_found` |
@@ -120,7 +121,7 @@ headers, leaving the browser to enforce access. CORS is not authentication.
 
 Strip the prefix from WAI pathInfo before delegation; rawPathInfo may retain it.
 Both HTTP and WebSocket upgrade routing use pathInfo. Descriptor links are
-relative (`ws`), so use a mount-root base URL ending in `/` when resolving them.
+relative (`ws`, `openapi.json`), so use a mount-root base URL ending in `/` when resolving them.
 Port 0 honors bindHost; startup is acknowledged before the continuation runs.
 Socket and thread ownership is scoped across success, failure and cancellation.
 

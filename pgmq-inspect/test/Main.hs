@@ -1,5 +1,6 @@
 module Main (main) where
 
+import CliSpec qualified
 import ConfigSpec qualified
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -11,11 +12,14 @@ import HttpSpec qualified
 import IsolationSpec qualified
 import ListenerSpec qualified
 import LiveFeedSpec qualified
+import OpenApiSpec qualified
 import OutboxSpec qualified
+import PrivilegesSpec qualified
 import RawWebSocketSpec qualified
 import RefreshSpec qualified
 import RouterSpec qualified
 import ServerSpec qualified
+import SmokeSpec qualified
 import Test.Tasty
 import WebSocketSpec qualified
 import WireGoldenSpec qualified
@@ -25,18 +29,22 @@ main =
   defaultMain $
     testGroup
       "pgmq-inspect"
-      [ ConfigSpec.tests,
+      [ CliSpec.tests,
+        ConfigSpec.tests,
         CorsSpec.tests,
         ErrorSpec.tests,
         RouterSpec.tests,
         WireGoldenSpec.tests,
         WebSocketSpec.tests,
         ListenerSpec.tests,
+        OpenApiSpec.tests,
         OutboxSpec.tests,
+        PrivilegesSpec.tests,
         RawWebSocketSpec.tests,
         RefreshSpec.tests,
         ServerSpec.tests,
-        withResource acquire release (\resource -> testGroup "Database" [HttpSpec.tests (snd <$> resource), WebSocketSpec.databaseTests (snd <$> resource), LiveFeedSpec.tests (snd <$> resource), IsolationSpec.tests (snd <$> resource)])
+        SmokeSpec.tests,
+        withResource acquire release (\resource -> testGroup "Database" [OpenApiSpec.databaseTests (snd <$> resource), CliSpec.databaseTests (snd <$> resource), HttpSpec.tests (snd <$> resource), WebSocketSpec.databaseTests (snd <$> resource), LiveFeedSpec.tests (snd <$> resource), IsolationSpec.tests (snd <$> resource)])
       ]
   where
     acquire = mask $ \restore -> do

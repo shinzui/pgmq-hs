@@ -160,6 +160,16 @@ final: prev: {
     }
     { }));
 
+  # openapi3 3.2.5 exposes the ordered-map compatibility API used by the
+  # document builder; the package-set 3.2.4 does not expose that module.
+  openapi3 = dontCheck (doJailbreak (final.callHackageDirect
+    {
+      pkg = "openapi3";
+      ver = "3.2.5";
+      sha256 = "sha256-yzSduA+hcbvg3XAEPUljaXK1yn8Oz1nwvkLtMOlzVt4=";
+    }
+    { }));
+
   # ── Test dependencies ──────────────────────────────────────────────
 
   ephemeral-pg = dontCheck (doJailbreak (final.callHackageDirect

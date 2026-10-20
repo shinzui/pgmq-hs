@@ -229,7 +229,7 @@ path for foreign and mixed-case names).
 | 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | Complete |
 | 3 | Create the pgmq-inspect sister package with the HTTP inspection surface | docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md | EP-1, EP-2 | None | Complete |
 | 4 | Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect | docs/plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md | EP-3 | None | Complete |
-| 5 | Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide | docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md | EP-3, EP-4 | None | Not Started |
+| 5 | Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide | docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md | EP-3, EP-4 | None | In Progress |
 
 EP-1 M1–M4 are complete. M4 adds the performance and concurrency evidence missing
 from the original acceptance; `IR-1` retains its historical completed status.
@@ -525,12 +525,23 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 - [x] EP-4 M1: shared refresh coordinator and bounded admission; frame types with golden encodings; per-connection bounded queues with overflow signaling; subscribe/snapshot/unsubscribe/ping over a poll-only listener
 - [x] EP-4 M2: the server-wide LISTEN connection with refcounted channels, debounce, reconnect, and re-`LISTEN`; notify-sourced updates arrive; killing the listener backend does not wedge the feed
 - [x] EP-4 M3: Haddock protocol documentation, design note 021 WebSocket section, changelog
-- [ ] EP-5 M1: the `pgmq-inspect` executable serves the surface from a database URL; CORS origins and bind address configurable from the command line
-- [ ] EP-5 M2: `GET /openapi.json` serves the programmatically built document; golden and route-coverage tests green
-- [ ] EP-5 M3: `docs/user/queue-inspection.md`, README section, capability records, `IR-3` completed, release handoff recorded
+- [x] EP-5 M1: the `pgmq-inspect` executable serves the surface from a database URL; CORS origins and bind address configurable from the command line
+- [x] EP-5 M2: `GET /openapi.json` serves the programmatically built document; golden and route-coverage tests green
+- [x] EP-5 M3: `docs/user/queue-inspection.md`, README section, capability records, `IR-3` completed, release handoff recorded
 
 
 ## Surprises & Discoveries
+
+EP-5 (2026-10-20 UTC): executable and independent client acceptance exposed the
+canonical prefix-root empty segment and openapi3's ordered-map/nullable-validator
+compatibility details; implementation and negative tests now cover them. Nix pins
+OpenAPI 3.2.5 after a real 3.2.4 module failure. Dedicated connection settings
+preserve unrelated supplied GUCs, and every pooled connection is checked at a barrier.
+A restricted login serves all groups and future queues while ACLs deny consumption,
+mutation and sequence advancement. Native/stock inspection pass 123 tests, the
+whole family is green and the actual standalone curl/WS/Ctrl-C transcript is retained.
+The adoption guide, CAP-12, IR-3 closure and release handoff are written; final
+Haddock/source distribution/flake checks remain before registry completion.
 
 EP-4 M2 (2026-10-20 UTC): 106 native/stock tests and twenty full stock stress
 reruns pass. Listener acknowledgement is now a separate runtime observable from

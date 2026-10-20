@@ -1,10 +1,10 @@
 ---
 title: "HTTP and WebSocket queue inspection"
 type: Capability
-description: "Embeddable read-only HTTP and WebSocket queue inspection with domain JSON, non-destructive browsing, bounded admission, a shared live metrics feed and explicit-origin CORS."
+description: "Standalone and embeddable read-only HTTP/WebSocket queue inspection with domain JSON, non-destructive browsing, bounded shared reads, OpenAPI and an adoption guide."
 generated:
   by: openai/gpt-6.1-sol
-  at: "2026-10-20T05:23:41Z"
+  at: "2026-10-20T05:56:41Z"
 capabilityId: CAP-12
 provider: mori://shinzui/pgmq-hs
 status: shipped
@@ -19,6 +19,21 @@ requires:
 interface:
   - Pgmq.Inspect
 evidence:
+  - kind: test
+    resource: pgmq-inspect/test/CliSpec.hs
+    proves: Actual executable startup, environment precedence, checked options and finite deadlines on every pool connection plus listener settings.
+  - kind: test
+    resource: pgmq-inspect/test/OpenApiSpec.hs
+    proves: OpenAPI golden, method/path drift detection, actual response/status schemas, prefix mounts and exact int64 client operations.
+  - kind: test
+    resource: pgmq-inspect/test/PrivilegesSpec.hs
+    proves: Read-only role serves all HTTP groups and live snapshots, inherits future-queue SELECT, enforces role deadlines and denies mutation even with read-only transactions disabled.
+  - kind: test
+    resource: pgmq-inspect/test/SmokeSpec.hs
+    proves: Actual CLI curl/WebSocket conversation, poll-only snapshot and Ctrl-C goodbye with process cleanup.
+  - kind: guide
+    resource: docs/user/queue-inspection.md
+    proves: Independent adoption through the CLI, embedding, OpenAPI, exact-ID client parsing, least-privilege access and measured cost limits.
   - kind: test
     resource: pgmq-inspect/test/HttpSpec.hs
     proves: Domain response shapes, unchanged lease cells after browsing, separate inspection query deadlines and worker-pool progress.
@@ -97,4 +112,4 @@ partitioned queues are poll-only. Push reports registered notification interest,
 not trigger presence, listener health or channel acknowledgement. Overflow requires
 an HTTP re-read or re-subscription. Shared query counts still have real worker
 latency/throughput cost; measure against SLOs before choosing caps and intervals. Pagination observes a moving view; refresh
-from the first page to discover late commits/archivals behind a cursor. Standalone executable and OpenAPI delivery are tracked by ExecPlan 31.
+from the first page to discover late commits/archivals behind a cursor. The standalone executable uses isolated connections with finite database budgets; the served OpenAPI document and inspection guide support independent clients.

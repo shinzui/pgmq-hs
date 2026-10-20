@@ -94,3 +94,20 @@ new crypto keys use ram rather than memory byte arrays. The overlay supplies
 while the SDK retains its existing pin. Do not blindly jailbreak this boundary.
 Newer certificate releases must be reviewed as a coordinated dependency family.
 No wai-websockets executable-dependency override is required on this pin.
+
+
+## OpenAPI builder compatibility
+
+The inspection document builder requires openapi3 3.2.5 (verified against Hackage
+and its matching release tag), including its exposed
+`Data.HashMap.Strict.InsOrd.Compat` API. The pinned Nix set's 3.2.4 cannot compile
+that import, even with relaxed bounds. Pin 3.2.5 explicitly in the overlay; do not
+claim compatibility by jailbreaking 3.2.4. The public compatibility map also avoids
+a direct insert-ordered-containers dependency: Nix exercises 0.2.7 transitively
+and Cabal resolves 0.3.0.1. Runtime OpenAPI stays valid 3.0 with explicit nullable
+fields. The library's JSON validator ignores nullable, so tests translate nullable
+only in their validation view and include negative non-null/type cases.
+
+The CLI alone depends on optparse-applicative (current 0.19.0.0, existing range
+0.18–0.19) and postgresql-connection-string 0.1.0.6's parse/intercept/render APIs.
+These dependencies do not enter the inspection library's public API.

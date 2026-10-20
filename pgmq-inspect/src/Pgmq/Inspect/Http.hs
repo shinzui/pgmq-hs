@@ -41,6 +41,7 @@ import Pgmq.Inspect.Budget
 import Pgmq.Inspect.Config (InspectConfig (..))
 import Pgmq.Inspect.Env (InspectEnv (..), Inspection)
 import Pgmq.Inspect.Error
+import Pgmq.Inspect.OpenApi (openApiJson)
 import Pgmq.Inspect.Wire
 import Pgmq.Types (ArchivedMessage (..), MessageId (..), TopicBinding (..), UnvalidatedQueue (..), parseRoutingKey)
 import System.Timeout (timeout)
@@ -52,6 +53,7 @@ data PathSegment = Literal !Text | Placeholder !Text
 routeTable :: [(Method, [PathSegment])]
 routeTable =
   [ (methodGet, []),
+    (methodGet, [Literal "openapi.json"]),
     (methodGet, [Literal "queues"]),
     (methodGet, [Literal "queues", Placeholder "queue"]),
     (methodGet, [Literal "queues", Placeholder "queue", Literal "metrics"]),
@@ -70,12 +72,14 @@ routeTable =
   ]
 
 httpApp :: InspectionBudget -> InspectConfig -> InspectEnv -> WS.ServerApp -> Application
-httpApp budget cfg env wsApp req respond
+httpApp budget cfg env wsApp original respond
   | requestMethod req /= methodGet = respond (errorResponse status405 methodNotAllowed)
   | otherwise = respond =<< admittedRoute
   where
+    -- WAI retains the empty final segment at a canonical prefix mount (/pgmq/).
+    req = if pathInfo original == [""] then original {pathInfo = []} else original
     admittedRoute
-      | pathInfo req `elem` [[], ["health", "live"], ["ws"]] = route
+      | pathInfo req `elem` [[], ["openapi.json"], ["health", "live"], ["ws"]] = route
       | not (any (matches (pathInfo req) . snd) routeTable) = route
       | Left bad <- validateInput = pure (errorResponse status400 bad)
       | otherwise = maybe busyResponse id <$> withInspectionPermit budget route
@@ -95,6 +99,7 @@ httpApp budget cfg env wsApp req respond
       _ -> routeSuccess
     routeSuccess = case pathInfo req of
       [] -> pure descriptor
+      ["openapi.json"] -> pure (jsonResponse status200 openApiJson)
       ["queues"] -> listQueuesRoute env
       ["queues", q] -> queueRoute env q
       ["queues", q, "metrics"] -> queueMetricsRoute env q
@@ -118,7 +123,8 @@ descriptor =
     ServiceDescriptor
       { serviceName = "pgmq-inspect",
         serviceVersion = T.pack (showVersion version),
-        websocketPath = "ws"
+        websocketPath = "ws",
+        openapiPath = "openapi.json"
       }
 
 -- | Run a program and encode its result, or map its failure.

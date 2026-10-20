@@ -1,1 +1,1 @@
-{"service":"pgmq-inspect","version":"0.1.0.0","websocket_path":"ws"}
+{"openapi_path":"openapi.json","service":"pgmq-inspect","version":"0.1.0.0","websocket_path":"ws"}

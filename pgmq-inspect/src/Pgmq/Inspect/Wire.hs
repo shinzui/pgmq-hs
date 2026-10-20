@@ -36,7 +36,8 @@ data ServiceDescriptor = ServiceDescriptor
   { serviceName :: !Text,
     serviceVersion :: !Text,
     -- | Relative to the mount root, so it is right under any prefix.
-    websocketPath :: !Text
+    websocketPath :: !Text,
+    openapiPath :: !Text
   }
   deriving stock (Eq, Show, Generic)
 
@@ -45,7 +46,8 @@ instance ToJSON ServiceDescriptor where
     object
       [ "service" .= serviceName d,
         "version" .= serviceVersion d,
-        "websocket_path" .= websocketPath d
+        "websocket_path" .= websocketPath d,
+        "openapi_path" .= openapiPath d
       ]
 
 newtype LivenessBody = LivenessBody {alive :: Bool}

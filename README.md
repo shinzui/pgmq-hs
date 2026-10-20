@@ -88,6 +88,24 @@ sendOnce pool key body = go 1 False
 
 `PgmqRuntimeError` has three constructors — `PgmqAcquisitionTimeout`, `PgmqConnectionError`, `PgmqSessionError` — each exposing the full hasql context (SQL state, connection-error kind, etc.) so applications can pattern-match on whatever granularity they need. See [`docs/design/013-pgmq-effectful-error-model.md`](docs/design/013-pgmq-effectful-error-model.md) for the rationale.
 
+## pgmq-inspect
+
+Run a read-only HTTP/WebSocket inspector without another application:
+
+```sh
+export PGMQ_INSPECT_DATABASE_URL='host=/path/to/socket dbname=app user=pgmq_inspector'
+cabal run pgmq-inspect:exe:pgmq-inspect -- --port 9092
+curl -sS http://127.0.0.1:9092/queues
+```
+
+`nix build .#pgmq-inspect` also builds the executable. The schema must already
+be installed. Browse live/archive messages without leasing them, subscribe to
+shared metrics at `/ws`, or generate an HTTP client from `/openapi.json`.
+The WAI application also mounts in your own server. Use dedicated inspection
+capacity and a trusted network or authenticating proxy.
+See the [inspection guide](docs/user/queue-inspection.md) for all routes, frames,
+CORS, prefix mounts, exact numeric IDs, role grants and measured cost limits.
+
 ## pgmq-config
 
 Declare your queue topology as Haskell values and reconcile it at startup. Every operation is idempotent, so `ensureQueues` is safe to call on every boot:

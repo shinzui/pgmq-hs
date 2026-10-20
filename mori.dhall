@@ -181,6 +181,12 @@ in  Schema.Project::{ project =
             Schema.DocLocation.LocalFile
               "./docs/OPENTELEMETRY_INSTRUMENTATION.md"
         }
+      , Schema.DocRef::{ key = "queue-inspection"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "Standalone and embedded read-only HTTP/WebSocket queue inspection"
+        , location = Schema.DocLocation.LocalFile "./docs/user/queue-inspection.md"
+        }
       , Schema.DocRef::{ key = "queue-configuration"
         , kind = Schema.DocKind.Guide
         , audience = Schema.DocAudience.User

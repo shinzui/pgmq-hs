@@ -23,6 +23,11 @@ provenance:
       at: 2026-10-19T18:23:59Z
       mode: "update"
       note: "Corrected mounted OpenAPI servers, readiness schema, arbitrary headers, CLI bounds, privileges and release handoff; added client/schema acceptance."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-20T05:34:34Z
+      mode: "implement"
+      note: "Implement standalone server, OpenAPI/client/schema acceptance, least-privilege access and adoption guide"
 ---
 
 # Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide
@@ -77,20 +82,53 @@ test suite, which now includes `OpenApiSpec`.
 ## Progress
 
 - [x] (2026-10-19) Reviewed against implemented EP-1, revised EP-2–EP-4 and keiro-ui contracts; implementation remains pending.
-- [ ] Review gates: mounted OpenAPI client, actual-response schema validation, lossless int64 browser fixture, isolated database budget and least-privilege role tests pass.
+- [x] (2026-10-20) Review gates: mounted OpenAPI client, actual-response schema validation, lossless int64 browser fixture, isolated database budget and least-privilege role tests pass.
 
-- [ ] M1: `pgmq-inspect/app/Main.hs` and the `executable pgmq-inspect` stanza exist; `cabal run pgmq-inspect -- --version` prints the version; the server starts against the dev-shell database and answers `GET /queues`
-- [ ] M1: `--cors-origin`, `--host`, `--port`, `--poll-interval-ms`, `--pool-size`, `--no-listener`, and the `PGMQ_INSPECT_DATABASE_URL` fallback behave as documented; a missing or unparsable URL exits with status 2 and a one-line message
-- [ ] M1: `nix build .#pgmq-inspect` produces `result/bin/pgmq-inspect`
-- [ ] M2: `Pgmq.Inspect.OpenApi.openApiDocument` exists, is served at `GET /openapi.json`, and the service descriptor at `GET /` carries `"openapi_path":"openapi.json"` with its golden updated
-- [ ] M2: `pgmq-inspect/test/OpenApiSpec.hs` is green: golden `test/golden/openapi.json`, route coverage against `routeTable`, and the served document decodes back into `OpenApi`
-- [ ] M3: `docs/user/queue-inspection.md` written; README gains the `pgmq-inspect` section; `mori.dhall` registers the guide; `mori validate` passes
-- [ ] M3: the capability record from plan 29 lists the executable, the OpenAPI test, and the guide as evidence; `just docs-check` passes
-- [ ] M3: `IR-3` set to `completed` with `completedAt` and a `resolution`; the improvement-requests log appended
-- [ ] M3: root `CHANGELOG.md` and `pgmq-inspect/CHANGELOG.md` `Unreleased` sections written, including the release handoff paragraph
+- [x] (2026-10-20) M1: `pgmq-inspect/app/Main.hs` and the `executable pgmq-inspect` stanza exist; `cabal run pgmq-inspect -- --version` prints the version; the server starts against a disposable native-schema database and answers `GET /queues`
+- [x] (2026-10-20) M1: `--cors-origin`, `--host`, `--port`, `--poll-interval-ms`, `--pool-size`, `--no-listener`, and the `PGMQ_INSPECT_DATABASE_URL` fallback behave as documented; a missing or unparsable URL exits with status 2 and a one-line message
+- [x] (2026-10-20) M1: `nix build .#pgmq-inspect` produces `result/bin/pgmq-inspect`
+- [x] (2026-10-20) M2: `Pgmq.Inspect.OpenApi.openApiDocument` exists, is served at `GET /openapi.json`, and the service descriptor at `GET /` carries `"openapi_path":"openapi.json"` with its golden updated
+- [x] (2026-10-20) M2: `pgmq-inspect/test/OpenApiSpec.hs` is green: golden `test/golden/openapi.json`, route coverage against `routeTable`, and the served document decodes back into `OpenApi`
+- [x] (2026-10-20) M3: `docs/user/queue-inspection.md` written; README gains the `pgmq-inspect` section; `mori.dhall` registers the guide; `mori validate` passes
+- [x] (2026-10-20) M3: the capability record from plan 29 lists the executable, the OpenAPI test, and the guide as evidence; `just docs-check` passes
+- [x] (2026-10-20) M3: `IR-3` set to `completed` with `completedAt` and a `resolution`; the improvement-requests log appended
+- [x] (2026-10-20) M3: root `CHANGELOG.md` and `pgmq-inspect/CHANGELOG.md` `Unreleased` sections written, including the release handoff paragraph
 
 
 ## Surprises & Discoveries
+
+2026-10-20 acceptance: a real client at `/pgmq/` exposed WAI's retained empty
+trailing path segment; the router now treats it as the canonical mount root.
+The prefix fixture exercises descriptor/spec/HTTP/actual WebSocket upgrades.
+openapi3's validator ignores nullable; tests translate nullable only in their
+validation view, with negative type/null cases. Public OpenAPI remains valid 3.0.
+The pinned Nix openapi3 3.2.4 lacks the required compatibility module; a real build
+confirmed the failure. The overlay pins current 3.2.5. Its callHackageDirect hash is
+the extracted source hash (verified locally), not the compressed archive hash.
+
+Native full-family acceptance passed 72 core, 111 hasql, 79 effectful, 11 migration,
+70 config and 123 inspection tests. Route injection `/nope` and changed-description
+negative checks failed their intended coverage/golden assertions, then were restored.
+SmokeSpec retained the real startup/curl/WebSocket/Ctrl-C transcript in evidence 022.
+A disposable database replaces the plan's persistent dev-database stop/start recipe;
+existing unreachable/deadline/fault cases cover failure without disrupting that DB.
+Design note 021 receives only the descriptor/OpenAPI-route integration correction,
+so its adopted contract agrees with the guide and served document.
+
+2026-10-20 implementation: Mori registry lookup still fails because the local `mori`
+database is absent. Hackage and upstream release checks identify openapi3 3.2.5 and
+optparse-applicative 0.19.0.0. openapi3 3.2.5 exposes its own
+`Data.HashMap.Strict.InsOrd.Compat` map type; using the underlying container directly
+does not typecheck with 0.3. Use the exposed compatibility API and avoid a redundant
+direct container dependency. `Server` has no Monoid instance; construct it explicitly.
+Actual-response validation also requires explicit additional-properties support for
+open JSON objects and error details. Identity fixtures need OVERRIDING SYSTEM VALUE.
+
+The restricted-role integration passes all inspection routes and a real live snapshot,
+then disables the role default read-only transaction setting and proves ACL denial of
+consumption, mutation, queue administration and nextval. SELECT on sequences is required
+for metrics; schema USAGE/pg_monitor alone is insufficient. Future queue tables and
+sequences inherit SELECT through the actual creating owner's default privileges.
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
@@ -113,6 +151,12 @@ bounds, verify authoritative package registries and upstream release tags.
 
 
 ## Decision Log
+
+- Decision (2026-10-20): test the executable through Cabal build-tool-depends and
+  compile its private configuration into tests. Preserve supplied libpq options while
+  overriding statement/lock/connect deadlines; do not export CLI-only dependencies
+  through the library. A dependency-free Node fixture generates operations from the
+  served document and parses unsafe integers from original JSON source tokens.
 
 - Decision (2026-10-19): require explicit relative OpenAPI server `.`, fixture/schema
   cross-validation and lossless numeric-ID client tests before API freeze. Preserve the
@@ -153,6 +197,22 @@ bounds, verify authoritative package registries and upstream release tags.
 
 
 ## Outcomes & Retrospective
+
+M1–M3 implementation (2026-10-20 UTC): the executable, served OpenAPI, generated
+operation fixture, role recipe, compiled embedding example and owned guide exist.
+All 123 native and stock inspection tests pass, the full six-package family run
+passes, Nix builds the executable, and strict docs checks pass. Haddock/sdist and
+the final integrated flake gate remain before registry completion. Version numbers
+are unchanged; no publication is attempted.
+
+Release handoff: the next lockstep family release, prepared by
+`docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md`
+under MasterPlan 6 or its successor, must include initial `pgmq-inspect`, move its
+internal family bounds together, and list the breaking exhaustive-interpreter cases
+`PeekMessages`, `PeekArchivedMessages`, `LookupMessage`, `LookupArchivedMessage` and
+`QueueMetricsUnvalidated`. This implementation does not bump versions or publish.
+The root and package changelogs retain this handoff for the release train.
+
 
 Review status (2026-10-19): changes requested. This update corrects the release contract;
 no executable, schema or browser integration is implemented by this documentation change.
@@ -1601,10 +1661,10 @@ no rollback path to describe beyond `git revert`.
 
 ## Interfaces and Dependencies
 
-Library dependencies added to `pgmq-inspect`'s `library` stanza: `openapi3 ^>=3.2` (the Nix
-set has `3.2.4`; it transitively brings `insert-ordered-containers`, `http-media`, `lens`,
-`scientific`, `aeson-pretty`, and `QuickCheck`, all present in the pinned `ghc9124` set) and
-`insert-ordered-containers ^>=0.2` (imported directly for `Data.HashMap.Strict.InsOrd`).
+Library dependency added to `pgmq-inspect`'s `library` stanza: `openapi3 ^>=3.2.5`,
+pinned to 3.2.5 in Nix. Use its exposed `Data.HashMap.Strict.InsOrd.Compat` API;
+no direct container dependency is needed. Cabal exercises container 0.3.0.1 and
+Nix 0.2.7 transitively.
 Executable dependencies: `async ^>=2.2`, `base`, `bytestring`, `generic-lens`, `hasql ^>=1.10`,
 `hasql-pool ^>=1.4`, `lens ^>=5.3`, `optparse-applicative >=0.18 && <0.20`, `pgmq-inspect`,
 `text`. Test dependency added if absent: `tasty-golden ^>=2.3`; the test suite already depends
@@ -1631,7 +1691,7 @@ At the end of Milestone 2, `Pgmq.Inspect.OpenApi` exports `openApiDocument :: Da
 service-descriptor record in `Pgmq.Inspect.Wire` has the field `openapiPath :: Text` encoded as
 `openapi_path`; `Pgmq.Inspect` re-exports `openApiDocument`; and `pgmq-inspect/test/OpenApiSpec.hs`
 exports `tests :: TestTree`. The document's `openapi` version is `3.0.0` (the library's
-`Monoid` default), its `servers` list is empty, and its `paths` keys are exactly the sixteen
+`Monoid` default), its `servers` list is explicitly `[{url: "."}]`, and its `paths` keys are exactly the sixteen
 listed in Concrete Steps.
 
 At the end of Milestone 3, `docs/user/queue-inspection.md` exists and is registered in

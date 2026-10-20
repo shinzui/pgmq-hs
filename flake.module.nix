@@ -75,7 +75,7 @@
       # PATH, so `nix develop --command ./scripts/record-release.sh` failed there
       # and the v0.6.0.0 release fact went unrecorded. Providing git in the shell
       # itself makes the two environments agree.
-      haskellProject.extraDevPackages = [ pkgs.xz pkgs.git ];
+      haskellProject.extraDevPackages = [ pkgs.xz pkgs.git pkgs.nodejs_22 pkgs.curl ];
 
       # Default dev shell = the stock ghc9124 shell with this project's postgres
       # shellHook. Rebuilt from config.devShells.ghc9124 (not overridden here, so

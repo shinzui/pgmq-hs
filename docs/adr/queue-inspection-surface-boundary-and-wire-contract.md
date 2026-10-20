@@ -254,3 +254,29 @@ behind the 503 mapping), [design note 015](../design/015-notification-delivery-c
 lenient path for foreign names), and
 [the dependency-bounds ADR](haskell-dependency-bounds-and-nix-pin-policy.md) (how the new
 package declares what it is compatible with and what the Nix pin tests).
+
+## Standalone adoption and machine-readable contract
+
+The standalone executable validates bounded Integer options before allocation and
+uses a dedicated pool with one-second acquisition, two-second connect/statement
+and 250ms lock budgets. Existing connection options are preserved while deadline
+settings take precedence. These are capacity and server-side budgets; IR-6 remains
+an explicit limitation on blackholed replies, cancellation and total cleanup time.
+
+The served OpenAPI 3 document uses a relative server `.` and descriptor links are
+relative to a canonical trailing-slash mount URL. WAI's empty trailing root segment
+is accepted after prefix stripping. Method/path coverage, actual response/status
+validation and a generated-operation client protect this integration. Unsafe int64
+values are parsed from original JSON tokens before JavaScript Number conversion.
+The client fixture is executable acceptance evidence; it makes no claim about an
+unimplemented downstream UI or an arbitrary third-party generator.
+
+Database read-only posture requires SELECT on tables and sequences (metrics read
+sequence state), schema USAGE and an explicit function whitelist. PUBLIC EXECUTE
+and creator-specific defaults must be reviewed with existing worker grants; a
+default read-only transaction setting alone is insufficient. The tested role denies
+consumption and mutation even with that default disabled, and can inspect future
+queues created by the configured owner. The CLI never changes schema or ACLs.
+
+The adoption guide and reproducible curl/WebSocket transcript are owned here:
+[guide](../user/queue-inspection.md), [evidence](../design/evidence/022-inspection-adoption/README.md).

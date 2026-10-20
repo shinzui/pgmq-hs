@@ -1,6 +1,7 @@
 # Capability catalog log
 
 ## 2026-10-20
+* **Update**: CAP-12: standalone CLI, served prefix-safe OpenAPI, exact-int64 client and response-schema acceptance, restricted-role tests and owned adoption guide (ExecPlan 31)
 * **Update**: CAP-12: shared WebSocket metrics feed, reconnecting listener and concurrency/fault/workload evidence (ExecPlan 30)
 * **Addition**: CAP-12: HTTP queue inspection surface in pgmq-inspect (ExecPlan 29)
 * **Addition**: CAP-11: stable domain JSON codecs with normalized arbitrary headers, exact int64 fixtures and 53 reviewed golden files (ExecPlan 28)

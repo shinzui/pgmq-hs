@@ -7,6 +7,7 @@ module Pgmq.Inspect
     module Pgmq.Inspect.Error,
     module Pgmq.Inspect.Wire,
     module Pgmq.Inspect.WebSocket,
+    openApiDocument,
     routeTable,
     PathSegment (..),
   )
@@ -16,6 +17,7 @@ import Pgmq.Inspect.Config
 import Pgmq.Inspect.Env
 import Pgmq.Inspect.Error
 import Pgmq.Inspect.Http (PathSegment (..), routeTable)
+import Pgmq.Inspect.OpenApi (openApiDocument)
 import Pgmq.Inspect.Server
 import Pgmq.Inspect.WebSocket
 import Pgmq.Inspect.Wire

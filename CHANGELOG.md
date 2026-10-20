@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+`pgmq-inspect` is runnable from a database URL and serves OpenAPI 3 at
+`/openapi.json`. Its isolated connections have finite statement/lock/connect/
+acquisition budgets; CLI integers and CORS are checked before allocation. Relative
+links and server URLs support prefix mounts. Actual-response schema tests,
+lossless int64 client tests and a restricted-role integration accompany the
+[inspection guide](docs/user/queue-inspection.md).
+
+Release handoff: the next lockstep family release, prepared by
+`docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md`
+under MasterPlan 6 or its successor, must include the initial `pgmq-inspect`
+package and move its internal dependency bounds with the family. Announce the
+breaking `Pgmq` constructors `PeekMessages`, `PeekArchivedMessages`, `LookupMessage`,
+`LookupArchivedMessage` and `QueueMetricsUnvalidated` for exhaustive downstream
+interpreters. Versions and publication remain the release train's work.
+
 `pgmq-inspect` adds metrics subscriptions over WebSocket: shared rate-limited
 refreshes, bounded queues and frames, snapshot/generation ordering, overflow and
 goodbye, plus a single refcounted reconnecting LISTEN backend. Polling stays

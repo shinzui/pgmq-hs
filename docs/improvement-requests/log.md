@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-20
+* **Update**: IR-3 completed: pgmq-inspect standalone and embedded HTTP/WebSocket inspection, served OpenAPI, guide, restricted-role and exact-ID client acceptance (ExecPlans 29–31)
 * **Update**: IR-2 completed: stable JSON codecs with 53 goldens, exact integer fixtures and design note 020 (ExecPlan 28)
 
 ## 2026-10-01

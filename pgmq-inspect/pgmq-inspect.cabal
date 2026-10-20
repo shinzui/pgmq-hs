@@ -20,6 +20,8 @@ category: Database, Web
 build-type: Simple
 extra-doc-files: CHANGELOG.md
 extra-source-files:
+  test/client/*.mjs
+  test/fixtures/inspection-role.sql
   test/fixtures/pgmq-1.12.0.sql
   test/golden/*.json
 
@@ -45,6 +47,7 @@ library
     Pgmq.Inspect.Env
     Pgmq.Inspect.Error
     Pgmq.Inspect.Http
+    Pgmq.Inspect.OpenApi
     Pgmq.Inspect.Server
     Pgmq.Inspect.WebSocket
     Pgmq.Inspect.Wire
@@ -86,6 +89,7 @@ library
     lens ^>=5.3,
     network ^>=3.2,
     network-uri ^>=2.6,
+    openapi3 ^>=3.2.5,
     pgmq-core >=0.6 && <0.7,
     pgmq-effectful >=0.6 && <0.7,
     pgmq-hasql >=0.6 && <0.7,
@@ -104,13 +108,49 @@ library
   hs-source-dirs: src
   default-language: GHC2024
 
+executable pgmq-inspect
+  import: warnings
+  default-language: GHC2024
+  hs-source-dirs: app
+  main-is: Main.hs
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
+  autogen-modules: Paths_pgmq_inspect
+  other-modules:
+    Paths_pgmq_inspect
+    PgmqInspectCli
+
+  default-extensions:
+    DeriveGeneric
+    DuplicateRecordFields
+    ImportQualifiedPost
+    OverloadedLabels
+    OverloadedStrings
+
+  build-depends:
+    async ^>=2.2,
+    base >=4.18 && <5,
+    generic-lens ^>=2.2 || ^>=2.3,
+    hasql ^>=1.10,
+    hasql-pool ^>=1.4,
+    lens ^>=5.3,
+    optparse-applicative >=0.18 && <0.20,
+    pgmq-inspect,
+    postgresql-connection-string ^>=0.1,
+    text ^>=2.1,
+
 test-suite pgmq-inspect-test
   import: warnings
   default-language: GHC2024
+  build-tool-depends: pgmq-inspect:pgmq-inspect
   type: exitcode-stdio-1.0
   hs-source-dirs:
     test
     src
+    app
 
   main-is: Main.hs
   ghc-options:
@@ -120,14 +160,17 @@ test-suite pgmq-inspect-test
 
   autogen-modules: Paths_pgmq_inspect
   other-modules:
+    CliSpec
     ConfigSpec
     CorsSpec
+    EmbeddingExample
     EphemeralDb
     ErrorSpec
     HttpSpec
     IsolationSpec
     ListenerSpec
     LiveFeedSpec
+    OpenApiSpec
     OutboxSpec
     Paths_pgmq_inspect
     Pgmq.Inspect
@@ -140,15 +183,19 @@ test-suite pgmq-inspect-test
     Pgmq.Inspect.Http
     Pgmq.Inspect.Lifecycle
     Pgmq.Inspect.Listener
+    Pgmq.Inspect.OpenApi
     Pgmq.Inspect.Outbox
     Pgmq.Inspect.Refresh
     Pgmq.Inspect.Server
     Pgmq.Inspect.WebSocket
     Pgmq.Inspect.Wire
+    PgmqInspectCli
+    PrivilegesSpec
     RawWebSocketSpec
     RefreshSpec
     RouterSpec
     ServerSpec
+    SmokeSpec
     TestServer
     WebSocketSpec
     WireGoldenSpec
@@ -184,12 +231,16 @@ test-suite pgmq-inspect-test
     lens,
     network,
     network-uri ^>=2.6,
+    openapi3 ^>=3.2.5,
+    optparse-applicative >=0.18 && <0.20,
     pg-migrate,
     pgmq-core >=0.6 && <0.7,
     pgmq-effectful >=0.6 && <0.7,
     pgmq-hasql >=0.6 && <0.7,
     pgmq-migration >=0.6 && <0.7,
+    postgresql-connection-string ^>=0.1,
     postgresql-libpq >=0.10.1 && <0.12,
+    process,
     random ^>=1.2,
     stm,
     streaming-commons ^>=0.2,
