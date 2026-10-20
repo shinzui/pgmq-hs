@@ -8,9 +8,12 @@ import CorsSpec qualified
 import EphemeralDb
 import ErrorSpec qualified
 import HttpSpec qualified
+import OutboxSpec qualified
+import RefreshSpec qualified
 import RouterSpec qualified
 import ServerSpec qualified
 import Test.Tasty
+import WebSocketSpec qualified
 import WireGoldenSpec qualified
 
 main :: IO ()
@@ -23,14 +26,17 @@ main =
         ErrorSpec.tests,
         RouterSpec.tests,
         WireGoldenSpec.tests,
+        WebSocketSpec.tests,
+        OutboxSpec.tests,
+        RefreshSpec.tests,
         ServerSpec.tests,
-        withResource acquire release (\resource -> HttpSpec.tests (snd <$> resource))
+        withResource acquire release (\resource -> testGroup "Database" [HttpSpec.tests (snd <$> resource), WebSocketSpec.databaseTests (snd <$> resource)])
       ]
   where
     acquire = mask $ \restore -> do
       started <- newEmptyTMVarIO
       stop <- newEmptyTMVarIO
-      worker <- async $ do
+      worker <- async $ restore $ do
         result <- try @SomeException $ withPgmqDb $ \pool db -> do
           atomically (putTMVar started (Right (pool, db)))
           atomically (takeTMVar stop)

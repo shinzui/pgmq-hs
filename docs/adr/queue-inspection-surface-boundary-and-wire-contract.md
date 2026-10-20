@@ -169,6 +169,25 @@ Sockets, threads and application resources have bracketed ownership. Tests cover
 saturated admission, deadline/worker isolation, prefix routing/upgrades and cleanup;
 these do not establish a hard deadline for the separate IR-6 blackholed-reply problem.
 
+## Shared feed scheduling and lifetime
+
+The feed uses fixed runtime-wide workers, rather than a poller per client.
+Atomic snapshot publication activates a subscription; generation tags and explicit
+queue clearing invalidate queued frames after unsubscribe. A per-queue in-flight
+guard and minimum start interval apply to polls, hints and repeated subscriptions.
+Least-recently-started eligible work prevents a hot queue starving another.
+
+After the last subscriber leaves, listener interest and cached metrics are removed.
+A minimal cooldown lease remains through the minimum-refresh window so churn
+cannot reset the floor. Active queues are capped at wsMaxQueues and total active
+plus cooldown entries at twice that cap; exhausted cooldown capacity rejects with
+inspection_busy. No historical queue map grows indefinitely.
+
+Every JSON frame uses one bounded outbox/writer; overflow drops oldest frames and
+signals before retained delivery. Runtime shutdown stops scheduling, attempts
+Goodbye while Warp still runs, then cancels and joins transport tasks after a
+bounded drain, including when the host owns Warp.
+
 ## Consequences
 
 Adopting pgmq-hs never means adopting a web server; adopting `pgmq-inspect` never means

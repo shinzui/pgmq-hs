@@ -109,7 +109,7 @@ httpApp budget cfg env wsApp req respond
       ["notify", "throttles"] -> throttlesRoute env
       ["health", "live"] -> pure (jsonResponse status200 (encode (LivenessBody True)))
       ["health", "ready"] -> readinessRoute cfg env
-      ["ws"] -> pure (maybe (errorResponse (mkStatus 426 "Upgrade Required") websocketUpgradeRequired) id (WaiWS.websocketsApp WS.defaultConnectionOptions wsApp req))
+      ["ws"] -> pure (maybe (errorResponse (mkStatus 426 "Upgrade Required") websocketUpgradeRequired) id (WaiWS.websocketsApp WS.defaultConnectionOptions {WS.connectionFramePayloadSizeLimit = WS.SizeLimit (fromIntegral (wsMaxFrameBytes cfg)), WS.connectionMessageDataSizeLimit = WS.SizeLimit (fromIntegral (wsMaxFrameBytes cfg))} wsApp req))
       _ -> pure (errorResponse status404 notFound)
 
 descriptor :: Response

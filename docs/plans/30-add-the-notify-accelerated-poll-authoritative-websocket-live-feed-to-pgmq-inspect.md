@@ -23,6 +23,11 @@ provenance:
       at: 2026-10-19T18:23:59Z
       mode: "update"
       note: "Replaced per-client scans with a shared per-queue coordinator and bounded lifecycle; tightened snapshot ordering, frame limits and listener cleanup."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-20T04:38:28Z
+      mode: "implement"
+      note: "Implement shared refresh scheduling, bounded WebSocket transport and reconnecting listener"
 ---
 
 # Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect
@@ -76,10 +81,10 @@ routes, which keeps the HTTP path authoritative exactly as the cross-project con
 
 - [ ] Review acceptance: query count scales with distinct queues, one in-flight refresh per queue, bounded admission and fair scheduling, atomic snapshots/generations, bounded frames, deterministic overflow and cancellation cleanup.
 
-- [ ] M1: `Pgmq.Inspect.WebSocket` exists with the frame types, hand-written JSON instances, and golden files for every frame under `pgmq-inspect/test/golden/`
-- [ ] M1: shared refresh coordinator plus per-connection bounded outbox, reader, writer and shutdown watcher and the shared `WebSocketState` with the connection cap
-- [ ] M1: `Pgmq.Inspect.Server` gains `withInspectRuntime`; `withInspectApplication` keeps its signature and delegates; `withInspectServer` signals shutdown and drains before cancelling Warp
-- [ ] M1: `WebSocketSpec` green with no listener configured: `snapshot` with `"push":false`, poll-sourced `update`, `pong`, `queue_not_found`, `invalid_frame`, `too_many_subscriptions`, `too_many_queues`, `frame_too_large`, `overflow`, `goodbye`
+- [x] M1: `Pgmq.Inspect.WebSocket` exists with the frame types, hand-written JSON instances, and golden files for every frame under `pgmq-inspect/test/golden/`
+- [x] M1: shared refresh coordinator plus per-connection bounded outbox, reader, writer and shutdown watcher and the shared `WebSocketState` with the connection cap
+- [x] M1: `Pgmq.Inspect.Server` gains `withInspectRuntime`; `withInspectApplication` keeps its signature and delegates; `withInspectServer` signals shutdown and drains before cancelling Warp
+- [x] M1: `WebSocketSpec` green with no listener configured: `snapshot` with `"push":false`, poll-sourced `update`, `pong`, `queue_not_found`, `invalid_frame`, `too_many_subscriptions`, `too_many_queues`, `frame_too_large`, `overflow`, `goodbye`
 - [ ] M2: `Pgmq.Inspect.Listener` exists: one server-wide `LISTEN` connection, refcounted channel registry, `threadWaitReadSTM` wait loop over `onLibpqConnection`, reconnect with exponential backoff and re-`LISTEN`, `listenerHealthy`
 - [ ] M2: subscribe registers validated, non-partitioned queues for push; `snapshot` says `"push":true`; notify-sourced updates arrive within two seconds; debounce coalesces bursts
 - [ ] M2: the backend-kill test proves the feed does not wedge and that pushes resume after reconnection
@@ -100,10 +105,32 @@ not exception-safe, and push was inconsistently described as trigger availabilit
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+M1 (2026-10-20 UTC): all 88 inspection tests pass without --accept. Nine new
+hand-reviewed frame goldens and encoder parity cover every protocol constructor.
+Deterministic clock/barrier tests show 100 subscribers share one in-flight read,
+unchanged fingerprints suppress polls, hint bursts coalesce, a slow queue does
+not overlap itself or starve another, stale completions are discarded, and HTTP
+admission occupancy produces one bounded retry. Capacity-one/two outbox barriers
+prove drop-oldest ordering; real WebSocket tests cover caps, invalid/oversized
+frames, safe errors, poll convergence, goodbye and host-owned Warp cleanup.
+
+The suite compiles the package's real src modules as home modules so internal
+scheduler/outbox seams can be tested without exposing them as library API. Public
+library compilation is checked separately. Minimal cooldown leases are retained
+for at most one minimum-refresh window after the last unsubscribe; no metrics,
+metadata or listener interest is retained. This prevents unsubscribe/re-subscribe
+from bypassing the refresh floor without unbounded historical queue state.
+Active queues stay capped at wsMaxQueues; active plus cooldown entries stay at
+2*wsMaxQueues, with inspection_busy on exhausted cooldown admission.
 
 
 ## Decision Log
+
+- Decision (2026-10-20 UTC): Keep internal frame/outbox/scheduler modules hidden,
+  and compile the same src tree in this package's tests for clock/barrier access.
+  Retain bounded cooldown leases after unsubscribe to preserve per-queue start
+  spacing under churn; otherwise deleting all timing state would reset the floor.
+  Snapshot publication and generation activation remain one STM transaction.
 
 - Decision (2026-10-19): Replace per-client polling/debounce with one bounded, fair coordinator
   keyed by distinct queue, using plan 29's shared admission gate. Keep snapshot publication

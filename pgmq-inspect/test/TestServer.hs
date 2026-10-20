@@ -2,6 +2,7 @@
 -- http-client.
 module TestServer
   ( withTestServer,
+    withTestRuntime,
     Reply (..),
     get,
     getWith,
@@ -9,6 +10,7 @@ module TestServer
   )
 where
 
+import Control.Exception (finally)
 import Data.Aeson (FromJSON, eitherDecode)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -16,9 +18,10 @@ import Data.CaseInsensitive (CI)
 import Network.HTTP.Client qualified as Http
 import Network.HTTP.Types (Method, methodGet)
 import Network.HTTP.Types.Header (HeaderName)
+import Network.Wai.Handler.Warp qualified as Warp
 import Pgmq.Inspect.Config (InspectConfig, InspectServerConfig (..))
 import Pgmq.Inspect.Env (InspectEnv)
-import Pgmq.Inspect.Server (RunningInspectServer (..), withInspectServer)
+import Pgmq.Inspect.Server (InspectRuntime (..), RunningInspectServer (..), withInspectRuntime, withInspectServer)
 import Test.Tasty.HUnit (assertFailure)
 
 withTestServer :: InspectConfig -> InspectEnv -> (Int -> IO a) -> IO a
@@ -49,3 +52,9 @@ getWith port method headers path = do
 
 decodeReply :: (FromJSON a) => Reply -> IO a
 decodeReply reply = either (assertFailure . ("undecodable body: " <>)) pure (eitherDecode (replyBody reply))
+
+-- | Feed shutdown happens while the host-owned Warp server is still alive.
+withTestRuntime :: InspectConfig -> InspectEnv -> (Int -> InspectRuntime -> IO a) -> IO a
+withTestRuntime cfg env k = withInspectRuntime cfg env $ \runtime ->
+  Warp.testWithApplication (pure (runtimeApplication runtime)) $ \port ->
+    k port runtime `finally` (runtimeRequestShutdown runtime >> runtimeAwaitDrained runtime 1000000)

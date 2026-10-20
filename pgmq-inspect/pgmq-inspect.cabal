@@ -46,11 +46,15 @@ library
     Pgmq.Inspect.Error
     Pgmq.Inspect.Http
     Pgmq.Inspect.Server
+    Pgmq.Inspect.WebSocket
     Pgmq.Inspect.Wire
 
   other-modules:
     Paths_pgmq_inspect
     Pgmq.Inspect.Budget
+    Pgmq.Inspect.Frames
+    Pgmq.Inspect.Outbox
+    Pgmq.Inspect.Refresh
 
   autogen-modules: Paths_pgmq_inspect
   default-extensions:
@@ -101,27 +105,50 @@ test-suite pgmq-inspect-test
   import: warnings
   default-language: GHC2024
   type: exitcode-stdio-1.0
-  hs-source-dirs: test
+  hs-source-dirs:
+    test
+    src
+
   main-is: Main.hs
   ghc-options:
     -threaded
     -rtsopts
     -with-rtsopts=-N
 
+  autogen-modules: Paths_pgmq_inspect
   other-modules:
     ConfigSpec
     CorsSpec
     EphemeralDb
     ErrorSpec
     HttpSpec
+    OutboxSpec
+    Paths_pgmq_inspect
+    Pgmq.Inspect
+    Pgmq.Inspect.Budget
+    Pgmq.Inspect.Config
+    Pgmq.Inspect.Cors
+    Pgmq.Inspect.Env
+    Pgmq.Inspect.Error
+    Pgmq.Inspect.Frames
+    Pgmq.Inspect.Http
+    Pgmq.Inspect.Outbox
+    Pgmq.Inspect.Refresh
+    Pgmq.Inspect.Server
+    Pgmq.Inspect.WebSocket
+    Pgmq.Inspect.Wire
+    RefreshSpec
     RouterSpec
     ServerSpec
     TestServer
+    WebSocketSpec
     WireGoldenSpec
 
   default-extensions:
     DataKinds
+    DeriveGeneric
     DuplicateRecordFields
+    GeneralisedNewtypeDeriving
     ImportQualifiedPost
     LambdaCase
     NamedFieldPuns
@@ -135,24 +162,27 @@ test-suite pgmq-inspect-test
     base >=4.18 && <5,
     bytestring,
     case-insensitive,
+    containers,
     directory,
     effectful-core ^>=2.6 || ^>=2.7,
     ephemeral-pg >=0.3.1.0,
     generic-lens,
     hasql,
     hasql-pool ^>=1.4,
+    hs-opentelemetry-api >=1.0 && <2,
     http-client ^>=0.7,
     http-types,
     lens,
     network,
+    network-uri ^>=2.6,
     pg-migrate,
     pgmq-core >=0.6 && <0.7,
     pgmq-effectful >=0.6 && <0.7,
     pgmq-hasql >=0.6 && <0.7,
-    pgmq-inspect,
     pgmq-migration >=0.6 && <0.7,
     random ^>=1.2,
     stm,
+    streaming-commons ^>=0.2,
     tasty ^>=1.5,
     tasty-golden ^>=2.3.6,
     tasty-hunit ^>=0.10,
@@ -161,5 +191,7 @@ test-suite pgmq-inspect-test
     unix,
     vector,
     wai,
+    wai-cors ^>=0.2.7,
+    wai-websockets ^>=3.0,
     warp,
     websockets,

@@ -1,4 +1,4 @@
-module HttpSpec (tests) where
+module HttpSpec (tests, withQueue, sendN, session) where
 
 import Control.Exception (bracket)
 import Control.Lens ((^.))
