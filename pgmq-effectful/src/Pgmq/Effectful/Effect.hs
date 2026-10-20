@@ -455,7 +455,10 @@ allQueueMetrics = send AllQueueMetrics
 -- @read_ct@ are untouched. Accepts any server-accepted name; pass
 -- 'Pgmq.Types.queueNameToText' for a validated one. Pages by exclusive
 -- @msg_id@ cursor, never @OFFSET@. A missing queue is a @PgmqSessionError@
--- carrying SQLSTATE @42P01@.
+-- carrying SQLSTATE @42P01@. Each call has its own snapshot: refresh from the
+-- first page for lower IDs committed or archived after the cursor advances.
+-- A row limit does not bound scan work or payload bytes. Use finite database
+-- deadlines and inspection capacity separate from workers.
 peekMessages :: (Pgmq :> es) => PeekMessages -> Eff es (Vector Message)
 peekMessages = send . PeekMessages
 

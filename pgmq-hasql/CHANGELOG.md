@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Verification and limits
+
+Inspection tests now cover late lower-ID commits and late archival, propagate consumer
+thread failures, and exercise 100,000-row ordinary/unlogged and numeric/time partitioned
+queue/archive layouts. Design note 019 retains the complete query plans and states the
+scan costs, moving-view semantics, finite database deadlines and separate capacity
+requirements. No public signatures, SQL builders or migrations changed.
+
 ### New Features
 
 - Non-destructive inspection reads (IR-1), exported from `Pgmq` and

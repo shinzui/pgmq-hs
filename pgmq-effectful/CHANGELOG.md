@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Inspection Haddocks now state the moving-view cursor contract and the need for
+finite database deadlines and inspection capacity separate from workers; a row limit
+does not bound scan work or payload bytes.
+
 ### Bug Fixes
 
 - `isTransient` now classifies a connection lost while waiting for a reply as transient

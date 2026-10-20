@@ -256,13 +256,18 @@ queueMetricsUnvalidated q = statement q Stmt.queueMetricsUnvalidated
 -- server's undefined_table error (SQLSTATE 42P01); a missing message is Nothing.
 
 -- | A keyset page of a queue table in ascending @msg_id@ order, starting
--- strictly after 'afterMessageId', without leasing anything.
+-- strictly after 'afterMessageId', without leasing anything. Each page has its
+-- own snapshot; refresh from the beginning to find lower IDs committed later.
+-- The row limit does not bound scan work: partitioned queues may scan and sort.
+-- Use finite database deadlines and capacity separate from worker connections.
 peekMessages :: PeekMessages -> Session (Vector Message)
 peekMessages PeekMessages {unvalidatedQueueName, afterMessageId, limit} = do
   table <- statement (unvalidatedQueueName, "q") Inspect.formatTableName
   statement (afterMessageId, limit) (Inspect.peekStatement table)
 
 -- | A keyset page of an archive table, each row with its archival timestamp.
+-- An older ID archived after the cursor advances requires a first-page refresh.
+-- The same cost and isolation limits as 'peekMessages' apply.
 peekArchivedMessages :: PeekMessages -> Session (Vector ArchivedMessage)
 peekArchivedMessages PeekMessages {unvalidatedQueueName, afterMessageId, limit} = do
   table <- statement (unvalidatedQueueName, "a") Inspect.formatTableName

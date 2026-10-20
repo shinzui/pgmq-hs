@@ -21,6 +21,11 @@ provenance:
       at: 2026-10-19T18:23:59Z
       mode: "update"
       note: "Reviewed implemented reads and keiro-ui contracts; reopened EP-1 cost gates and aligned all five plans around shared budgets, wire correctness and release validation."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-20T02:35:44Z
+      mode: "implement"
+      note: "Coordinate reopened EP-1 M4 implementation and validation"
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -210,14 +215,14 @@ path for foreign and mixed-case names).
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Add non-destructive peek, archive, and lookup reads across the pgmq layers | docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md | None | EP-2 (integration: `ArchivedMessage` codec) | In Progress |
+| 1 | Add non-destructive peek, archive, and lookup reads across the pgmq layers | docs/plans/27-add-non-destructive-peek-archive-and-lookup-reads-across-the-pgmq-layers.md | None | EP-2 (integration: `ArchivedMessage` codec) | Complete |
 | 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | Not Started |
 | 3 | Create the pgmq-inspect sister package with the HTTP inspection surface | docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md | EP-1, EP-2 | None | Not Started |
 | 4 | Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect | docs/plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md | EP-3 | None | Not Started |
 | 5 | Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide | docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md | EP-3, EP-4 | None | Not Started |
 
-EP-1 M1–M3 remain implemented. Its reopened M4 covers the performance and concurrency
-evidence missing from the original acceptance; `IR-1` retains its historical completed status.
+EP-1 M1–M4 are complete. M4 adds the performance and concurrency evidence missing
+from the original acceptance; `IR-1` retains its historical completed status.
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -225,10 +230,10 @@ Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3
 
 ## Dependency Graph
 
-Wave one: EP-1 M4 must close before EP-3 starts; EP-2 may proceed now.
-`EP-1` and `EP-2` have no hard dependencies and may be implemented in parallel or in
-either order. The `ArchivedMessage` record already exists; EP-2 owns its codecs and need not wait for
-EP-1 M4. The integration rule below records that ownership.
+Wave one: EP-1 is complete; EP-2 is the next ready plan. EP-3 waits only for EP-2.
+The two foundation plans have no hard dependency on one another. The `ArchivedMessage`
+record already exists; EP-2 owns its codecs. The integration rule below records that
+ownership.
 
 Wave two: `EP-3` hard-depends on `EP-1` (its browse, archive, and message-by-id handlers call
 `peekMessages`, `peekArchivedMessages`, `lookupMessage`, and `lookupArchivedMessage` through the
@@ -499,7 +504,7 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 - [x] EP-1 M1: `ArchivedMessage`, the two argument records, four statements, and four sessions exist; a red-then-green `InspectionSpec` proves byte-identical `vt`/`read_ct`, exactly-once keyset paging without `OFFSET`, archive timestamps, and typed not-found (2026-10-01)
 - [x] EP-1 M2: four `Pgmq` effect constructors with plain and traced cases; umbrella re-exports and compile witnesses; foreign and mixed-case names covered on a dedicated instance; partitioned queues covered (2026-10-01)
 - [x] EP-1 M3: design note 019, capability record, Haddocks, changelogs; `IR-1` completed (2026-10-01)
-- [ ] EP-1 M4: verify numeric/time partition queue and archive plans, concurrency semantics, and cost limits; preserve M1–M3 completion evidence
+- [x] EP-1 M4: real 100,000-row live/archive plans on both schemas with required pg_partman, deterministic moving-view tests, exception-safe consumer worker, and documented cost/isolation limits; full native/stock/partman and effectful validation passed (2026-10-20 UTC)
 - [ ] EP-2 M1: hand-written instances for every listed record in `pgmq-core`, `pgmq-hasql`, and `pgmq-config`; golden tests pin every encoding
 - [ ] EP-2 M2: design note 020, Haddock policy on every type, capability record, changelogs; `IR-2` completed
 - [ ] EP-3 M1: `pgmq-inspect` builds under cabal and Nix with config, env, wire types, error mapping, and a router serving the descriptor, listings, metrics, and health; mock-interpreter router tests
@@ -514,6 +519,19 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 
 
 ## Surprises & Discoveries
+
+EP-1 M4 implementation (2026-10-20 UTC): real pg_partman fixtures confirm that
+numeric archive late pages scan the remaining default (50,001 rows), while time
+live/archive pages and lookups scan all 100,000 rows. Ordinary/unlogged and numeric
+live reads use msg_id indexes. Complete plans for both schemas are retained in
+`docs/design/evidence/019-inspection-reads/README.md`. This validates the existing
+EP-3 database-budget and isolation gates; no interface or ownership change is needed.
+Late producer commits and late archival demonstrably require first-page refresh.
+Both required-partman targeted inspection runs passed all 19 cases without skips.
+Full hasql runs passed natively (107), on stock 1.12 (106), and with required
+pg_partman on both schemas (107/106); all 79 effectful tests and `cabal build all`
+passed. EP-1 is complete; EP-2 owns the next implementation step. Mori registry
+lookup is still unavailable because its local database is missing.
 
 Review on 2026-10-19, against pgmq-hs `48a1ed0` and
 `mori://shinzui/keiro-ui` commit `3472a9be2e3bc8fdb793e5549fe074450b44b1a7`:
@@ -573,6 +591,13 @@ interactions between child plans. Provide concise evidence.
 
 
 ## Decision Log
+
+- Decision (2026-10-20 UTC): Close EP-1 after real layout evidence and full
+  validation rather than adding automatic indexes. Preserve EP-2 codec ownership,
+  EP-3 deadline/admission ownership and all existing public read interfaces.
+  Rationale: M4 confirms the existing operational limits; no decomposition or
+  dependency change is required. Promote measured scan and moving-view constraints
+  into the boundary ADR, leaving exact timings in the evidence report.
 
 - Decision (2026-10-19): Keep the five functional work streams and their acyclic dependencies;
   reopen only EP-1's missing M4 evidence. EP-2 owns codecs now that the type exists. EP-3 owns
@@ -657,6 +682,14 @@ interactions between child plans. Provide concise evidence.
 
 ## Outcomes & Retrospective
 
+EP-1 completed (2026-10-20 UTC): all four milestones are complete, including
+real numeric/time live/archive plans, deterministic moving-view scenarios and
+consumer failure propagation. Full hasql suites pass on native and stock schemas
+with and without required pg_partman; both effectful interpreter witnesses pass.
+The boundary ADR now distills the scan-cost and cursor lessons; 64 full EXPLAINs
+are retained beside design note 019. EP-2 (stable JSON codecs) is ready; EP-3
+continues to wait for those codecs. The rest of this initiative remains unimplemented.
+
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original vision. Before marking the MasterPlan complete,
 distill durable project context from this MasterPlan and its child ExecPlans into
@@ -666,8 +699,8 @@ Review outcome (2026-10-19): changes requested for implementation acceptance. Th
 four inspection reads plus lenient metrics are wired consistently through sessions, effects,
 and both interpreters. M1–M3's functional delivery remains recorded; the broad performance
 claim is not yet established. This update changes planning/architecture documentation only.
-EP-2 may proceed; EP-3 waits for EP-1 M4 and EP-2. Finish the new functional, schema,
-concurrency, and workload gates before declaring the surface ready for keiro-ui.
+At that review, EP-2 could proceed and EP-3 waited for EP-1 M4 and EP-2. The remaining functional, schema,
+concurrency, and workload gates must pass before declaring the surface ready for keiro-ui.
 
 Validation (2026-10-19): `just docs-check` and `git diff --check` passed. The SQL
 EXPLAIN/read-counter probes and bounded-integer parser probe above were run; the full Haskell
@@ -680,3 +713,7 @@ Revision note (2026-10-19): audited the implemented reads and all five child des
 keiro-ui's contract, corrected API/schema/test errors, and added partition cost evidence,
 shared metrics scheduling, bounded admission, exact cursor handling, and release gates.
 No package versions, dependency pins, migration bytes, or runtime implementation changed.
+
+Revision note (2026-10-20 UTC): closed EP-1 M4 with real partition query evidence,
+moving-view/failure-propagation tests and full supported-schema validation.
+EP-2 is next; the remaining ownership and dependency graph are unchanged.

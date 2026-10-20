@@ -104,12 +104,21 @@ acceptable on an inspection path.
 ## Partitioned queues
 
 A parent SELECT sees its partitions, but that establishes visibility rather than cheap
-execution. The existing `InspectionSpec` covers a small numeric-partitioned live queue only.
-Time-partitioned live queues index `enqueued_at`; their archives index `archived_at`.
-Numeric archives also have no guaranteed `msg_id` index. A `msg_id` cursor cannot prune time
-partitions, and LIMIT does not prevent a full scan and sort. The 2026-10-19 review reproduced
-that shape with 100,000 rows; ExecPlan 27 M4 tracks real pg_partman/live/archive plan coverage.
-Ordinary live/archive tables have msg_id primary keys. Inspection creates no indexes.
+execution. `InspectionCostSpec` now exercises 100,000 rows in each live/archive table
+on both supported PGMQ schemas, using real pg_partman numeric and time parents,
+multiple occupied leaves and their defaults. The complete projections, plans, fixture
+conditions and reproduction commands are retained in the
+[query-plan evidence](evidence/019-inspection-reads/README.md).
+
+On PostgreSQL 18.6 with pg_partman 5.5.0, ordinary and unlogged live/archive tables
+used their msg_id primary keys. Numeric live late pages used an index and five
+shared buffers. Numeric archives lacked a msg_id index: even after partition pruning,
+a late page scanned the 50,001-row default, filtering 49,951 rows (1,613 buffers).
+Time live and archive late pages scanned all 100,000 rows and filtered 99,950
+(3,126 and 3,228 buffers); their by-id lookups scanned the same parents. LIMIT did
+not avoid those scans and sorts. These are diagnostic observations, not fixed
+optimizer shapes or production latency guarantees. Inspection creates no indexes;
+no optional index is recommended without write/storage and maintenance evidence.
 
 Use finite PostgreSQL statement/lock deadlines and capacity isolated from worker connections.
 Choose polling frequency from measured row counts and plans; a five-second default is not a
@@ -137,9 +146,13 @@ cases. The family's next release is therefore a major one (see the ADR below).
 ## Where enforced
 
 - `pgmq-hasql/test/InspectionSpec.hs`: byte-identical rows, the concurrent consumer,
-  exactly-once keyset paging (1000 ids in 143 pages of at most 7), no `OFFSET` in any
+  exactly-once keyset paging in a quiescent fixture (1000 ids in 143 pages of at most 7), no `OFFSET` in any
   statement's SQL, archive timestamps, lookups in both tables, limit semantics, the `42P01`
-  missing-queue error, metrics parity, and a partitioned queue.
+  missing-queue error, metrics parity, numeric partitions, late commits and late archival,
+  and prompt propagation of consumer failure.
+- `pgmq-hasql/test/InspectionCostSpec.hs`: ordinary/unlogged and numeric/time live/archive
+  layouts with 100,000 rows each, including multiple leaves and default partitions;
+  first/late pages, present/absent lookups and complete EXPLAIN evidence.
 - `pgmq-hasql/test/InspectionForeignNameSpec.hs`: mixed-case and hyphenated names.
 - `pgmq-effectful/test/TracedInterpreterSpec.hs`, the "non-destructive inspection reads"
   case in `featureTests`: all five operations under both interpreters and the span shapes.

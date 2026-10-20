@@ -1,5 +1,8 @@
 # Capability catalog log
 
+## 2026-10-20
+* **Update**: CAP-10: document moving-view paging and inspection cost/isolation limits; add real partition workload evidence
+
 ## 2026-10-01
 * **Addition**: CAP-10: non-destructive queue inspection reads (peek, archive peek, lookups, lenient metrics) across pgmq-hasql and pgmq-effectful, since unreleased (ExecPlan 27)
 * **Revision**: CAP-5: revise the isTransient limits, add isAmbiguousReply, and add DisconnectSpec as evidence (ExecPlan 26)

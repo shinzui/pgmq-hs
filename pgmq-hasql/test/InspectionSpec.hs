@@ -7,12 +7,13 @@
 -- after a sequence of peeks, and a consumer polling the queue concurrently
 -- with a loop of peeks still receives every message exactly once with
 -- read_ct = 1. Paging is keyset-only: the statements' SQL contains no OFFSET,
--- and paging by the last id seen visits every message exactly once.
+-- and paging by the last id seen visits every message in a quiescent fixture
+-- exactly once. Late commits and late archival require a first-page refresh.
 module InspectionSpec (tests) where
 
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (forkFinally, killThread, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (finally)
+import Control.Exception (IOException, bracket, finally, mask, throwIO, try)
 import Control.Monad (forM_, replicateM_, void)
 import Data.Aeson (object, (.=))
 import Data.Int (Int32, Int64)
@@ -22,11 +23,14 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Time (UTCTime)
 import Data.Vector qualified as V
-import EphemeralDb (TestFixture (..), withTestFixture)
+import EphemeralDb (Database, TestFixture (..), withTestFixture)
+import EphemeralPg qualified as Pg
+import Hasql.Connection qualified as Connection
 import Hasql.Decoders qualified as D
 import Hasql.Encoders qualified as E
 import Hasql.Pool qualified as Pool
 import Hasql.Session (Session, statement)
+import Hasql.Session qualified as Session
 import Hasql.Statement (preparable, toSql, unpreparable)
 import Pgmq.Hasql.Sessions qualified as Sessions
 import Pgmq.Hasql.Statements.Inspection qualified as Inspect
@@ -42,16 +46,20 @@ import Pgmq.Hasql.Statements.Types
   )
 import Pgmq.Types (ArchivedMessage (..), Message (..), MessageBody (..), MessageId (..), QueueName, queueNameToText)
 import System.Environment (lookupEnv)
+import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase, (@?=))
 import TestUtils (assertSession, cleanupQueue)
 
-tests :: Pool.Pool -> TestTree
-tests p =
+tests :: Pool.Pool -> Database -> TestTree
+tests p db =
   testGroup
     "Inspection (non-destructive reads)"
     [ testPeekLeavesRowsUntouched p,
       testPeekDoesNotDisturbConsumer p,
+      testConsumerFailure,
+      testLateCommit p db,
+      testLateArchive p,
       testKeysetPagingVisitsEachOnce p,
       testNoOffset,
       testArchiveReads p,
@@ -121,22 +129,17 @@ testPeekDoesNotDisturbConsumer p = testCase "a concurrently polling consumer see
   withTestFixture p $ \TestFixture {pool, queueName} -> flip finally (cleanupQueue pool queueName) $ do
     assertSession pool (Sessions.createQueue queueName)
     sent <- sendN pool queueName 50
-    done <- newEmptyMVar
-    -- The consumer leases in batches of five until it has seen fifty ids or
-    -- gives up after two hundred empty polls (which would mean peeks stole work).
-    _ <- forkIO $ do
-      let loop seen empties
-            | Set.size seen >= 50 || empties >= (200 :: Int) = pure seen
-            | otherwise = do
-                batch <- assertSession pool (Sessions.readMessage (ReadMessage queueName 60 (Just 5) Nothing))
-                if V.null batch
-                  then threadDelay 5_000 >> loop seen (empties + 1)
-                  else loop (foldr (Set.insert . messageId) seen (V.toList batch)) empties
-      seen <- loop Set.empty 0
-      putMVar done seen
-    -- Meanwhile, peek relentlessly.
-    replicateM_ 200 (void (peek pool queueName Nothing 50))
-    seen <- takeMVar done
+    -- The bracketed worker propagates failures and is cancelled if peeking fails.
+    let consume seen empties
+          | Set.size seen >= 50 || empties >= (200 :: Int) = pure seen
+          | otherwise = do
+              batch <- assertSession pool (Sessions.readMessage (ReadMessage queueName 60 (Just 5) Nothing))
+              if V.null batch
+                then threadDelay 5_000 >> consume seen (empties + 1)
+                else consume (foldr (Set.insert . messageId) seen (V.toList batch)) empties
+    seen <-
+      withWorker (consume Set.empty 0) $
+        replicateM_ 200 (void (peek pool queueName Nothing 50))
     assertEqual "the consumer received exactly the fifty sent ids" (Set.fromList sent) seen
     rows <- assertSession pool (rowImages (queueNameToText queueName))
     length rows @?= 50
@@ -146,6 +149,67 @@ testPeekDoesNotDisturbConsumer p = testCase "a concurrently polling consumer see
     -- which a destructive "peek" would have made impossible to predict.
     more <- assertSession pool (Sessions.readMessage (ReadMessage queueName 60 (Just 50) Nothing))
     V.length more @?= 0
+
+-- | Base-only structured concurrency: every exit cancels the worker, and its
+-- exception is rethrown in the parent rather than leaving an empty result MVar.
+withWorker :: IO a -> IO () -> IO a
+withWorker work during = mask $ \restore -> do
+  result <- newEmptyMVar
+  bracket
+    (forkFinally (restore work) (putMVar result))
+    killThread
+    (\_ -> restore (during >> takeMVar result >>= either throwIO pure))
+
+testConsumerFailure :: TestTree
+testConsumerFailure = testCase "consumer exceptions reach the parent promptly" $ do
+  outcome <-
+    timeout 1_000_000 $
+      try @IOException (withWorker (ioError (userError "forced consumer failure")) (pure ()))
+  case outcome of
+    Just (Left err) -> assertBool "original worker failure" ("forced consumer failure" `T.isInfixOf` T.pack (show err))
+    Just (Right ()) -> assertFailure "worker failure was swallowed"
+    Nothing -> assertFailure "parent hung waiting for a failed consumer"
+
+testLateCommit :: Pool.Pool -> Database -> TestTree
+testLateCommit p db = testCase "a late lower-id commit needs a first-page refresh" $
+  withTestFixture p $ \TestFixture {pool, queueName} -> flip finally (cleanupQueue pool queueName) $ do
+    assertSession pool (Sessions.createQueue queueName)
+    -- Hold the first producer transaction on its own connection. The pool's
+    -- second producer commits before the first, without timing-based sleeps.
+    bracket
+      (Connection.acquire (Pg.connectionSettings db) >>= either (assertFailure . show) pure)
+      Connection.release
+      $ \producer -> do
+        let run :: Session a -> IO a
+            run session = Connection.use producer session >>= either (assertFailure . show) pure
+        run (Session.script "BEGIN")
+        older <- run (Sessions.sendMessage (SendMessage queueName (MessageBody "older") Nothing))
+        newer <- assertSession pool (Sessions.sendMessage (SendMessage queueName (MessageBody "newer") Nothing))
+        assertBool "allocation order differs from commit order" (older < newer)
+        first <- peek pool queueName Nothing 10
+        map messageId first @?= [newer]
+        run (Session.script "COMMIT")
+        continued <- peek pool queueName (Just newer) 10
+        map messageId continued @?= []
+        refreshed <- peek pool queueName Nothing 10
+        map messageId refreshed @?= [older, newer]
+
+testLateArchive :: Pool.Pool -> TestTree
+testLateArchive p = testCase "archiving an older id needs a first-page archive refresh" $
+  withTestFixture p $ \TestFixture {pool, queueName} -> flip finally (cleanupQueue pool queueName) $ do
+    assertSession pool (Sessions.createQueue queueName)
+    ids <- sendN pool queueName 2
+    (older, newer) <- case ids of
+      [a, b] -> pure (a, b)
+      other -> assertFailure ("expected two ids: " <> show other)
+    let q = queueNameToText queueName
+        archive mid = void (assertSession pool (Sessions.batchArchiveMessages (BatchMessageQuery queueName [mid])))
+        page cursor = map (messageId . archivedMessage) . V.toList <$> assertSession pool (Sessions.peekArchivedMessages (PeekMessages q cursor 10))
+    archive newer
+    page Nothing >>= (@?= [newer])
+    archive older
+    page (Just newer) >>= (@?= [])
+    page Nothing >>= (@?= [older, newer])
 
 testKeysetPagingVisitsEachOnce :: Pool.Pool -> TestTree
 testKeysetPagingVisitsEachOnce p = testCase "paging by the last id visits every message exactly once" $
@@ -269,6 +333,18 @@ testPartitionedQueue p = testCase "peek and lookup work on a partitioned queue (
       map messageId page @?= sent
       one <- assertSession pool (Sessions.lookupMessage (LookupMessage (queueNameToText queueName) (sent !! 11)))
       fmap messageId one @?= Just (sent !! 11)
+      -- The interval-10 archive also spans multiple leaves and supports the
+      -- same first/late cursor and by-id paths as the larger diagnostic fixture.
+      archivedIds <- assertSession pool (Sessions.batchArchiveMessages (BatchMessageQuery queueName sent))
+      sort archivedIds @?= sent
+      let q = queueNameToText queueName
+          archivePage cursor = map (messageId . archivedMessage) . V.toList <$> assertSession pool (Sessions.peekArchivedMessages (PeekMessages q cursor 5))
+      archivePage Nothing >>= (@?= take 5 sent)
+      archivePage (Just (sent !! 10)) >>= (@?= drop 11 sent)
+      found <- assertSession pool (Sessions.lookupArchivedMessage (LookupMessage q (sent !! 11)))
+      fmap (messageId . archivedMessage) found @?= Just (sent !! 11)
+      missing <- assertSession pool (Sessions.lookupArchivedMessage (LookupMessage q (MessageId 999999)))
+      fmap (messageId . archivedMessage) missing @?= Nothing
 
 withPartman :: Pool.Pool -> IO () -> IO ()
 withPartman pool action = do

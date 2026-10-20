@@ -16,7 +16,11 @@
 -- statement per queue would grow the per-connection cache without bound.
 --
 -- Pages are keyset pages: @msg_id > cursor@, ordered by @msg_id@, bounded by
--- @LIMIT@, never @OFFSET@. See @docs/design/019-non-destructive-inspection-reads.md@.
+-- @LIMIT@, never @OFFSET@. A limit bounds returned rows, not scan work;
+-- partitioned layouts may scan and sort. Separate calls do not hold a shared
+-- snapshot: refresh from the first page for lower IDs committed or archived
+-- after a cursor advances. Use finite statement/lock deadlines and separate
+-- inspection capacity. See @docs/design/019-non-destructive-inspection-reads.md@.
 module Pgmq.Hasql.Statements.Inspection
   ( formatTableName,
     quoteIdentifier,

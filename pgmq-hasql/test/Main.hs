@@ -7,6 +7,7 @@ import AliasingSpec qualified
 import AllFunctionsDecoderSpec qualified
 import DecoderValidationSpec qualified
 import EphemeralDb (withPgmqDb)
+import InspectionCostSpec qualified
 import InspectionForeignNameSpec qualified
 import InspectionSpec qualified
 import MessageSpec qualified
@@ -34,7 +35,8 @@ main = do
             "pgmq-hasql"
             ( [ QueueSpec.tests pool,
                 MessageSpec.tests pool,
-                InspectionSpec.tests pool,
+                InspectionSpec.tests pool db,
+                InspectionCostSpec.tests pool,
                 MetricsSpec.tests,
                 AdvancedOpsSpec.tests pool,
                 NullSemanticsSpec.tests pool,

@@ -122,6 +122,25 @@ connection resources are released on cancellation.
 trusted network or an authenticating reverse proxy, and its documentation says so rather than
 implying safety that does not exist.
 
+## Verification of the read boundary
+
+ExecPlan 27 M4 verified actual upstream layouts on both PGMQ 1.12 and native 1.13,
+using PostgreSQL 18.6 and pg_partman 5.5.0. With 100,000 rows per table, ordinary
+and unlogged live/archive reads used msg_id indexes; numeric live reads used their
+partition indexes. Numeric archives scanned the remaining default after pruning;
+time live/archive parents scanned every occupied leaf for a msg_id page or lookup.
+A late 50-row time page filtered 99,950 rows. The
+[retained plans](../design/evidence/019-inspection-reads/README.md) establish why
+row limits cannot substitute for database budgets and isolated inspection capacity.
+These observations are not optimizer or latency guarantees. No new index is
+recommended without measuring its write/storage costs and maintenance behavior.
+
+Deterministic integration tests also pin the moving-view rule: a producer reserving
+a smaller ID can commit after a larger cursor is returned, and archival can insert
+an older ID behind an archive cursor. Restarting at the first page finds both;
+continuing from that cursor does not. Exactly-once visitation is a property of a
+quiescent fixture, not a replay guarantee under concurrent writes.
+
 ## Consequences
 
 Adopting pgmq-hs never means adopting a web server; adopting `pgmq-inspect` never means

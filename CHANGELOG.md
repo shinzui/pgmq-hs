@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Document inspection paging as a moving view: late commits and late archival require
+a first-page refresh. Real 100,000-row live/archive fixtures on PGMQ 1.12 and 1.13
+show scan/sort costs in time partitions and numeric archives; row limits are not
+query-work budgets. The inspection consumer test now propagates worker failures.
+See the retained plans linked from design note 019.
+
 `pgmq-effectful`'s `isTransient` now treats a PostgreSQL connection lost mid-statement as
 transient (BUG-1). hasql surfaces that loss as a server error with an empty SQLSTATE, or as
 `UnexpectedRowCountStatementError 1 1 1`, and both used to be permanent. Script errors now

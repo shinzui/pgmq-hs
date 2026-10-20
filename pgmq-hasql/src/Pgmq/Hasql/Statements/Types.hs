@@ -334,7 +334,11 @@ data UpdateNotifyInsert = UpdateNotifyInsert
 -- it; 'Nothing' starts at the beginning. @limit@ is passed straight to SQL
 -- @LIMIT@, so it must be positive (@0@ returns nothing; a negative value is a
 -- server error). Pages are ordered by @msg_id@ ascending and never use
--- @OFFSET@, so paging is stable while rows before the cursor are consumed.
+-- @OFFSET@, so deleting earlier rows does not shift the page. Each call has
+-- its own snapshot: lower IDs committed or archived later require a refresh
+-- from the first page. This is not a replay feed. @LIMIT@ bounds rows returned,
+-- not scan work or payload bytes; partitioned layouts may scan and sort. Use
+-- finite statement/lock deadlines and inspection capacity separate from workers.
 data PeekMessages = PeekMessages
   { unvalidatedQueueName :: !Text,
     afterMessageId :: !(Maybe MessageId),

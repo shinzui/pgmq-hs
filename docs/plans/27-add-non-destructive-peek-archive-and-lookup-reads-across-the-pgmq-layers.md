@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-19T18:23:59Z
       mode: "update"
       note: "Reviewed shipped reads; retained M1-M3 completion and added M4 partition cost, moving-view and concurrency-test acceptance."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-20T02:35:44Z
+      mode: "implement"
+      note: "Implement reopened M4: partition workload evidence, moving-view tests and structured consumer cleanup"
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -89,8 +94,9 @@ receives every message exactly once with `read_ct` equal to one.
 ## Progress
 
 - [x] Review (2026-10-19): verified implemented statements, sessions, effect cases, decoders, foreign-name tests, and native PostgreSQL query plans; no runtime code changed in the update.
-- [ ] M4: add real numeric/time partition live/archive coverage and retain EXPLAIN evidence for first/late pages and by-id reads on 1.12 and 1.13.
-- [ ] M4: pin moving-view pagination under late commits/late archival and make the concurrent-consumer test propagate thread failures without hanging; document cost and isolation requirements.
+- [x] M4 (2026-10-20 UTC): added `InspectionCostSpec` for 100,000-row ordinary/unlogged and real numeric/time live/archive parents, multiple leaves/defaults, first/late pages and present/absent lookups. Both required-partman targeted runs passed all 19 cases; 64 complete plans retained in `docs/design/evidence/019-inspection-reads/`.
+- [x] M4 (2026-10-20 UTC): deterministic late-commit and late-archive tests pin moving-view pagination; bracketed `forkFinally`/MVar worker propagates exceptions and cancels on parent failure. A forced worker exception reaches the parent within a one-second guard. Updated Haddocks, design note, capability and boundary ADR.
+- [x] M4 (2026-10-20 UTC): `cabal build all` passed; full hasql suites passed natively (107), stock 1.12 (106), required-partman native (107) and required-partman stock 1.12 (106). The effectful suite passed all 79 tests, including both inspection interpreter witnesses. `just docs-check`, `nix fmt`, `git diff --check` and the hasql/effectful Haddock build passed.
 
 - [x] M1: `ArchivedMessage` added to `pgmq-core/src/Pgmq/Types.hs` and exported; the integration rule for its JSON instances applied (instances and golden file added if the policy from plan 28 (`docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md`) is already present, otherwise deferred) — codec deferred to plan 28 (policy absent) (2026-10-01 21:30Z)
 - [x] M1: `PeekMessages` and `LookupMessage` added to `pgmq-hasql/src/Pgmq/Hasql/Statements/Types.hs` (2026-10-01 21:30Z)
@@ -114,6 +120,22 @@ receives every message exactly once with `read_ct` equal to one.
 
 
 ## Surprises & Discoveries
+
+M4 implementation (2026-10-20 UTC): actual pg_partman 5.5.0 parents on PostgreSQL
+18.6 confirm the review's risk on both schemas. Numeric live late pages use an
+index (five shared buffers). Numeric archive late pages filter 49,951 of 50,001
+default rows (1,613 buffers). Time live/archive late pages filter 99,950 of 100,000
+rows (3,126/3,228 buffers); present lookups filter 99,999. Ordinary/unlogged
+layouts retain msg_id index scans. The complete 64 plans, node shapes, filter
+counts, buffers and planning/execution times are in
+`docs/design/evidence/019-inspection-reads/README.md`; no timing is a test gate.
+Both targeted required-partman runs passed all 19 cases, with no partition skips.
+
+Mori registry list/search/show/docs remain unavailable because the local `mori` database
+is absent. Existing pinned hasql source was read from Cabal's project-local git
+checkout after the lookup attempts; the vendored SQL defines the fixture layouts.
+No dependency bounds, pins, compatibility workarounds or migration bytes changed.
+Runtime session metadata identifies this implementation model as `gpt-6.1-sol`.
 
 Review (2026-10-19): the existing partition test uses numeric interval `10`, twelve live
 messages, and no archive. Migration 0006 creates a live index on the partition key and an
@@ -155,6 +177,20 @@ implementation. Provide concise evidence.
 
 
 ## Decision Log
+
+- Decision (2026-10-20 UTC): Extend the small numeric interval-10 functional test through the archive;
+  use interval 10000 for 100,000-row cost fixtures to populate bounded leaves and
+  the default without creating thousands of partitions. Time fixtures populate
+  yesterday, today and a far-future default. Populate live/archive diagnostic
+  rows directly through actual upstream parents, and separately retain the public
+  archive operation tests. Rationale: measure read layouts rather than send/archive
+  throughput. Capture complete production-builder projections, not covering-index
+  approximations. No optional index recommendation follows without write/storage
+  and maintenance measurements.
+- Decision (2026-10-20 UTC): Use a bracketed base-only `forkFinally` worker with
+  `Either SomeException` in its result MVar instead of adding an async dependency.
+  The parent rethrows worker errors and cancels the child on every exit; a forced
+  exception test guards against the original unfilled-MVar hang.
 
 - Decision (2026-10-19): Reopen M4 while retaining M1–M3's historical completion and IR-1's
   closure. Preserve the five public signatures and read-only SQL. Add missing evidence and
@@ -231,6 +267,23 @@ implementation. Provide concise evidence.
 
 
 ## Outcomes & Retrospective
+
+M4 implementation (2026-10-20 UTC): the new 19-case targeted inspection groups
+pass on native 1.13 and stock 1.12 with required pg_partman. The retained real
+partition plans establish the missing operational evidence, including expensive
+archive and time-parent scans. Deterministic transaction and archival scenarios
+prove restart-from-first-page reconciliation; exactly-once paging remains limited
+to quiescent fixtures. Consumer failure propagation is exercised, and durable
+limits are distilled into the boundary ADR, design note, capability and Haddocks.
+M4 is complete. `cabal build all` passed. Full hasql runs passed natively (107
+tests), on stock 1.12 (106), and with required pg_partman for native (107) and
+stock 1.12 (106), with no skips in the required runs. All 79 effectful tests
+passed, including the inspection case under both interpreters. `just docs-check`,
+`nix fmt`, `git diff --check` and `cabal haddock pgmq-hasql pgmq-effectful` passed
+(the documentation build retains the existing unresolved-link warnings). No read signature, SQL builder, package
+version, dependency bound/pin or migration changed. The ArchivedMessage codec
+remains owned by ExecPlan 28. M4 deliberately recommends no supplemental index:
+this evidence establishes read cost, not write/storage or maintenance tradeoffs.
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose. Before marking the plan complete,
@@ -1136,7 +1189,7 @@ Create `pgmq-hasql/test/InspectionSpec.hs`. The whole file:
 -- after a sequence of peeks, and a consumer polling the queue concurrently
 -- with a loop of peeks still receives every message exactly once with
 -- read_ct = 1. Paging is keyset-only: the statements' SQL contains no OFFSET,
--- and paging by the last id seen visits every message exactly once.
+-- and paging by the last id seen visits every message in a quiescent fixture exactly once.
 module InspectionSpec (tests) where
 
 import Control.Concurrent (forkIO, threadDelay)
@@ -2094,8 +2147,8 @@ Acceptance, phrased as behaviour:
    acceptance 6; the mock-interpreter half follows from dynamic dispatch, as every existing
    constructor's does.
 7. `just docs-check` passes with the new capability record and `IR-1` at `completed`.
-8. On the stock 1.12.0 fixture the hasql suite passes unchanged except the partition case,
-   which is skipped or run exactly as `QueueSpec`'s partition cases are.
+8. On the stock 1.12.0 fixture the hasql suite passes, with partition cases skipped or run exactly as
+   `QueueSpec`'s partition cases are.
 
 
 ## Idempotence and Recovery
@@ -2193,3 +2246,7 @@ this plan.
 
 Revision note (2026-10-19): reviewed implemented reads and reopened M4 for partition cost,
 concurrent paging semantics, and reliable test failure propagation; implementation is unchanged.
+
+Revision note (2026-10-20 UTC): implemented the reopened M4 tests and retained real
+partition plan evidence; clarified moving-view and cost/isolation limits without
+changing read signatures, SQL builders, dependencies or migrations.

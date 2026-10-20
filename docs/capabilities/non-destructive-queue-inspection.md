@@ -23,7 +23,10 @@ interface:
 evidence:
   - kind: test
     resource: pgmq-hasql/test/InspectionSpec.hs
-    proves: Peeks and lookups leave vt, read_ct, and last_read_at byte-identical, a concurrent consumer is undisturbed, keyset paging visits every message exactly once without OFFSET, archive reads carry archived_at, and lookups return a typed Nothing.
+    proves: Peeks and lookups leave vt, read_ct, and last_read_at byte-identical, a concurrent consumer is undisturbed, keyset paging visits every message in a quiescent fixture exactly once without OFFSET, archive reads carry archived_at, and lookups return a typed Nothing.
+  - kind: test
+    resource: pgmq-hasql/test/InspectionCostSpec.hs
+    proves: First and late pages and present/absent lookups work on 100000-row ordinary, unlogged, numeric/time partitioned queue and archive tables, including multiple leaves and default partitions.
   - kind: test
     resource: pgmq-hasql/test/InspectionForeignNameSpec.hs
     proves: Every read works for mixed-case and hyphenated names parseQueueName rejects.
@@ -75,5 +78,10 @@ Right found <- Pool.use pool (lookupMessage (LookupMessage "orders" (MessageId 4
 - **A missing queue is an error, not a typed result**: the server's `42P01` inside the
   session error (`PgmqSessionError` through the effect). A missing message is `Nothing`.
 - **`limit` must be positive.** `0` returns nothing; a negative value is a server error.
+- **Pages form a moving view.** Lower IDs committed or archived after the cursor advances
+  require a refresh from the first page; this is not an exactly-once replay feed.
+- **A row limit does not bound query work or bytes.** Partitioned layouts can scan and
+  sort entire tables; metrics scan queue rows. Use finite PostgreSQL statement/lock
+  deadlines and inspection capacity separate from workers. Inspection creates no indexes.
 - **Breaking for exhaustive `Pgmq` interpreters**: the effect gained five constructors.
 - Not yet released (`since: unreleased`); pre-1.0 and uniformly `experimental`.
