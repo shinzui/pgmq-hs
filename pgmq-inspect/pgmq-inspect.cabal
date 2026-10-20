@@ -53,6 +53,8 @@ library
     Paths_pgmq_inspect
     Pgmq.Inspect.Budget
     Pgmq.Inspect.Frames
+    Pgmq.Inspect.Lifecycle
+    Pgmq.Inspect.Listener
     Pgmq.Inspect.Outbox
     Pgmq.Inspect.Refresh
 
@@ -87,6 +89,7 @@ library
     pgmq-core >=0.6 && <0.7,
     pgmq-effectful >=0.6 && <0.7,
     pgmq-hasql >=0.6 && <0.7,
+    postgresql-libpq >=0.10.1 && <0.12,
     stm >=2.5 && <2.6,
     streaming-commons ^>=0.2,
     text ^>=2.1,
@@ -122,6 +125,9 @@ test-suite pgmq-inspect-test
     EphemeralDb
     ErrorSpec
     HttpSpec
+    IsolationSpec
+    ListenerSpec
+    LiveFeedSpec
     OutboxSpec
     Paths_pgmq_inspect
     Pgmq.Inspect
@@ -132,11 +138,14 @@ test-suite pgmq-inspect-test
     Pgmq.Inspect.Error
     Pgmq.Inspect.Frames
     Pgmq.Inspect.Http
+    Pgmq.Inspect.Lifecycle
+    Pgmq.Inspect.Listener
     Pgmq.Inspect.Outbox
     Pgmq.Inspect.Refresh
     Pgmq.Inspect.Server
     Pgmq.Inspect.WebSocket
     Pgmq.Inspect.Wire
+    RawWebSocketSpec
     RefreshSpec
     RouterSpec
     ServerSpec
@@ -180,6 +189,7 @@ test-suite pgmq-inspect-test
     pgmq-effectful >=0.6 && <0.7,
     pgmq-hasql >=0.6 && <0.7,
     pgmq-migration >=0.6 && <0.7,
+    postgresql-libpq >=0.10.1 && <0.12,
     random ^>=1.2,
     stm,
     streaming-commons ^>=0.2,

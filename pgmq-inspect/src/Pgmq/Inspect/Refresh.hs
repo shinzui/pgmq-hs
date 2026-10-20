@@ -92,7 +92,12 @@ withCoordinatorUsing :: IO Word64 -> InspectConfig -> InspectEnv -> InspectionBu
 withCoordinatorUsing clock cfg env budget hooks k = do
   now <- clock
   coordinator <- MetricsCoordinator cfg env budget hooks <$> newTVarIO Map.empty <*> newTVarIO now <*> newTVarIO False
-  let ticker = forever $ clock >>= atomically . writeTVar (coordinatorClock coordinator) >> threadDelay 10000
+  let ticker = forever $ do
+        current <- clock
+        atomically $ do
+          writeTVar (coordinatorClock coordinator) current
+          modifyTVar' (coordinatorEntries coordinator) (collectIdle cfg current)
+        threadDelay 10000
       workers 0 action = action
       workers n action = withAsync (worker clock coordinator) $ \task -> link task >> workers (n - 1) action
       cleanup = do
@@ -138,7 +143,7 @@ subscribeQueue coordinator subscriber name = do
           fresh = maybe True (Map.null . entrySubscribers) existing
           reject code message = enqueue (subscriberOutbox subscriber) (ErrorFrame code message (Just name))
       if T.null name || T.length name > 47 || T.any (== '\0') name
-        then reject "invalid_frame" "Queue names must contain 1 to 47 characters without NUL."
+        then enqueue (subscriberOutbox subscriber) (ErrorFrame "invalid_frame" "Queue names must contain 1 to 47 characters without NUL." Nothing)
         else
           if not (Map.member name current) && Map.size current >= wsMaxSubscriptions cfg
             then reject "too_many_subscriptions" "This connection has reached its subscription limit."
@@ -223,14 +228,19 @@ chooseJob coordinator token = do
   case candidates of
     [] -> retry
     (name, entry) : _ -> do
-      let source = if entryPollAt entry <= now || not (isJust (entryMetrics entry)) then PollSource else NotifySource
+      let initial = not (isJust (entryMetrics entry))
+          pollDue = entryPollAt entry <= now
+          hintDue = maybe False (\dirty -> now >= dirty && now - dirty >= fromIntegral (notifyDebounceUs cfg)) (entryDirtyAt entry)
+          -- A single authoritative read may satisfy both drivers. Preserve the
+          -- notify tag while also advancing the independently due poll deadline.
+          source = if hintDue && not initial then NotifySource else PollSource
           subscribers = Map.map (\(Subscription _ generation _) -> generation) (entrySubscribers entry)
           updated =
             entry
               { entryFlight = Just token,
                 entryLastStart = Just now,
                 entryDirtyAt = Nothing,
-                entryPollAt = if source == PollSource then now + fromIntegral (pollIntervalUs cfg) else entryPollAt entry
+                entryPollAt = if initial || pollDue then now + fromIntegral (pollIntervalUs cfg) else entryPollAt entry
               }
       writeTVar (coordinatorEntries coordinator) (Map.insert name updated entries)
       pure (Job name (entryGeneration entry) token subscribers source)

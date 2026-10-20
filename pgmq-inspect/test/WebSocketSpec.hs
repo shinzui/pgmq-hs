@@ -67,6 +67,13 @@ tests =
           receive connection >>= (\frame -> frameType frame @?= Just "pong")
           WS.sendTextData connection ("not json" :: Text)
           receive connection >>= (\frame -> frameField "code" frame @?= Just (String "invalid_frame")),
+      testCase "invalid queue frames do not echo the client payload" $
+        withTestRuntime config mockEnv $ \port _ -> withWs port $ \connection -> do
+          sendClient connection (Subscribe (T.replicate 100 "SECRET"))
+          frame <- receive connection
+          frameField "code" frame @?= Just (String "invalid_frame")
+          frameField "queue" frame @?= Just Null
+          assertBool "no raw client payload" (not ("SECRET" `isInfixOf` LBS.unpack (encode frame))),
       testCase "unknown queue returns a queue-scoped error and the connection survives" $
         withTestRuntime config mockEnv $ \port _ -> withWs port $ \connection -> do
           sendClient connection (Subscribe "missing")
@@ -117,6 +124,16 @@ tests =
           case closed of
             Left (WS.CloseRequest _ _) -> pure ()
             other -> assertFailure (show other),
+      testCase "cancelling the convenience runner drains goodbye before Warp exits" $ do
+        started <- newEmptyMVar
+        stop <- newEmptyMVar
+        withAsync (withInspectServer defaultInspectServerConfig {bindPort = 0, inspect = config} mockEnv (\server -> putMVar started (serverPort server) >> takeMVar stop)) $ \owner -> do
+          port <- takeMVar started
+          withWs port $ \connection -> do
+            sendClient connection Ping
+            void (receive connection)
+            cancel owner
+            receive connection >>= (\frame -> frameType frame @?= Just "goodbye"),
       testCase "host-owned Warp may outlive the runtime without retaining feed tasks" $ do
         readyRuntime <- newEmptyMVar
         stop <- newEmptyMVar

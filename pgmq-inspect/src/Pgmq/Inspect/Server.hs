@@ -16,31 +16,29 @@ module Pgmq.Inspect.Server
   )
 where
 
-import Control.Concurrent.Async (Async, wait, waitSTM, withAsync)
+import Control.Concurrent.Async (Async, wait)
 import Control.Concurrent.STM
-import Control.Exception (bracket, finally)
+import Control.Exception (finally)
 import Control.Monad (void)
 import Data.Aeson (encode)
 import Data.ByteString.Lazy qualified as LBS
-import Data.Streaming.Network (bindPortTCP)
-import Data.String (fromString)
-import Network.Socket qualified as Socket
+import Data.Text (Text)
+import Hasql.Connection.Settings qualified
 import Network.Wai (Application)
-import Network.Wai.Handler.Warp qualified as Warp
 import Network.WebSockets qualified as WS
 import Pgmq.Inspect.Budget (withInspectionBudget)
 import Pgmq.Inspect.Config (InspectConfig (..), InspectServerConfig (..), validateInspectConfig)
 import Pgmq.Inspect.Cors (corsMiddleware)
-import Pgmq.Inspect.Env (InspectEnv)
+import Pgmq.Inspect.Env (InspectEnv (..))
 import Pgmq.Inspect.Error (websocketUnavailable)
 import Pgmq.Inspect.Http (httpApp)
-import Pgmq.Inspect.Refresh (stopCoordinator, withCoordinator)
+import Pgmq.Inspect.Lifecycle qualified as Lifecycle
+import Pgmq.Inspect.Listener qualified as Listener
+import Pgmq.Inspect.Refresh (PushHooks (..), stopCoordinator, withCoordinator)
 import Pgmq.Inspect.WebSocket qualified as Feed
 
--- | The application with the WebSocket feed unavailable (every upgrade is
--- answered 503 @websocket_unavailable@). Continuation-shaped because the
--- feed, once wired, allocates a LISTEN connection and releases it when the
--- continuation returns.
+-- | The mountable HTTP application and shared metrics feed. Its optional LISTEN
+-- connection, scheduler and transports are released when the continuation exits.
 withInspectApplication :: InspectConfig -> InspectEnv -> (Application -> IO a) -> IO a
 withInspectApplication cfg env k = withInspectRuntime cfg env (k . runtimeApplication)
 
@@ -50,25 +48,28 @@ data InspectRuntime = InspectRuntime
   { runtimeApplication :: !Application,
     runtimeRequestShutdown :: !(IO ()),
     runtimeAwaitDrained :: !(Int -> IO ()),
+    runtimeListenerAcknowledged :: !(Text -> STM Bool),
     runtimeListenerHealthy :: !(STM Bool)
   }
 
 withInspectRuntime :: InspectConfig -> InspectEnv -> (InspectRuntime -> IO a) -> IO a
 withInspectRuntime cfg env k = do
   checked cfg
-  withInspectionBudget cfg $ \budget ->
-    withCoordinator cfg env budget Nothing $ \coordinator -> do
-      state <- Feed.newWebSocketState (wsMaxConnections cfg)
-      let shutdown = atomically (stopCoordinator coordinator >> Feed.requestShutdown state)
-          runtime =
-            InspectRuntime
-              { runtimeApplication = corsMiddleware (corsPolicy cfg) (httpApp budget cfg env (Feed.websocketApp cfg coordinator state)),
-                runtimeRequestShutdown = shutdown,
-                runtimeAwaitDrained = Feed.awaitDrained state,
-                runtimeListenerHealthy = pure False
-              }
-          cleanup = shutdown >> Feed.awaitDrained state 1000000 >> Feed.closeConnections state
-      k runtime `finally` cleanup
+  optionalListener (listenerSettings env) $ \listener ->
+    withInspectionBudget cfg $ \budget ->
+      withCoordinator cfg env budget (pushHooks <$> listener) $ \coordinator -> do
+        state <- Feed.newWebSocketState (wsMaxConnections cfg)
+        let shutdown = atomically (stopCoordinator coordinator >> Feed.requestShutdown state)
+            runtime =
+              InspectRuntime
+                { runtimeApplication = corsMiddleware (corsPolicy cfg) (httpApp budget cfg env (Feed.websocketApp cfg coordinator state)),
+                  runtimeRequestShutdown = shutdown,
+                  runtimeAwaitDrained = Feed.awaitDrained state,
+                  runtimeListenerAcknowledged = maybe (const (pure False)) Listener.listenerAcknowledged listener,
+                  runtimeListenerHealthy = maybe (pure False) Listener.listenerHealthy listener
+                }
+            cleanup = shutdown >> Feed.awaitDrained state 1000000 >> Feed.closeConnections state
+        k runtime `finally` cleanup
 
 -- | The application with an explicit WebSocket seam.
 withInspectApplicationWith :: InspectConfig -> InspectEnv -> WS.ServerApp -> (Application -> IO a) -> IO a
@@ -102,21 +103,14 @@ data RunningInspectServer = RunningInspectServer
 withInspectServer :: InspectServerConfig -> InspectEnv -> (RunningInspectServer -> IO a) -> IO a
 withInspectServer scfg env k = do
   checked (inspect scfg)
-  if bindPort scfg < 0 || bindPort scfg > 65535 then ioError (userError "bindPort must be between 0 and 65535") else pure ()
-  bracket (bindPortTCP (bindPort scfg) (fromString (bindHost scfg))) Socket.close $ \sock ->
-    withInspectRuntime (inspect scfg) env $ \runtime -> do
-      let app = runtimeApplication runtime
-      actualPort <- fromIntegral <$> Socket.socketPort sock
-      started <- newEmptyTMVarIO
-      let settings = Warp.setBeforeMainLoop (atomically (putTMVar started ())) (Warp.setPort actualPort (settingsFor scfg))
-      withAsync (Warp.runSettingsSocket settings sock app) $ \worker -> do
-        -- Prefer a failure if the worker already exited when startup is observed.
-        atomically ((waitSTM worker >> throwSTM (userError "Inspection server exited during startup")) `orElse` readTMVar started)
-        ( withAsync (k (RunningInspectServer actualPort worker)) $ \continuation -> do
-            outcome <- atomically ((Left <$> waitSTM worker) `orElse` (Right <$> waitSTM continuation))
-            either (const (ioError (userError "Inspection server exited"))) pure outcome
-          )
-          `finally` (runtimeRequestShutdown runtime >> runtimeAwaitDrained runtime 1000000)
+  Lifecycle.withBoundSocket scfg $ \socket ->
+    withInspectRuntime (inspect scfg) env $ \runtime ->
+      Lifecycle.withRunningSocket
+        scfg
+        socket
+        (runtimeApplication runtime)
+        (runtimeRequestShutdown runtime >> runtimeAwaitDrained runtime 1000000)
+        (\port worker -> k (RunningInspectServer port worker))
 
 runInspectServer :: InspectServerConfig -> InspectEnv -> IO ()
 runInspectServer scfg env = withInspectServer scfg env (void . wait . serverThread)
@@ -124,6 +118,11 @@ runInspectServer scfg env = withInspectServer scfg env (void . wait . serverThre
 checked :: InspectConfig -> IO ()
 checked = either (ioError . userError . show) (const (pure ())) . validateInspectConfig
 
-settingsFor :: InspectServerConfig -> Warp.Settings
-settingsFor scfg =
-  Warp.setHost (fromString (bindHost scfg)) (Warp.setPort (bindPort scfg) Warp.defaultSettings)
+optionalListener :: Maybe Hasql.Connection.Settings.Settings -> (Maybe Listener.Listener -> IO a) -> IO a
+optionalListener Nothing k = k Nothing
+optionalListener (Just settings) k = Listener.withListener settings (k . Just)
+
+pushHooks :: Listener.Listener -> PushHooks
+pushHooks listener = PushHooks $ \channel wake -> do
+  key <- Listener.subscribeChannel listener channel wake
+  pure (Listener.unsubscribeChannel listener channel key)

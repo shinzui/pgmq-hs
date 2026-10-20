@@ -79,20 +79,46 @@ routes, which keeps the HTTP path authoritative exactly as the cross-project con
 
 ## Progress
 
-- [ ] Review acceptance: query count scales with distinct queues, one in-flight refresh per queue, bounded admission and fair scheduling, atomic snapshots/generations, bounded frames, deterministic overflow and cancellation cleanup.
+- [x] Review acceptance: query count scales with distinct queues, one in-flight refresh per queue, bounded admission and fair scheduling, atomic snapshots/generations, bounded frames, deterministic overflow and cancellation cleanup.
 
 - [x] M1: `Pgmq.Inspect.WebSocket` exists with the frame types, hand-written JSON instances, and golden files for every frame under `pgmq-inspect/test/golden/`
 - [x] M1: shared refresh coordinator plus per-connection bounded outbox, reader, writer and shutdown watcher and the shared `WebSocketState` with the connection cap
 - [x] M1: `Pgmq.Inspect.Server` gains `withInspectRuntime`; `withInspectApplication` keeps its signature and delegates; `withInspectServer` signals shutdown and drains before cancelling Warp
 - [x] M1: `WebSocketSpec` green with no listener configured: `snapshot` with `"push":false`, poll-sourced `update`, `pong`, `queue_not_found`, `invalid_frame`, `too_many_subscriptions`, `too_many_queues`, `frame_too_large`, `overflow`, `goodbye`
-- [ ] M2: `Pgmq.Inspect.Listener` exists: one server-wide `LISTEN` connection, refcounted channel registry, `threadWaitReadSTM` wait loop over `onLibpqConnection`, reconnect with exponential backoff and re-`LISTEN`, `listenerHealthy`
-- [ ] M2: subscribe registers validated, non-partitioned queues for push; `snapshot` says `"push":true`; notify-sourced updates arrive within two seconds; debounce coalesces bursts
-- [ ] M2: the backend-kill test proves the feed does not wedge and that pushes resume after reconnection
+- [x] M2: `Pgmq.Inspect.Listener` exists: one server-wide `LISTEN` connection, refcounted channel registry, `threadWaitReadSTM` wait loop over `onLibpqConnection`, reconnect with exponential backoff and re-`LISTEN`, `listenerHealthy`
+- [x] M2: subscribe registers validated, non-partitioned queues for push; `snapshot` says `"push":true`; notify-sourced updates arrive within two seconds; debounce coalesces bursts
+- [x] M2: the backend-kill test proves the feed does not wedge and that pushes resume after reconnection
 - [ ] M3: Haddock on `Pgmq.Inspect.WebSocket` is the protocol reference; the WebSocket section of `docs/design/021-inspection-surface-wire-contract.md` is written
 - [ ] M3: the capability record plan 29 created lists the feed and `WebSocketSpec` as evidence; `pgmq-inspect/CHANGELOG.md` and root `CHANGELOG.md` carry `Unreleased` entries; `just docs-check` passes
 
 
 ## Surprises & Discoveries
+
+M2 (2026-10-20 UTC): all 106 tests pass natively and on stock 1.12; twenty full
+stock reruns pass (2,120 tests). One server-wide listener owns a refcounted channel
+registry, 64-notification slices, exception-safe fd waits and reconnect backoff.
+Fault tests identify a replacement backend PID before waiting for its LISTEN ack;
+connection health alone can still describe the previous session. The runtime adds
+runtimeListenerAcknowledged as a read-only host/test observable; it is not a frame
+field or a change to push semantics. Raw frame tests reject a 1 GiB declared
+payload before its body, and reject an oversized assembled fragmented message.
+A deliberately uncancellable driver slice holds one real inspection connection;
+shared admission rejects excess work, actual worker-pool SQL progresses, and
+release allows all owned tasks to join. This models IR-6, not a hard network fix.
+
+Repeated stock runs exposed why probing a freed ephemeral port is not a socket
+ownership test: address-in-use occurred with no live owner reported by lsof.
+A bounded rebind retry was insufficient. The public runner now composes private
+Lifecycle socket/thread brackets; deterministic tests inspect the actual closed
+Socket descriptor (-1), join the thread and cancel at an after-bind barrier.
+No public runner signature changed. A due poll and hint share one read, reporting
+notify when the hint is ready while also advancing the due poll deadline.
+
+Retained workload evidence is docs/design/evidence/021-inspection-feed/README.md.
+With 100 real subscribers, 50ms refreshes caused 25 metrics calls in the measured
+window; 500ms caused two or three. Both on-modes still reduced observed worker
+throughput and increased p95 versus adjacent off-modes on this shared host. No
+negligible-overhead claim or universally safe polling interval follows.
 
 Review (2026-10-19): the original one-poller/one-hint-consumer-per-client design repeated
 full queue metrics scans per tab; one shared LISTEN connection did not prevent that load.
@@ -125,6 +151,16 @@ Active queues stay capped at wsMaxQueues; active plus cooldown entries stay at
 
 
 ## Decision Log
+
+- Decision (2026-10-20 UTC): Expose per-channel LISTEN acknowledgement separately
+  from connection health; keep push as registered interest. Coalesce coincident
+  ready hints and due polls into one notify-tagged authoritative read, advancing
+  the poll deadline without adding a second scan. Retain independent fairness
+  and minimum start spacing.
+- Decision (2026-10-20 UTC): Replace port-rebind cleanup inference with direct
+  owned-socket and joined-thread assertions through private lifecycle combinators.
+  Use an uninterruptible test gate with guaranteed release to demonstrate bounded
+  live inspection and worker isolation under the known cancellation limitation.
 
 - Decision (2026-10-20 UTC): Keep internal frame/outbox/scheduler modules hidden,
   and compile the same src tree in this package's tests for clock/barrier access.
@@ -193,8 +229,11 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-Not implemented. The revised coordinator/lifecycle design addresses the identified risks;
-query-count, concurrency and fault acceptance must pass before the feed is complete.
+M1 and M2 complete: 106 native/stock cases and 20 stock stress reruns pass. Shared
+read scheduling, generations, bounded frames/outboxes, a refcounted reconnecting
+listener and scoped shutdown are implemented. Workload evidence records real cost
+and query counts. M3 documentation, capability evidence and final family/Nix checks
+remain before closing this child.
 
 
 ## Context and Orientation

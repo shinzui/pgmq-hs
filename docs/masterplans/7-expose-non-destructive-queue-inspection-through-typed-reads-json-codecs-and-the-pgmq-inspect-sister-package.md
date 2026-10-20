@@ -523,7 +523,7 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 - [x] EP-3 M2: browse, archive, by-id, bindings, routing-test, and throttle routes; CORS middleware; the end-to-end non-destructive test and the error-mapping tests green against ephemeral PostgreSQL
 - [x] EP-3 M3: runner, mountable application with the rejecting WebSocket seam, registry and README wiring, design note 021, capability record, changelogs
 - [x] EP-4 M1: shared refresh coordinator and bounded admission; frame types with golden encodings; per-connection bounded queues with overflow signaling; subscribe/snapshot/unsubscribe/ping over a poll-only listener
-- [ ] EP-4 M2: the server-wide LISTEN connection with refcounted channels, debounce, reconnect, and re-`LISTEN`; notify-sourced updates arrive; killing the listener backend does not wedge the feed
+- [x] EP-4 M2: the server-wide LISTEN connection with refcounted channels, debounce, reconnect, and re-`LISTEN`; notify-sourced updates arrive; killing the listener backend does not wedge the feed
 - [ ] EP-4 M3: Haddock protocol documentation, design note 021 WebSocket section, changelog
 - [ ] EP-5 M1: the `pgmq-inspect` executable serves the surface from a database URL; CORS origins and bind address configurable from the command line
 - [ ] EP-5 M2: `GET /openapi.json` serves the programmatically built document; golden and route-coverage tests green
@@ -531,6 +531,16 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 
 
 ## Surprises & Discoveries
+
+EP-4 M2 (2026-10-20 UTC): 106 native/stock tests and twenty full stock stress
+reruns pass. Listener acknowledgement is now a separate runtime observable from
+health; backend-kill tests wait for replacement PID plus channel ack. Private
+lifecycle combinators permit direct owned-socket checks, replacing a flaky
+port-rebind inference. An uncancellable driver-slice model demonstrates bounded
+inspection work and real worker-pool isolation without claiming to repair IR-6.
+The retained 100-subscriber workload confirms shared query counts and material
+observed latency/throughput cost; tuning remains workload-dependent. M3 docs and
+final checks remain before EP-5 starts.
 
 EP-3 M1/M2 (2026-10-20 UTC): the new HTTP package and scoped server pass 59 tests,
 including non-destructive browsing, exact/capped parsing, metadata-contextual errors,

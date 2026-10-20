@@ -13,6 +13,7 @@ import Data.Time (UTCTime (..), fromGregorian)
 import Data.Word (Word64)
 import Effectful (liftIO)
 import Effectful.Dispatch.Dynamic (interpret)
+import ErrorSpec (serverError)
 import Pgmq.Effectful.Effect qualified as E
 import Pgmq.Hasql.Statements.Types qualified as H
 import Pgmq.Inspect.Budget
@@ -114,7 +115,7 @@ tests =
           atomically (writeTVar clock 1200000)
           settled probe coordinator "orders" 2
           forM_ (drop 1 subscribers) $ \subscriber -> atomically (queuedFrames (subscriberOutbox subscriber)) >>= (@?= 0),
-      testCase "hints coalesce globally and obey the minimum refresh interval" $ do
+      testCase "hints coalesce globally and obey the minimum interval even when a poll is due" $ do
         probe <- newProbe
         hint <- newEmptyMVar
         let hooks = PushHooks (\_ callback -> putMVar hint callback >> pure (pure ()))
@@ -129,7 +130,7 @@ tests =
           atomically (replicateM_ 100 notify >> writeTVar clock 1050000)
           threadDelay 30000
           atomically (callCount probe "orders") >>= (@?= 1)
-          atomically (writeTVar clock 1100000)
+          atomically (writeTVar clock 1200000)
           forM_ [a, b] $ \subscriber -> next subscriber >>= (\case Update _ _ NotifySource -> pure (); frame -> assertFailure (show frame))
           settled probe coordinator "orders" 2,
       testCase "a slow queue cannot overlap itself or starve another queue" $ do
@@ -200,5 +201,58 @@ tests =
               void (wait held)
               atomically (writeTVar clock 1200000)
               next subscriber >>= (\case Snapshot _ _ _ -> pure (); frame -> assertFailure (show frame))
-              settled probe coordinator "orders" 1
+              settled probe coordinator "orders" 1,
+      testCase "statement deadline is in-band and a later poll recovers" $ do
+        probe <- newProbe
+        attempts <- newTVarIO (0 :: Int)
+        let base = probeEnv probe (\name n -> pure (metrics name n))
+            env =
+              base
+                { runInspection = \action -> do
+                    n <- atomically $ do
+                      current <- readTVar attempts
+                      writeTVar attempts (current + 1)
+                      pure current
+                    if n == 0 then pure (Left (serverError "57014")) else runInspection base action
+                }
+        withClock cfg env Nothing $ \clock coordinator -> do
+          subscriber <- newSubscriber 4
+          subscribeQueue coordinator subscriber "orders"
+          next subscriber >>= (\case ErrorFrame "inspection_timeout" _ _ -> pure (); frame -> assertFailure (show frame))
+          atomically (writeTVar clock 1200000)
+          next subscriber >>= (\case Snapshot _ _ False -> pure (); frame -> assertFailure (show frame)),
+      testCase "snapshot publication precedes an update even when a hint races initial metrics" $ do
+        probe <- newProbe
+        beforePublish <- newEmptyMVar
+        release <- newEmptyMVar
+        let hooks = PushHooks (\_ hint -> putMVar beforePublish hint >> takeMVar release >> pure (pure ()))
+        withClock cfg (probeEnv probe (\name n -> pure (metrics name n))) (Just hooks) $ \clock coordinator -> do
+          subscriber <- newSubscriber 4
+          subscribeQueue coordinator subscriber "orders"
+          hint <- takeMVar beforePublish
+          atomically (hint >> writeTVar clock 1300000)
+          atomically (queuedFrames (subscriberOutbox subscriber)) >>= (@?= 0)
+          putMVar release ()
+          next subscriber >>= (\case Snapshot _ actual True -> encode actual @?= encode (metrics "orders" 1); frame -> assertFailure (show frame))
+          next subscriber >>= (\case Update _ actual _ -> encode actual @?= encode (metrics "orders" 2); frame -> assertFailure (show frame)),
+      testCase "partitioned metadata is poll-only even when a push hook exists" $ do
+        registered <- newTVarIO False
+        let env =
+              InspectEnv
+                ( runnerFromInterpreter
+                    ( interpret
+                        ( \_ -> \case
+                            E.ListQueuesUnvalidated -> pure [UnvalidatedQueue "orders" epoch True False]
+                            E.QueueMetricsUnvalidated name -> pure (metrics name 0)
+                            _ -> error "unexpected partition test effect"
+                        )
+                    )
+                )
+                Nothing
+            hooks = PushHooks (\_ _ -> atomically (writeTVar registered True) >> pure (pure ()))
+        withClock cfg env (Just hooks) $ \_ coordinator -> do
+          subscriber <- newSubscriber 4
+          subscribeQueue coordinator subscriber "orders"
+          next subscriber >>= (\case Snapshot _ _ False -> pure (); frame -> assertFailure (show frame))
+          readTVarIO registered >>= (@?= False)
     ]

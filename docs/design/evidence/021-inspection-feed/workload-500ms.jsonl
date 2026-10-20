@@ -1,0 +1,4 @@
+{"batch_p95_ms":1.896,"consumed_messages":40000,"elapsed_seconds":1.196846,"inspection":false,"messages_per_second":33421.17532247256,"metadata_queries":0,"metrics_queries":0,"preloaded_rows":100000,"subscribers":0,"trial":1}
+{"batch_p95_ms":3.891,"consumed_messages":40000,"elapsed_seconds":1.667355,"inspection":true,"messages_per_second":23990.09209196602,"metadata_queries":3,"metrics_queries":3,"preloaded_rows":100000,"subscribers":100,"trial":2}
+{"batch_p95_ms":3.577,"consumed_messages":40000,"elapsed_seconds":1.448931,"inspection":true,"messages_per_second":27606.55959462528,"metadata_queries":2,"metrics_queries":2,"preloaded_rows":100000,"subscribers":100,"trial":3}
+{"batch_p95_ms":1.879,"consumed_messages":40000,"elapsed_seconds":1.171261,"inspection":false,"messages_per_second":34151.22675475406,"metadata_queries":0,"metrics_queries":0,"preloaded_rows":100000,"subscribers":0,"trial":4}

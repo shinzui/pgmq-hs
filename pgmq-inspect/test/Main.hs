@@ -8,7 +8,11 @@ import CorsSpec qualified
 import EphemeralDb
 import ErrorSpec qualified
 import HttpSpec qualified
+import IsolationSpec qualified
+import ListenerSpec qualified
+import LiveFeedSpec qualified
 import OutboxSpec qualified
+import RawWebSocketSpec qualified
 import RefreshSpec qualified
 import RouterSpec qualified
 import ServerSpec qualified
@@ -27,10 +31,12 @@ main =
         RouterSpec.tests,
         WireGoldenSpec.tests,
         WebSocketSpec.tests,
+        ListenerSpec.tests,
         OutboxSpec.tests,
+        RawWebSocketSpec.tests,
         RefreshSpec.tests,
         ServerSpec.tests,
-        withResource acquire release (\resource -> testGroup "Database" [HttpSpec.tests (snd <$> resource), WebSocketSpec.databaseTests (snd <$> resource)])
+        withResource acquire release (\resource -> testGroup "Database" [HttpSpec.tests (snd <$> resource), WebSocketSpec.databaseTests (snd <$> resource), LiveFeedSpec.tests (snd <$> resource), IsolationSpec.tests (snd <$> resource)])
       ]
   where
     acquire = mask $ \restore -> do

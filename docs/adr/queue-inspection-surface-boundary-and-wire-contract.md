@@ -188,6 +188,33 @@ signals before retained delivery. Runtime shutdown stops scheduling, attempts
 Goodbye while Warp still runs, then cancels and joins transport tasks after a
 bounded drain, including when the host owns Warp.
 
+## Listener ownership and failure semantics
+
+One configured runtime owns one dedicated LISTEN backend, with one interest per
+distinct eligible queue and refcounted callbacks. It derives channels through
+notifyChannelName, quotes identifiers and reconciles LISTEN/UNLISTEN from the
+registry. Socket readiness and registry changes share a bracketed fd wait;
+notifications are drained in batches of at most 64 before yielding/reconciling.
+Synchronous connection failures reconnect with 100ms-to-5s backoff and reissue
+all desired channels. Async cancellation releases fd waits and the connection.
+
+Push means registered interest, independent of trigger existence, connection
+health and channel acknowledgement. Per-channel acknowledgement is a separate
+read-only runtime observable. Polls keep running after listener loss. A ready
+hint and due poll share one authoritative read, tagged notify while advancing
+the due poll deadline; neither driver creates a duplicate scan.
+
+Lifecycle verification checks the actual owned socket descriptor and joined
+thread, with a deterministic after-bind cancellation barrier. Rebinding a freed
+ephemeral port is not reliable evidence: kernel state or another allocation can
+outlive/reuse it. The scoped runner API remains unchanged.
+
+Retained workload evidence shows that removing the per-client query multiplier
+still has real cost. Connection/poll limits require worker SLO measurements;
+separate pools isolate connection capacity, not database CPU/IO or process GC.
+The uncancellable-driver test models bounded live work and eventual cleanup;
+it does not establish a hard deadline for a blackholed network reply.
+
 ## Consequences
 
 Adopting pgmq-hs never means adopting a web server; adopting `pgmq-inspect` never means

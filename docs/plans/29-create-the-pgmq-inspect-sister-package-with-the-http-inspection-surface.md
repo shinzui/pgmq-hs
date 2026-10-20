@@ -98,6 +98,13 @@ the OpenAPI document, and the user guide are
 
 ## Surprises & Discoveries
 
+Follow-up in ExecPlan 30 (2026-10-20 UTC): more concurrent database/network tests
+reproduced address-in-use on a freed port even with no live owner. A bounded
+rebind retry was not sufficient evidence. The runner now shares private Lifecycle
+brackets with tests that inspect the actual closed socket and joined thread and
+cancel at a deterministic after-bind barrier. Public signatures are unchanged;
+106 native/stock tests and twenty full stock reruns pass with those checks.
+
 Review (2026-10-19): the fixed-width Text decimal parser returns 1 for
 18446744073709551617; the revised parser checks Integer before narrowing. Native pgmq.read
 returns read_ct after incrementing, so the five-message HTTP acceptance must expect five
