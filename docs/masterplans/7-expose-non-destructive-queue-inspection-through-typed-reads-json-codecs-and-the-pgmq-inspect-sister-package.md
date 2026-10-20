@@ -229,7 +229,7 @@ path for foreign and mixed-case names).
 | 2 | Provide stable JSON codecs for the inspection-facing records | docs/plans/28-provide-stable-json-codecs-for-the-inspection-facing-records.md | None | EP-1 (integration: `ArchivedMessage` codec) | Complete |
 | 3 | Create the pgmq-inspect sister package with the HTTP inspection surface | docs/plans/29-create-the-pgmq-inspect-sister-package-with-the-http-inspection-surface.md | EP-1, EP-2 | None | Complete |
 | 4 | Add the NOTIFY-accelerated, poll-authoritative WebSocket live feed to pgmq-inspect | docs/plans/30-add-the-notify-accelerated-poll-authoritative-websocket-live-feed-to-pgmq-inspect.md | EP-3 | None | Complete |
-| 5 | Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide | docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md | EP-3, EP-4 | None | In Progress |
+| 5 | Ship the standalone pgmq-inspect server, the OpenAPI document, and the inspection guide | docs/plans/31-ship-the-standalone-pgmq-inspect-server-the-openapi-document-and-the-inspection-guide.md | EP-3, EP-4 | None | Complete |
 
 EP-1 M1–M4 are complete. M4 adds the performance and concurrency evidence missing
 from the original acceptance; `IR-1` retains its historical completed status.
@@ -513,6 +513,8 @@ a candidate for promotion from `EP-4`'s Decision Log if its retrospective finds 
 
 ## Progress
 
+- [x] (2026-10-20 UTC) Initiative complete: all five children and integration/review gates pass. ADR distillation, IR-1–IR-3 closure and release handoff are recorded.
+
 - [x] EP-1 M1: `ArchivedMessage`, the two argument records, four statements, and four sessions exist; a red-then-green `InspectionSpec` proves byte-identical `vt`/`read_ct`, exactly-once keyset paging without `OFFSET`, archive timestamps, and typed not-found (2026-10-01)
 - [x] EP-1 M2: four `Pgmq` effect constructors with plain and traced cases; umbrella re-exports and compile witnesses; foreign and mixed-case names covered on a dedicated instance; partitioned queues covered (2026-10-01)
 - [x] EP-1 M3: design note 019, capability record, Haddocks, changelogs; `IR-1` completed (2026-10-01)
@@ -540,8 +542,8 @@ preserve unrelated supplied GUCs, and every pooled connection is checked at a ba
 A restricted login serves all groups and future queues while ACLs deny consumption,
 mutation and sequence advancement. Native/stock inspection pass 123 tests, the
 whole family is green and the actual standalone curl/WS/Ctrl-C transcript is retained.
-The adoption guide, CAP-12, IR-3 closure and release handoff are written; final
-Haddock/source distribution/flake checks remain before registry completion.
+The adoption guide, CAP-12, IR-3 closure and release handoff are written.
+Final Haddock/source-distribution/flake checks pass; all five registry rows are Complete.
 
 EP-4 M2 (2026-10-20 UTC): 106 native/stock tests and twenty full stock stress
 reruns pass. Listener acknowledgement is now a separate runtime observable from
@@ -744,6 +746,36 @@ interactions between child plans. Provide concise evidence.
 
 ## Outcomes & Retrospective
 
+Complete (2026-10-20 UTC): all five ExecPlans are implemented and integrated.
+Users can inspect live/archive messages without leasing, consume stable domain JSON,
+run or embed pgmq-inspect, subscribe to shared poll-authoritative metrics, generate
+HTTP operations from the served OpenAPI and follow the owned inspection guide.
+Root/prefix mounts, exact int64 IDs, effective dedicated connection deadlines and
+restricted-role access are exercised by executable acceptance, with a real curl/WS
+transcript retained. IR-1, IR-2 and IR-3 are completed.
+
+Final evidence: the full family passes 72 core, 111 hasql, 79 effectful, 11 migration,
+70 config and 123 inspection tests (466 total). All 123 inspection tests also pass
+on stock PGMQ 1.12. The host aarch64-darwin flake check, Nix executable/version,
+Haddock, source distribution, package audit and strict docs validation pass.
+EP-1 retains 100,000-row ordinary/unlogged/numeric/time partition evidence on both
+schemas; EP-4 retains the shared 100-subscriber workload and fault/isolation tests.
+Architecture/dependency ADRs distill all children's durable decisions: ownership,
+wire stability, moving views, scan/byte costs, admission, lifecycle, hint semantics,
+relative discovery, lossless IDs and least-privilege/default-grant requirements.
+
+Release handoff: MasterPlan 6's ExecPlan 25 or its successor must include the initial
+pgmq-inspect package, move internal family bounds together and announce the five
+breaking exhaustive-interpreter cases PeekMessages, PeekArchivedMessages,
+LookupMessage, LookupArchivedMessage and QueueMetricsUnvalidated. Root/package
+changelogs record the handoff. Version bumps and Hackage publication remain outside
+this initiative. IR-6's blackholed-reply cancellation limit remains explicit;
+measured worker costs prevent a negligible-overhead or universally safe interval claim.
+A bundled browser UI and authentication remain excluded as planned.
+
+The dated milestone entries below preserve the execution history; the completion
+record above supersedes their then-pending next-child statements.
+
 EP-4 complete (2026-10-20 UTC): shared poll/notify metrics refresh, bounded transport,
 atomic snapshots/generations, a refcounted reconnecting listener and scoped cleanup
 are implemented and documented. All 107 native/stock inspection tests, the full
@@ -805,3 +837,9 @@ EP-2 is next; the remaining ownership and dependency graph are unchanged.
 Revision note (2026-10-20 UTC): completed EP-2 with thirteen domain encoders,
 four record decoders, 53 strict goldens, numeric/null boundary fixtures and all
 required gates. EP-3 is next; the remaining dependency graph is unchanged.
+
+
+Implementation completion (2026-10-20 UTC): all five children are Complete. The user
+authorized uninterrupted execution between children; no intermediate approval gate
+was added. Cross-plan acceptance and ADR distillation are complete, with release
+versions/publication deliberately left to the lockstep release train.

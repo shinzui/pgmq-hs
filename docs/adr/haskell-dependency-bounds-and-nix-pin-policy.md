@@ -108,6 +108,8 @@ and Cabal resolves 0.3.0.1. Runtime OpenAPI stays valid 3.0 with explicit nullab
 fields. The library's JSON validator ignores nullable, so tests translate nullable
 only in their validation view and include negative non-null/type cases.
 
-The CLI alone depends on optparse-applicative (current 0.19.0.0, existing range
-0.18–0.19) and postgresql-connection-string 0.1.0.6's parse/intercept/render APIs.
-These dependencies do not enter the inspection library's public API.
+The CLI alone depends on optparse-applicative (tested current 0.19.0.0) and postgresql-connection-string 0.1.0.6's parse/intercept/render APIs.
+These dependencies do not enter the inspection library's public API. The initial
+CLI bound is ^>=0.19: a constrained 0.18 acceptance attempt cannot solve this
+workspace because pg-migrate-import-hasql-migration requires >=0.19. Do not carry
+an untested 0.18 claim or relax that unrelated package's dependency to force it.

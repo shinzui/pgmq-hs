@@ -81,7 +81,9 @@ test suite, which now includes `OpenApiSpec`.
 
 ## Progress
 
-- [x] (2026-10-19) Reviewed against implemented EP-1, revised EP-2–EP-4 and keiro-ui contracts; implementation remains pending.
+- [x] (2026-10-20) Complete: all review gates and milestones pass; native/stock, full family, host flake, Nix executable/version, Haddock/sdist, package and docs checks recorded.
+
+- [x] (2026-10-19) Planning review against EP-1, revised EP-2–EP-4 and keiro-ui contracts; subsequent implementation is complete below.
 - [x] (2026-10-20) Review gates: mounted OpenAPI client, actual-response schema validation, lossless int64 browser fixture, isolated database budget and least-privilege role tests pass.
 
 - [x] (2026-10-20) M1: `pgmq-inspect/app/Main.hs` and the `executable pgmq-inspect` stanza exist; `cabal run pgmq-inspect -- --version` prints the version; the server starts against a disposable native-schema database and answers `GET /queues`
@@ -152,6 +154,12 @@ bounds, verify authoritative package registries and upstream release tags.
 
 ## Decision Log
 
+- Decision (2026-10-20): use optparse-applicative ^>=0.19, exercised by Cabal and
+  Nix. The proposed 0.18–0.19 range's older-family constrained test cannot solve
+  because pg-migrate-import-hasql-migration requires >=0.19. Follow the existing
+  dependency-bounds ADR: remove an untested claim rather than relax an unrelated
+  package or add a second project configuration. This is an unreleased new CLI.
+
 - Decision (2026-10-20): test the executable through Cabal build-tool-depends and
   compile its private configuration into tests. Preserve supplied libpq options while
   overriding statement/lock/connect deadlines; do not export CLI-only dependencies
@@ -198,12 +206,28 @@ bounds, verify authoritative package registries and upstream release tags.
 
 ## Outcomes & Retrospective
 
-M1–M3 implementation (2026-10-20 UTC): the executable, served OpenAPI, generated
-operation fixture, role recipe, compiled embedding example and owned guide exist.
-All 123 native and stock inspection tests pass, the full six-package family run
-passes, Nix builds the executable, and strict docs checks pass. Haddock/sdist and
-the final integrated flake gate remain before registry completion. Version numbers
-are unchanged; no publication is attempted.
+Complete (2026-10-20 UTC): the executable, served OpenAPI, generated-operation
+fixture, restricted-role recipe, compiled embedding example and owned guide satisfy
+independent adoption. All 123 inspection tests pass on native 1.13 and stock 1.12.
+The six-package family passes 72/111/79/11/70/123 tests (466 total). Nix builds/runs
+the executable (0.1.0.0), the aarch64-darwin flake check passes, Haddock and source
+distribution succeed, cabal check reports no warnings, and strict docs checks pass.
+The source tarball contains the CLI, OpenAPI/golden, client, SQL and embedding
+fixtures. Negative route/description checks failed the intended assertions and were
+restored; permission denials explicitly require SQLSTATE 42501.
+
+The owned guide and evidence 022 give a reproducible real curl/WS/Ctrl-C transcript.
+No persistent development database was stopped or modified. No bundled UI, version
+bump or publication was added. The prefix-root, exact-ID, effective-deadline and
+role tests resolve the review's adoption gaps. IR-6 and measured row/byte/CPU costs
+remain explicit limits rather than implied guarantees. Both architecture/dependency
+ADRs distill the durable lessons; execution details remain here.
+
+Validation logs (ignored `.dev/`): `ep5-family-final.log`, `ep5-inspect-final.log`,
+`ep5-stock-doc-final.log`, `ep5-flake-final.log`, `ep5-nix-version.log`,
+`ep5-docs-final.log`, `ep5-cabal-check.log`, `ep5-privileges-package-final.log`,
+`ep5-negative-route.log` and `ep5-negative-golden.log`. The exploratory parser-floor
+solver failure is retained in `ep5-cli-floor.log`; it justifies the tested 0.19 bound.
 
 Release handoff: the next lockstep family release, prepared by
 `docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md`
@@ -214,20 +238,8 @@ internal family bounds together, and list the breaking exhaustive-interpreter ca
 The root and package changelogs retain this handoff for the release train.
 
 
-Review status (2026-10-19): changes requested. This update corrects the release contract;
-no executable, schema or browser integration is implemented by this documentation change.
-EP-1 M4 and the review gates in all dependent plans remain prerequisites for release.
-
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose. Before marking the plan complete,
-distill durable project context from the Decision Log, Surprises & Discoveries, and
-this section into docs/adr/. Keep task-local execution details here.
-
-(To be filled during and after implementation. The final entry must include a paragraph
-headed "Release handoff" stating that the family's next lockstep release, prepared by
-`docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md`
-under MasterPlan 6 or by its successor, must include `pgmq-inspect`, move its internal bounds
-with the family, and list the `Pgmq` effect's new constructors as a breaking change.)
+Historical review (2026-10-19) requested changes to the draft acceptance contract.
+The implementation and tests above now satisfy those corrected gates.
 
 
 ## Context and Orientation
@@ -266,7 +278,7 @@ and depends on `pgmq-core`, `pgmq-hasql`, and `pgmq-effectful` with bounds `>=0.
 Its library modules are `Pgmq.Inspect` (umbrella re-export), `Pgmq.Inspect.Config`,
 `Pgmq.Inspect.Env`, `Pgmq.Inspect.Wire`, `Pgmq.Inspect.Error`, `Pgmq.Inspect.Cors`,
 `Pgmq.Inspect.Http`, `Pgmq.Inspect.Server`, `Pgmq.Inspect.WebSocket`, and
-`Pgmq.Inspect.Listener`. Its extension set follows `pgmq-hasql`: `OverloadedLabels`,
+`Pgmq.Inspect.OpenApi`; Listener and scheduler/transport internals remain private. Its extension set follows `pgmq-hasql`: `OverloadedLabels`,
 `DuplicateRecordFields`, `DeriveGeneric`, `ImportQualifiedPost`, `OverloadedStrings`, with
 `generic-lens` and `lens` for field access, and never `OverloadedRecordDot` or
 `NoFieldSelectors`. Its test suite `pgmq-inspect-test` already has `EphemeralDb.hs` (a copy of
@@ -1666,7 +1678,7 @@ pinned to 3.2.5 in Nix. Use its exposed `Data.HashMap.Strict.InsOrd.Compat` API;
 no direct container dependency is needed. Cabal exercises container 0.3.0.1 and
 Nix 0.2.7 transitively.
 Executable dependencies: `async ^>=2.2`, `base`, `bytestring`, `generic-lens`, `hasql ^>=1.10`,
-`hasql-pool ^>=1.4`, `lens ^>=5.3`, `optparse-applicative >=0.18 && <0.20`, `pgmq-inspect`,
+`hasql-pool ^>=1.4`, `lens ^>=5.3`, `optparse-applicative ^>=0.19`, `pgmq-inspect`,
 `text`. Test dependency added if absent: `tasty-golden ^>=2.3`; the test suite already depends
 on `http-client`, `http-types`, `aeson`, `tasty`, and `tasty-hunit` from plan 29.
 

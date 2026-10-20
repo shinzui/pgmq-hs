@@ -26,3 +26,6 @@ grants, deployment, all routes/frames and measured workload limits.
 Initial package version remains 0.1.0.0 until the family's next lockstep release.
 That release must include this package and move its internal family dependency
 bounds together with the other pgmq packages; no publication is performed here.
+
+The initial CLI supports optparse-applicative 0.19, the released family exercised
+by both Cabal and Nix; the library does not depend on the CLI parser.

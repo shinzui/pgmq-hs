@@ -54,7 +54,7 @@ the supplied client fixture, not an external SDK generator or a downstream UI.
 cluster, checks all HTTP groups and a live snapshot, and creates another queue after
 the default grants to verify future tables/sequences. The actual login's role
 settings are checked. After disabling its read-only transaction default, calls to
-read/pop/send/archive/delete/purge/create/drop, direct UPDATE and nextval still fail.
+read/pop/send/archive/delete/purge/create/drop, direct UPDATE and nextval still fail with SQLSTATE 42501, proving permission denial rather than a malformed test call.
 The owner-wide PUBLIC function defaults and existing worker grants require operator
 review; the CLI never applies this SQL.
 

@@ -16,8 +16,10 @@ import Hasql.Session qualified as Session
 import Hasql.Statement (unpreparable)
 import HttpSpec (session)
 import Network.WebSockets qualified as WS
+import Pgmq.Effectful (PgmqRuntimeError (..))
 import Pgmq.Inspect.Config
 import Pgmq.Inspect.Env
+import Pgmq.Inspect.Error (sqlState)
 import RouterSpec (lookupKey)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -53,6 +55,8 @@ tests =
             Connection.use conn (Session.script "SET default_transaction_read_only=off") >>= either (assertFailure . show) pure
             forM_ ["SELECT pgmq.read('role_current',0,1)", "SELECT pgmq.pop('role_current')", "SELECT pgmq.send('role_current','{}')", "SELECT pgmq.archive('role_current',2)", "SELECT pgmq.delete('role_current',2)", "SELECT pgmq.purge_queue('role_current')", "SELECT pgmq.drop_queue('role_current')", "SELECT pgmq.create('role_forbidden')", "UPDATE pgmq.q_role_current SET read_ct=read_ct+1", "SELECT nextval('pgmq.q_role_current_msg_id_seq')"] $ \sql' -> do
               answer <- Connection.use conn (Session.script sql')
-              assertBool ("write unexpectedly permitted: " <> show sql') (either (const True) (const False) answer)
+              case answer of
+                Left err -> assertEqual ("wrong failure for " <> show sql') (Just "42501") (sqlState (PgmqSessionError err))
+                Right () -> assertFailure ("write unexpectedly permitted: " <> show sql')
         either (assertFailure . show) pure result
     ]
