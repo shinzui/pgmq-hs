@@ -11,6 +11,18 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-09-16T20:42:28Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-25T20:33:49Z
+      mode: "update"
+      note: "Corrected partition identity guard, alias and ordinary-queue regression coverage, recovery wording, and serial test invocation."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-25T20:33:49Z
+      verdict: "approved"
+      note: "Reviewed revised planning document; implementation evidence remains pending. Corrected partition identity guard, alias and ordinary-queue regression coverage, recovery wording, and serial test invocation."
 ---
 
 # Gate the notification fail-open on a real queue row and state the partitioned-queue contract
@@ -33,7 +45,7 @@ the trigger cannot find the queue's throttle row, it notifies anyway, so that a 
 That change has a defect on partitioned queues. PostgreSQL clones a row-level trigger onto
 every leaf partition, and inside the clone `TG_TABLE_NAME` is the partition's name
 (`q_pq_p0`), not the queue table's (`q_pq`). The trigger derives the queue name by dropping
-the first two characters, so it looks for a throttle row named `pq_p0`, which can never exist.
+the first two characters, so it looks for a throttle row named `pq_p0`, which normally does not exist.
 Upstream's trigger then does nothing; ours fails open. The result today, on any database
 installed through `pgmq-migration`, is that a partitioned queue with notifications enabled
 publishes one `NOTIFY` per insert, unthrottled, on a channel named after whichever partition
@@ -43,13 +55,17 @@ on a database-wide lock).
 
 After this plan, a new migration `0007` gates the fail-open branch on the extracted name
 having a row in `pgmq.meta`, the table that lists every queue. A partitioned queue's leaf
-names never do, so partitioned queues go back to upstream's behavior: no notifications at
-all. Ordinary queues keep crash recovery. A test proves that no notification arrives on any
+names normally do not, but another client can register one as a queue alias. Therefore
+`0007` first returns for `pg_class.relispartition` at `TG_RELID`, before the throttle UPDATE.
+The native contract is silence even when an alias has metadata or a throttle row; normal
+stock schemas are silent too, but stock SQL is not hardened against manually aliased leaves.
+Ordinary queues keep crash recovery. A test proves that no notification arrives on any
 channel when a partitioned queue receives inserts, on both the native ledger and the stock
 1.12 schema, and the existing crash-recovery and channel-name tests still pass. Every
 document that describes notification delivery says that partitioned queues receive no insert
 notifications, and that the post-crash unthrottled state on ordinary queues lasts until an
-application restart runs the reconciler, which is the only thing that re-enables the throttle.
+explicit reconciliation run or enable call restores the row. Reconciliation commonly runs
+at application startup, but neither API requires a process restart.
 
 You can see it working by running the new test in the `partman` shell, which fails on the
 current ledger and passes after `0007` is appended, and by repeating the psql transcript in
@@ -58,17 +74,9 @@ Context and Orientation, which shows three notifications before and none after.
 
 ## Progress
 
-- [ ] M1: `pgmq-hasql/test/PartitionedNotifySpec.hs` exists, is registered, and is red on the native ledger (a notification arrives on a partition channel)
-- [ ] M2: `pgmq-migration/migrations/0007-notify-only-registered-queues.sql` and its manifest line exist
-- [ ] M2: `pgmq-migration/test/Main.hs` ledger expectations updated (component list, payload digest, convergence prefix) and green
-- [ ] M2: `PartitionedNotifySpec` green in the `partman` shell on the native ledger and with `PGMQ_TEST_SCHEMA_VERSION=1.12.0`
-- [ ] M2: `pgmq-config` `NotifyCrashSpec` and `pgmq-hasql` `NotifyChannelSpec` still green
-- [ ] M3: design note 015 and 006 updated; `docs/capabilities/insert-notifications.md` limits and evidence updated
-- [ ] M3: Haddocks on `notifyChannelName` and every `enableNotifyInsert` updated
-- [ ] M3: `docs/user/schema-migration.md` ledger table and counts updated
-- [ ] M3: `docs/adr/notification-override-lineage-and-partitioned-queue-boundary.md` written
-- [ ] M3: "Unreleased" sections written in the root, `pgmq-migration`, `pgmq-core`, and `pgmq-hasql` changelogs
-- [ ] `nix fmt`, `git diff --check`, and `just docs-check` clean
+- [ ] M1: compiling tests reproduce partition notifications, including native leaf-alias paths, with a working listener control.
+- [ ] M2: immutable-ledger migration 0007 makes partition tests pass while ordinary throttling, post-crash delivery, and reconciliation recovery remain correct.
+- [ ] M3: delivery docs, Haddocks, capability evidence, ADR verification, and all affected Unreleased entries agree; documentation checks pass.
 
 
 ## Surprises & Discoveries
@@ -76,20 +84,23 @@ Context and Orientation, which shows three notifications before and none after.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+The 2026-10-25 review found that queue metadata does not establish physical relation shape:
+`pgmq.create` uses `CREATE TABLE IF NOT EXISTS` before registering the supplied name, so a
+leaf name can acquire alias metadata. A throttle row for that alias would also bypass an
+ELSIF-only fix. The revised migration tests physical partition membership before UPDATE;
+the new isolated cases must demonstrate the counterexamples and correction.
 
 
 ## Decision Log
 
-- Decision: The gate is membership in `pgmq.meta` by the extracted name, not resolution of the
-  parent table through `pg_inherits`.
-  Rationale: the membership probe restores exactly upstream's behavior for partitioned queues
-  with one indexed lookup on the already-rare zero-rows path, and keeps the local deviation
-  from upstream as small as it was. Resolving the parent would make partitioned queues notify
-  on the documented channel, which upstream's trigger has never done; that is a feature for
-  upstream (`mori://pgmq/pgmq`), and the FIFO override ADR's reasoning (copied bodies are
-  recurring maintenance) argues against growing the local override to carry it.
-  Date: 2026-09-16
+- Decision (2026-10-25, supersedes the 2026-09-16 membership-only design): return for
+  actual partition relations before UPDATE, then require queue metadata for ordinary
+  missing-row fail-open. Do not resolve a parent to deliver notifications.
+  Rationale: metadata aliases invalidate the old assumption that a leaf name cannot be
+  registered; a successful throttle UPDATE also bypasses a fail-open-only guard. The
+  `pg_class` lookup adds work on every invocation, not just the zero-update path. This is
+  accepted for correctness within the existing override lineage; delivery on the parent
+  channel remains separate upstream work in `mori://pgmq/pgmq`.
 - Decision: The new test lives in `pgmq-hasql`'s suite, not `pgmq-migration`'s.
   Rationale: it needs `LISTEN` through libpq (`postgresql-libpq` is already a `pgmq-hasql`
   test dependency and the listener helper exists in `NotifyChannelSpec.hs`), a partitioned
@@ -267,8 +278,7 @@ Asynchronous notification "pgmq.q_pq_p0.INSERT" received from server process wit
 ```
 
 Three inserts, three notifications, no throttling (the two sends inside 250 ms both
-notified), all on a partition channel, and the throttle row untouched. The same sequence on an
-ordinary queue `oq` produced exactly one notification on `pgmq.q_oq.INSERT` and advanced
+notified), all on a partition channel, and the throttle row untouched. The review's two-send ordinary-queue control produced one notification on `pgmq.q_oq.INSERT` and advanced
 `last_notified_at`. In a plain-PostgreSQL check with no pgmq at all, a row trigger on a
 partitioned parent reported `TG_TABLE_NAME=parent_p1` for a row inserted through the parent,
 which is the mechanism.
@@ -285,8 +295,8 @@ reachable through this library's own `partitionedQueue ... & withNotifyInsert`.
 `docs/design/015-notification-delivery-contract.md` is the canonical statement of delivery:
 channel name, throttle, poll-fallback requirement, crash fail-open, and the note that the
 degradation lasts "until the next reconcile restores the configured value". It does not say
-that the reconcile only runs at application startup, so a database crash leaves every ordinary
-queue unthrottled until someone restarts the application. `docs/design/006-queue-notifications.md`
+that recovery needs an explicit enable/reconcile invocation: startup-only callers can remain
+unthrottled until restart, while other callers can restore the row without restarting. `docs/design/006-queue-notifications.md`
 is the original design note with the corrected channel derivation. `docs/capabilities/insert-notifications.md`
 is the `CAP-4` capability record in the `docs/capabilities` OKF bundle; its `evidence` list
 names the tests that prove the capability and its Limits section lists known boundaries.
@@ -301,20 +311,23 @@ describe the channel and the poll fallback and say nothing about partitioned que
 
 There is no profiled `docs/adr` OKF bundle; ADRs are plain Markdown files under `docs/adr/`
 with Status, Context, Decision, Consequences, and Alternatives headings (see
-`docs/adr/pgmq-1.12-1.13-compatibility.md` for the shape). Two are relevant.
+`docs/adr/pgmq-1.12-1.13-compatibility.md` for the shape). The following records are relevant.
 
 [docs/adr/fifo-native-overrides-and-index-upgrade-boundary.md](../adr/fifo-native-overrides-and-index-upgrade-boundary.md)
 prohibits new copied upstream function bodies *for FIFO work* and states that "historical
 notification/partition overrides are not removed or extended by this initiative". This plan
 is that separate work: it does not open a new override, it corrects the one `0003` opened, in
-an append-only file, and records the boundary in a new ADR.
+an append-only file. The
+[notification boundary ADR](../adr/notification-override-lineage-and-partitioned-queue-boundary.md)
+records the strengthened guard and its native/stock scope; implementation adds acceptance
+evidence to it.
 
 [docs/adr/pgmq-1.12-1.13-compatibility.md](../adr/pgmq-1.12-1.13-compatibility.md) sets the
 rules the ledger follows: existing bytes and order never change; local deviations are appended
 after pristine upstream upgrades; their bodies are excepted from catalog convergence but their
 behavior is tested; one transaction per migration. Its verification paragraph records
-acceptance on PostgreSQL 17.10 with pg_partman 5.4.3 (the `partman` shell now provides 18.6;
-that discrepancy is EP-3's to record, not this plan's).
+acceptance on PostgreSQL 17.10 with pg_partman 5.4.3 (the original review observed a later server;
+EP-3 records the actual runtime version for the new candidate).
 
 The parent MasterPlan is
 [docs/masterplans/6-close-the-notification-reconciler-and-evidence-gaps-surfaced-by-the-0-6-1-0-review.md](../masterplans/6-close-the-notification-reconciler-and-evidence-gaps-surfaced-by-the-0-6-1-0-review.md).
@@ -359,6 +372,23 @@ in the same module, that after the sends the throttle row's `last_notified_at` i
 epoch (`to_timestamp(0)`), which documents that the throttle path never matched. Clean up the
 queue with `Sessions.dropQueue` at the end of each case.
 
+Use a fresh database/unique queue per case and bracket cleanup so assertion failures do
+not leak fixtures. Do not reuse `NotifyChannelSpec.enableNotify` unchanged: it calls
+`createQueue` and would register a partitioned fixture as an ordinary queue. Enable the
+already-created partitioned queue directly. Prove the listener works with a separate ordinary
+control queue on the same connection, drain its notification, then begin the silence window;
+check libpq input/status failures rather than treating a broken listener as silence. Send in
+separate committed sessions and assert that the messages were actually stored.
+
+Add native-only alias cases in an isolated database: after creating `pq`, register `pq_p0`
+using raw `pgmq.create('pq_p0')` and confirm that the physical table remains a partition.
+Test first with only this metadata alias, then with a zero-interval throttle row for `pq_p0`
+seeded directly (do not replace the cloned trigger). Parent inserts must notify neither
+channel; in the latter case neither parent nor alias timestamp may advance. These cases
+catch both a membership-only fail-open guard and a guard placed after UPDATE. Discard the
+isolated database as a whole; do not drop the alias and thereby destroy the parent's leaf.
+Stock 1.12 runs the normal partition cases, not this native hardening expectation.
+
 Register the module in `pgmq-hasql/test/Main.hs` next to `NotifyChannelSpec.tests pool db`, and
 add it to the `other-modules` of the `pgmq-hasql-test` suite in `pgmq-hasql/pgmq-hasql.cabal`.
 
@@ -372,8 +402,8 @@ Scope: append the migration, update the ledger-derived expectations, and turn th
 on both schema selections without changing any other test's outcome.
 
 Create `pgmq-migration/migrations/0007-notify-only-registered-queues.sql` with this content
-(the header comment is part of the file; the function body differs from `0003` only in the
-`ELSIF` condition and its comment):
+(the header comment is part of the file; the function body adds an early partition-relation return and changes the
+`ELSIF` condition):
 
 ```sql
 -- Notification fail-open only for a registered queue.
@@ -381,17 +411,20 @@ Create `pgmq-migration/migrations/0007-notify-only-registered-queues.sql` with t
 -- Migration 0003 made pgmq.notify_queue_listeners() fail open when its throttle
 -- row is missing, so crash recovery truncating the UNLOGGED throttle table
 -- cannot silently stop delivery. That branch could not tell a row lost to a
--- crash from a row that can never exist. PostgreSQL clones a row trigger onto
+-- crash from a missing leaf-name row. PostgreSQL clones a row trigger onto
 -- every leaf partition, and inside the clone TG_TABLE_NAME is the partition
--- (q_pq_p0), so the extracted name (pq_p0) never has a throttle row. On a
+-- (q_pq_p0), so the extracted name (pq_p0) normally has no throttle row. On a
 -- partitioned queue the fail-open therefore fired on every insert, unthrottled,
 -- on a per-partition channel no listener on the documented channel receives.
 --
 -- The fail-open now requires the extracted name to be a queue registered in
--- pgmq.meta. Ordinary queues keep crash recovery; a leaf partition, or a
+-- pgmq.meta. A relation guard before UPDATE rejects leaf partitions even
+-- when their extracted names have alias metadata or throttle rows. Ordinary
+-- queues keep crash recovery; a leaf partition, or a
 -- mixed-case throttle row the trigger cannot match, behaves as upstream's
 -- trigger does: no notification. Partitioned queues receive no insert
--- notifications on any install; that is upstream behaviour, now stated.
+-- notifications on the hardened native install. Stock SQL is silent for
+-- normal partitioned queues but does not guard manually aliased leaves.
 --
 -- See docs/design/015-notification-delivery-contract.md and
 -- docs/adr/notification-override-lineage-and-partitioned-queue-boundary.md.
@@ -402,6 +435,14 @@ DECLARE
   queue_name_extracted TEXT; -- Queue name extracted from trigger table name
   updated_count        INTEGER; -- Number of rows updated (0 or 1)
 BEGIN
+  -- Metadata names do not prove that this is an ordinary queue relation.
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c
+    WHERE c.oid = TG_RELID AND c.relispartition
+  ) THEN
+    RETURN NEW;
+  END IF;
+
   queue_name_extracted := substring(TG_TABLE_NAME from 3);
 
   UPDATE pgmq.notify_insert_throttle
@@ -428,11 +469,11 @@ BEGIN
     ) THEN
     -- Fail open only for a queue that could have had a throttle row: the
     -- extracted name is registered in pgmq.meta, so a missing throttle row
-    -- means crash truncation, not a name the trigger can never match. Both
+    -- can be crash truncation. Both
     -- probes are unique-index lookups and run only when the UPDATE matched
     -- nothing. The row is deliberately NOT re-inserted here (see 0003): the
     -- configured interval is the crash's data loss, and the reconciler
-    -- restores it on the next application start.
+    -- restores it when explicitly invoked, typically at application startup.
     PERFORM PG_NOTIFY('pgmq.' || TG_TABLE_NAME || '.' || TG_OP, NULL);
   END IF;
 
@@ -461,42 +502,55 @@ add `0007-notify-only-registered-queues AppliedNow` to the sample applied-names 
 `0006` line.
 
 Run the migration suite and the new test in the `partman` shell, then the new test again with
-`PGMQ_TEST_SCHEMA_VERSION=1.12.0` (the stock fixture has upstream's trigger, which never
-notifies on a partition, so the test must pass there too and proves the contract is the same
+`PGMQ_TEST_SCHEMA_VERSION=1.12.0` (the stock fixture has upstream's trigger, which is silent
+for the normal partition fixture, so the test must pass there too and proves the contract is the same
 on both installs). Run `pgmq-config`'s suite (its `NotifyCrashSpec` starts its own server,
 applies the full ledger, crashes it, and asserts a post-crash notification on an ordinary
 queue; it must stay green because `pgmq.meta` is a logged table that survives the crash) and
 `pgmq-hasql`'s `NotifyChannelSpec` (ordinary-queue channel contract).
 
+Also pin ordinary nonzero throttling: enable a long nonzero interval on an ordinary control
+queue, send twice in separate commits inside that interval, and require exactly one
+notification and no timestamp advance on the suppressed insert. Extend the dedicated native
+`pgmq-config/test/NotifyCrashSpec.hs` fixture to use a nonzero declared interval and verify
+that explicit reconciliation restores that interval after a crash, without an application
+process restart. Its existing post-crash notification assertion still has to pass. EP-1
+owns these regression assertions; EP-2 consumes them unchanged. Also add an isolated native mixed-case fixture
+with no lowercase metadata row: raw create/enable under the mixed-case name must not
+publish on the lowercase channel. This tests the remaining metadata gate independently
+of the partition-relation guard.
+
 ### Milestone 3: say what the trigger does
 
 Scope: every document and Haddock that describes notification delivery states the two facts
-this plan establishes, a new ADR records the boundary, and the changelogs carry the change.
+this plan establishes, the ADR records implementation evidence for the boundary, and the changelogs carry the change.
 
 In `docs/design/015-notification-delivery-contract.md`, after the section "Losing throttle
 state must not stop delivery", add a section titled "Fail-open applies only to a registered
 queue" that: reproduces the psql transcript above in fenced `sql` and `text` blocks; explains
 `TG_TABLE_NAME` on cloned partition triggers; states the rule (the fail-open requires the
-extracted name in `pgmq.meta`); states that partitioned queues receive no insert
-notifications on native or stock installs and that `notifyChannelName` for a partitioned queue
+extracted name in `pgmq.meta`, after actual partitions return before UPDATE); explains the
+per-invocation catalog lookup; states that normal partitioned queues receive no insert
+notifications on native or stock installs, with alias hardening guaranteed only by 0007 and that `notifyChannelName` for a partitioned queue
 names a channel nothing publishes to; and names migration `0007`. In the existing paragraph
 that says the degradation lasts "until the next reconcile restores the configured value", add
-that the reconciler runs at application startup only, so after a database crash every ordinary
-queue with notifications enabled stays unthrottled until the application is restarted, and that
+that the reconciler is commonly invoked at application startup but can also be called explicitly, so after a database crash every ordinary
+queue with notifications enabled stays unthrottled until an explicit enable/reconcile call
+restores its throttle row, often on application restart, and that
 during that window every inserting transaction on such a queue pays PostgreSQL's notification
-serialization at commit. Update the "mixed-case" paragraph to say `0007` returns that case to
-upstream's "never notify". In `docs/design/006-queue-notifications.md`, add one sentence at the
+serialization at commit. Update the "mixed-case" paragraph to say `0007` suppresses missing-row fail-open when
+there is no exact lowercase metadata row; it does not remediate pre-existing aliases. In `docs/design/006-queue-notifications.md`, add one sentence at the
 channel-derivation paragraph: partitioned queues do not receive insert notifications, with a
 link to design note 015.
 
 In `docs/capabilities/insert-notifications.md` (front matter is validated by
 `just docs-check`; keep the existing keys), add a Limits bullet: "Partitioned queues receive no
-insert notifications. The trigger fires on the leaf partition, whose name never matches a
+insert notifications. The trigger fires on the leaf partition, whose name normally has no
 throttle row; on the extension-free install migration `0007` keeps it that way instead of
 notifying unthrottled." Add an `evidence` entry of kind `test` for
 `pgmq-hasql/test/PartitionedNotifySpec.hs` with `proves: No notification arrives on the documented channel or any partition channel when a partitioned queue receives inserts, on the native ledger and the stock 1.12 schema.`
-Extend the crash bullet to say the unthrottled state lasts until an application restart runs the
-reconciler. Then run `okf log add docs/capabilities --kind Update -m "CAP-4: partitioned queues receive no insert notifications; post-crash duration stated"`
+Extend the crash bullet to say the unthrottled state lasts until an enable/reconcile call restores the row, typically at
+application startup. Then run `okf log add docs/capabilities --kind Update -m "CAP-4: partitioned queues receive no insert notifications; post-crash duration stated"`
 so the bundle's log matches the edited concept, and `okf index docs/capabilities --write` if the
 index preview differs.
 
@@ -505,22 +559,23 @@ partitioned queue's channel is never published to (the trigger fires on leaf par
 link design note 015. On `enableNotifyInsert` in
 `pgmq-hasql/src/Pgmq/Hasql/Statements/QueueManagement.hs`, `pgmq-hasql/src/Pgmq/Hasql/Sessions.hs`,
 and `pgmq-effectful/src/Pgmq/Effectful/Effect.hs`, add one sentence: enabling on a partitioned
-queue succeeds server-side but delivers nothing; see the `pgmq-config` reconciler for the
+queue succeeds server-side but does not deliver on its documented parent channel; see the `pgmq-config` reconciler for the
 report. Keep Haddock coverage at 100% on public modules (`cabal haddock pgmq-hasql` reports it).
 
-Write `docs/adr/notification-override-lineage-and-partitioned-queue-boundary.md` in the same
+Update `docs/adr/notification-override-lineage-and-partitioned-queue-boundary.md` in the same
 plain-Markdown shape as the other ADRs: Status (Accepted, dated); Context (migration `0003`
 opened a local override lineage for `notify_queue_listeners`, `enable_notify_insert`, and
 `create_partitioned`; the FIFO override ADR scopes its prohibition to FIFO and defers this
 lineage; the partitioned defect and its evidence); Decision (corrections to that lineage are
-appended, never edited; the fail-open is gated on `pgmq.meta`; partitioned queues are outside
+appended, never edited; actual partitions return before UPDATE and the fail-open is gated on `pgmq.meta`; partitioned queues are outside
 notification delivery on every install; making them deliver is upstream work, not a local
 override; the convergence exception list is not widened for this); Consequences and
 verification (the test names and shells); Alternatives (parent resolution, client guard,
 editing `0003`). Link the FIFO and compatibility ADRs and design note 015.
 
-Changelogs: add an "## Unreleased" section at the top of `CHANGELOG.md`,
-`pgmq-migration/CHANGELOG.md`, `pgmq-core/CHANGELOG.md`, and `pgmq-hasql/CHANGELOG.md` (EP-3
+Changelogs: append to the existing "## Unreleased" section (create it only if absent) in `CHANGELOG.md`,
+`pgmq-migration/CHANGELOG.md`, `pgmq-core/CHANGELOG.md`, `pgmq-hasql/CHANGELOG.md`,
+and `pgmq-effectful/CHANGELOG.md` (EP-3
 turns these into 0.7.0.0 entries; never edit a published section). The migration entry
 describes `0007` and the behavior change on native installs (partitioned queues stop
 notifying per insert); the core and hasql entries are documentation-only notes about
@@ -545,25 +600,25 @@ Expected before the fix (abbreviated):
   PartitionedNotifySpec
     no notification arrives for a partitioned queue: FAIL
       expected no notification within 1s, but "pgmq.q_test_queue_..._p0.INSERT" received one
-1 out of 2 tests failed
+The normal partition case fails; native alias cases fail too.
 ```
 
 Milestone 2, after appending the migration and updating the suite:
 
 ```bash
 md5 -q pgmq-migration/migrations/0007-notify-only-registered-queues.sql
-nix develop .#partman --command cabal test pgmq-migration:pgmq-migration-test --test-show-details=direct -j1
+nix develop .#partman --command cabal test pgmq-migration:pgmq-migration-test --test-show-details=direct -j1 --test-options='-j1'
 nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct --test-options='-p "/PartitionedNotifySpec/"'
 PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct --test-options='-p "/PartitionedNotifySpec/"'
 nix develop .#partman --command cabal test pgmq-config --test-show-details=direct
 nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct
 ```
 
-Expected: the migration suite reports `All 11 tests passed` (its count today; the component and
-payload tests now cover seven files), both `PartitionedNotifySpec` runs report `All 2 tests passed`,
+Expected: every migration test passes (record the observed count; component and
+payload tests cover seven files), both `PartitionedNotifySpec` runs execute the normal cases (native also executes alias cases),
 `pgmq-config` reports every `NotifyCrashSpec` case passing, and the full `pgmq-hasql` suite is green.
 The migration suite prints the server as
-`PostgreSQL <version> / pg_partman <version>`; keep that line for EP-3.
+`Partition test versions: <server_version> / pg_partman <extversion>`; keep that line for EP-3.
 
 To repeat the reviewer's manual evidence after the fix, run the psql transcript from Context and
 Orientation against a scratch server with the seven-file ledger applied; expected: no
@@ -575,7 +630,8 @@ Milestone 3, after the documentation edits:
 nix fmt
 git diff --check
 just docs-check
-cabal haddock pgmq-core pgmq-hasql pgmq-effectful 2>&1 | grep -E '^\s*[0-9]+% '
+nix develop --command cabal haddock pgmq-core pgmq-hasql pgmq-effectful
+# Inspect the successful command output for public-module coverage; do not mask failure with a pipe.
 ```
 
 Expected: `nix fmt` changes nothing on a second run, `git diff --check` prints nothing,
@@ -607,6 +663,10 @@ An ordinary queue is unchanged: `NotifyChannelSpec` still receives exactly one n
 `notifyChannelName` for a probe send, and `NotifyCrashSpec` still receives a notification on an
 ordinary queue after a crash-and-restart cycle, and still sees the throttle row restored by a
 reconcile.
+
+Native alias acceptance also proves metadata alone cannot enable fail-open and a matching
+leaf throttle row cannot be updated or publish. Ordinary nonzero throttling still suppresses
+a second in-window send; explicit post-crash reconciliation restores its declared interval.
 
 The ledger is consistent: `testNativeComponent` lists seven names, `testNativePayload` pins the
 new digest, and the latest catalog checkpoint converges with fresh upstream 1.13 SQL with only
@@ -645,3 +705,10 @@ Libraries: `postgresql-libpq` for `LISTEN` (there is no hasql API for notificati
 and `tasty-hunit` as in the rest of the suite, `ephemeral-pg` through the existing
 `EphemeralDb` helper. The `partman` shell is required for the partitioned test and the
 migration suite's partition case.
+
+
+Revision note (2026-10-25): strengthened the proposed migration with a relation guard before
+UPDATE, added native alias and listener-liveness acceptance, clarified explicit post-crash
+recovery, preserved existing Unreleased entries, and passed serial execution to Tasty itself.
+The membership-only design is superseded by the notification boundary ADR; implementation
+and live SQL acceptance remain pending.

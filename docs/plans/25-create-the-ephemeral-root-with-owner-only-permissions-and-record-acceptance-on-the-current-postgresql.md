@@ -11,340 +11,277 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-09-16T20:42:28Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-25T20:33:49Z
+      mode: "update"
+      note: "Included six-package inspection handoff, safe existing-root upgrades, final-candidate acceptance ordering, and runtime evidence."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-25T20:33:49Z
+      verdict: "approved"
+      note: "Reviewed revised planning document; implementation evidence remains pending. Included six-package inspection handoff, safe existing-root upgrades, final-candidate acceptance ordering, and runtime evidence."
 ---
 
 # Create the ephemeral root with owner-only permissions and record acceptance on the current PostgreSQL
 
-This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
-Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
-If durable project context changes, update or create ADRs in docs/adr/ in the same change.
+This ExecPlan is a living document. Keep Progress, Surprises & Discoveries, Decision Log,
+and Outcomes & Retrospective current. Promote durable decisions into `docs/adr/`.
 
 
 ## Purpose / Big Picture
 
-Two records this repository keeps about itself are wrong, and the release that carries the
-sibling plans' fixes needs preparing.
+Make every shared ephemeral PostgreSQL root owner-only, including roots created by earlier
+versions, and produce truthful acceptance evidence for the 0.7.0.0 release candidate.
+The 0.6.1.0 changelog promised mode `0700`, but current helpers use
+`createDirectoryIfMissing True root`, which follows the process umask. A fresh directory
+usually becomes `0755`, and simply changing the creation mode leaves existing roots exposed.
 
-The 0.6.1.0 changelog says every test suite pins its disposable PostgreSQL clusters under
-`/tmp/ephpg-pgmq-hs-<uid>` and explains the uid key by saying "it is a fixed path created
-`0700`". The four places that create that root call `createDirectoryIfMissing True root`,
-which creates it with the process umask (typically `0755`); only the `ephemeral-pg` library's
-registry *inside* the root is created `0700`. Nothing breaks, because the uid key already
-prevents two users colliding, but the sentence describes code that does not exist. After this
-plan the suites create the root owner-only, and `stat` on the directory shows `700`.
+The original draft also predates `pgmq-inspect`. The current root and inspection changelogs
+explicitly hand its initial release to this plan. Prepare six libraries at 0.7.0.0, including
+inspection, preserve all accumulated Unreleased changes, and validate that actual candidate
+after changing versions and internal bounds. The five older libraries currently say 0.6.1.1;
+`pgmq-inspect` is provisionally 0.1.0.0 and `pgmq-bench` remains independently 0.1.0.0.
 
-The compatibility ADR and the 0.6.0.0 release evidence record SQL acceptance on
-PostgreSQL 17.10 with pg_partman 5.4.3. Since the nix-haskell-flake 0.24.0 migration
-(commit `928746e`), the `partman` development shell provides PostgreSQL 18.6, which is what a
-developer actually runs the suites against today. After this plan the family's acceptance has
-been re-run on the server the shell provides, the version is written into a 0.7.0.0 release
-evidence document and the ADR, and the ADR says which principle decides the server version.
-
-Finally, the sibling plans append migration `0007` and add two constructors to
-`pgmq-config`'s `ReconcileAction`, which is a breaking change for exhaustive matchers. This
-plan prepares the 0.7.0.0 candidate: lockstep version bumps across the five published
-packages, internal bounds, and changelogs that turn the siblings' "Unreleased" sections into
-the release entry. Publication to Hackage and tagging are outside this plan.
-
-You can see it working by deleting the root, running one suite, and reading the directory
-mode; by reading the version line the migration suite prints; and by building the candidate
-with `cabal sdist all` and finding seven SQL payloads in the migration tarball.
+Acceptance records the running server's PostgreSQL and pg_partman versions, rather than
+copying either the historical 17.10 / 5.4.3 evidence or the draft's observed 18.6. The candidate
+includes migration `0007`, both new reconciliation reports and their JSON encodings, and the
+already implemented inspection and effect-layer additions. Publication, release tags, external
+consumer edits, and deployment remain outside scope.
 
 
 ## Progress
 
-- [ ] M1: `ensureOwnerOnlyRoot` (or equivalent) replaces `createDirectoryIfMissing` in the four test-support files
-- [ ] M1: after `rm -rf /tmp/ephpg-pgmq-hs-$(id -u)` and one suite run, the directory mode reads `700`
-- [ ] M1: `just nix-test` still passes (a different uid in the sandbox)
-- [ ] M2: full acceptance run in the `partman` shell recorded, including the stock 1.12 selection and the flag-off `pgmq-config` build
-- [ ] M2: `docs/releases/0.7.0.0-candidate.md` written with commands, counts, server versions, migration `0007` digest, and the consumer bound inventory
-- [ ] M2: `docs/adr/pgmq-1.12-1.13-compatibility.md` verification paragraph names both server versions; `docs/adr/haskell-dependency-bounds-and-nix-pin-policy.md` states the shell's PostgreSQL follows the pinned nixpkgs
-- [ ] M3: five package versions and internal bounds at 0.7.0.0; changelogs converted from "Unreleased" to the release entry; root changelog aggregated with the exhaustive-matcher note
-- [ ] M3: `cabal sdist all` produces five 0.7.0.0 tarballs; extracted migration tarball lists seven SQL files
-- [ ] `nix fmt`, `git diff --check`, `just docs-check` clean
+- [ ] M1: all five root creators establish `0700`; fresh, existing, repeated, and unsafe-path cases are verified without deleting shared clusters.
+- [ ] M2: all six library versions, internal bounds, changelogs, and source archives form the 0.7.0.0 candidate; published history is unchanged.
+- [ ] M3: the prepared candidate passes native/stock, both-backend, flag-off, floor, Nix, and packaging acceptance; observed versions and consumer inventory are recorded.
+
+EP-1 and EP-2 are whole-child hard prerequisites. Do not start M1 until both are Complete.
 
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
-
-(None yet.)
+The 2026-10-25 review found a fifth root creator in `pgmq-inspect/test/EphemeralDb.hs`,
+explicit six-package release handoffs in the changelogs, and new JSON/effect API changes
+already waiting for this release. `Justfile`'s `nix-test` runs only hasql and migration tests;
+it is not evidence for every suite. The migration suite prints
+`Partition test versions: <server_version> / pg_partman <extversion>`.
 
 
 ## Decision Log
 
-- Decision: Make the code match the changelog (create the root `0700`) rather than soften the
-  changelog. Rationale: the intent stated in 0.6.1.0 is right (a fixed, per-user path should
-  not be world-readable), the change is four lines in test support, and `unix` is already a
-  test dependency of every suite.
-  Date: 2026-09-16
-- Decision: Do not `chmod` an existing root; only create a missing one owner-only.
-  Rationale: the path is keyed by uid, so an existing directory is this user's; changing the
-  mode of something a previous run created is harmless but unnecessary, and never touching
-  permissions of an existing path keeps the helper obviously safe.
-  Date: 2026-09-16
-- Decision: Record the server version the shell provides instead of pinning the shell back to
-  17.10, and keep the historical 17.10 sentence in the ADR beside the new one.
-  Rationale: the dependency-bounds ADR's principle is that the pin states what we test; the
-  PostgreSQL the shell provides is nixpkgs' default `pkgs.postgresql` under the flake's locked
-  nixpkgs, so the evidence must name the version at run time rather than assume one.
-  Date: 2026-09-16
-- Decision: Consumer validation for 0.7.0.0 is an inventory of retained bounds, not a rollout
-  into each consumer. Rationale: the 0.6.0.0 candidate's rollouts existed because
-  `QueueMetrics` and `PartitionConfig` changed shape for every consumer; 0.7.0.0 changes only
-  exhaustive matchers over `ReconcileAction` and adds a migration, so the evidence a consumer
-  needs is the changelog's migration note. Say so explicitly in the evidence document.
-  Date: 2026-09-16
+- Decision (2026-10-25, supersedes the original create-only policy): validate the root's
+  type and effective-uid ownership, then ensure `0700` for new and existing directories.
+  A uid in a filename does not prove ownership. Do not silently accept an existing file,
+  symlink, or foreign-owned directory. This makes the changelog's claim true on upgrade.
+- Decision (2026-10-25): prepare the six-package candidate before final acceptance. The
+  inspection handoff already requires this release to include that package and its bounds;
+  testing old versions and then bumping cannot establish candidate acceptance.
+- Decision (2026-09-16, retained): keep historical server evidence, add a dated run with
+  observed versions, and let the existing locked development shell determine the tested
+  server. Do not alter a dependency pin merely to match an older evidence paragraph.
+- Decision (2026-10-25, clarifies the inventory-only scope): inventory external consumers'
+  retained bounds, exhaustive `ReconcileAction` matches, exhaustive `Pgmq` interpreters, and
+  orphan JSON instances. Record compatibility blockers explicitly; no consumer rollout or
+  claim of consumer acceptance is implied. Local `pgmq-inspect` is tested as part of the family.
 
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose. Before marking the plan complete,
-distill durable project context from the Decision Log, Surprises & Discoveries, and
-this section into docs/adr/. Keep task-local execution details here.
-
-(To be filled during and after implementation.)
+Implementation and candidate acceptance remain pending. Record actual results and remaining
+limitations here when implementing; do not convert planned test counts into evidence.
 
 
 ## Context and Orientation
 
-### The repository in one paragraph
+The six release packages are `pgmq-core`, `pgmq-hasql`, `pgmq-effectful`, `pgmq-migration`,
+`pgmq-config`, and `pgmq-inspect`. `cabal.project` also includes `pgmq-bench`, whose dependency
+bounds move with the libraries even though its own version remains 0.1.0.0. The root
+`CHANGELOG.md` already has an Unreleased section covering inspection reads, JSON instances,
+transient-error fixes, the inspection HTTP/WebSocket/CLI surface, and five new `Pgmq`
+constructors. Preserve it and each package's existing entries. The release must mention
+exhaustive report matchers, exhaustive effect interpreters, and potential downstream orphan
+JSON instances, not only migration `0007`.
 
-`pgmq-hs` is a multi-package Cabal project: `pgmq-core`, `pgmq-hasql`, `pgmq-effectful`,
-`pgmq-config`, `pgmq-migration` (the five published libraries, released in lockstep at one
-version) and `pgmq-bench` (an internal benchmark that keeps its own `0.1.0.0`). The toolchain
-comes from Nix: `nix develop` gives GHC 9.12 and cabal; `nix develop .#partman` is the same
-shell with the `pg_partman` extension available to test servers and `PGMQ_REQUIRE_PARTMAN=1`
-exported so partition tests fail instead of skipping. The shell's PostgreSQL is
-`pkgs.postgresql` from the flake's locked nixpkgs (`flake.module.nix` builds
-`partitionPostgres = pkgs.postgresql.withPackages (ps: [ ps.pg_partman ])`); it is currently
-18.6. Tests start disposable servers through the `ephemeral-pg` library. `just` recipes wrap
-the common commands (`just test`, `just nix-test`, `just docs-check`, `just effectful-floor`).
-Run `nix fmt` before committing and `git diff --check` for whitespace.
+Five modules independently build `/tmp/ephpg-pgmq-hs-<effective uid>`:
+`pgmq-hasql/test/EphemeralDb.hs`, `pgmq-effectful/test/EphemeralDb.hs`,
+`pgmq-config/test/EphemeralDb.hs`, `pgmq-inspect/test/EphemeralDb.hs`, and
+`pgmq-migration/test/Main.hs`. They each compute `ephemeralRoot`, create it in
+`ephemeralConfig`, and pass it as `temporaryRoot` to `ephemeral-pg`. Their `unix` test
+dependency supplies POSIX directory and file-status operations; no new dependency is needed.
+Use Mori to inspect those APIs before implementation. The dependency
+`mori://shinzui/ephemeral-pg` owns `src/EphemeralPg/Internal/Instance.hs` (artifact-level URI
+pending), whose private registry checks directory ownership and rejects unsafe paths. Its
+registry and process records must survive normal suite runs so abandoned clusters remain
+reapable. Never remove this shared root to test permissions or recover a live server.
 
-### The ephemeral root
+`flake.module.nix` defines `partitionPostgres` from locked nixpkgs' `pkgs.postgresql` with
+pg_partman and exports `PGMQ_REQUIRE_PARTMAN=1` in `nix develop .#partman`. The migration
+suite queries the running server and installed extension version in `testPartitions`.
+`nix develop` supplies the compiler and Cabal; invoke Cabal/Just build recipes inside that
+shell rather than assuming they are installed on the host. Cabal `-j1` limits build jobs;
+Tasty needs its own `--test-options='-j1'` for a suite sharing a connection.
 
-Four files create the shared root: `pgmq-hasql/test/EphemeralDb.hs`,
-`pgmq-effectful/test/EphemeralDb.hs`, `pgmq-config/test/EphemeralDb.hs` (three near-identical
-copies), and `pgmq-migration/test/Main.hs`. Each has:
+Relevant ADRs are [PGMQ compatibility](../adr/pgmq-1.12-1.13-compatibility.md), which preserves
+migration history and requires serial migration acceptance;
+[dependency bounds and pins](../adr/haskell-dependency-bounds-and-nix-pin-policy.md), which
+requires an explicit older-effectful build and explains why Nix does not run the effectful
+suite; and [inspection ownership](../adr/queue-inspection-surface-boundary-and-wire-contract.md),
+which establishes the sister package and wire contract. Preserve the historical 17.10 / 5.4.3
+record in `docs/releases/0.6.0.0-candidate.md`; new evidence belongs in
+`docs/releases/0.7.0.0-candidate.md`. There is no profiled ADR bundle.
 
-```haskell
-ephemeralRoot :: IO FilePath
-ephemeralRoot = do
-  uid <- getEffectiveUserID
-  pure ("/tmp/ephpg-pgmq-hs-" <> show uid)
-
-ephemeralConfig :: IO Config
-ephemeralConfig = do
-  root <- ephemeralRoot
-  createDirectoryIfMissing True root
-  pure defaultConfig {temporaryRoot = Last (Just root)}
-```
-
-with the comment "It is a fixed location created `0700`". `createDirectoryIfMissing` is from
-`System.Directory` and applies the umask. `getEffectiveUserID` is from `System.Posix.User` in
-the `unix` package, which every suite already lists in `build-depends`. `ephemeral-pg`
-(`mori://shinzui/ephemeral-pg`, source at `/Users/shinzui/Keikaku/bokuno/ephemeral-pg-project/ephemeral-pg`)
-creates its registry under the root with `System.Posix.Directory.createDirectory registry 0o700`
-in `src/EphemeralPg/Internal/Instance.hs` and sweeps abandoned clusters under
-`temporaryRoot` at start; that is why the root must be a stable path across shells. The
-0.6.1.0 entry in the root `CHANGELOG.md` (the paragraph beginning "The root is keyed by
-effective uid because it is a fixed path created `0700`") is the sentence this plan makes
-true; the package changelogs repeat the uid rationale without the mode claim.
-
-### The recorded evidence
-
-`docs/adr/pgmq-1.12-1.13-compatibility.md` says, in its "Consequences and verification"
-section: "SQL acceptance was verified with PostgreSQL 17.10 and pg_partman 5.4.3. The
-project-specific `partman` Nix shell supplies the extension and sets `PGMQ_REQUIRE_PARTMAN=1`."
-`docs/releases/0.6.0.0-candidate.md` is the evidence document for the last breaking release:
-it records the candidate commit, upstream identities, a consumer inventory built from
-`mori registry dependents shinzui/pgmq-hs --packages`, package integrity from `cabal sdist`,
-and the validation commands with their counts, and says "the migration test reports
-PostgreSQL 17.10 / pg_partman 5.4.3". The migration suite reads that string in
-`testPartitions` (`pgmq-migration/test/Main.hs`) with
-`SELECT current_setting('server_version') || ' / pg_partman ' || extversion FROM pg_extension WHERE extname='pg_partman'`
-and prints it. `docs/adr/haskell-dependency-bounds-and-nix-pin-policy.md` holds the principle
-that Cabal bounds state compatibility while the Nix pin states what we test.
-
-### Releases
-
-Every published package shares one version (`0.6.1.0` today) in its `.cabal` file, and the
-test suites and internal `build-depends` carry bounds such as `pgmq-migration >=0.6 && <0.7`.
-Each package has a `CHANGELOG.md`; the root `CHANGELOG.md` aggregates the family entry. The
-sibling plans leave an "## Unreleased" section at the top of the root changelog and of the
-`pgmq-migration`, `pgmq-core`, `pgmq-hasql`, and `pgmq-config` changelogs. Releases are
-tagged `v<version>`; `automation/release.dhall` reacts to the tag by running
-`scripts/record-release.sh`, which records the release fact in the Mori registry. Tagging and
-Hackage publication are deliberately outside this plan.
-
-### ADR context
-
-[docs/adr/pgmq-1.12-1.13-compatibility.md](../adr/pgmq-1.12-1.13-compatibility.md) (server
-version evidence, run the migration suite serially with `-j1`, give metrics cases their own
-database) and
-[docs/adr/haskell-dependency-bounds-and-nix-pin-policy.md](../adr/haskell-dependency-bounds-and-nix-pin-policy.md)
-(the pin states what we test) are the two records this plan edits. The FIFO override ADR is
-not affected. The parent MasterPlan is
-[docs/masterplans/6-close-the-notification-reconciler-and-evidence-gaps-surfaced-by-the-0-6-1-0-review.md](../masterplans/6-close-the-notification-reconciler-and-evidence-gaps-surfaced-by-the-0-6-1-0-review.md);
-this plan starts only after its EP-1 (`docs/plans/23-...`) and EP-2 (`docs/plans/24-...`) are
-Complete, because the evidence run must include migration `0007` and the new
-`ReconcileAction` constructors.
+This child belongs to
+[MasterPlan 6](../masterplans/6-close-the-notification-reconciler-and-evidence-gaps-surfaced-by-the-0-6-1-0-review.md).
+Its prerequisites are the complete
+[notification plan](23-gate-the-notification-fail-open-on-a-real-queue-row-and-state-the-partitioned-queue-contract.md)
+and [reconciler plan](24-report-name-collisions-and-unsupported-notifications-instead-of-acting-on-them.md).
+They supply migration `0007`, reports, JSON fixtures, and Unreleased entries; this plan owns
+root permissions, release metadata, and integrated acceptance.
 
 
 ## Plan of Work
 
-### Milestone 1: an owner-only root
+### Milestone 1: owner-only roots on fresh and existing installations
 
-Scope: the four files create the root with mode `0700` when it is missing and leave it alone
-when it exists. At the end, a fresh run produces a `700` directory.
+Replace each root-creation call with the same local `ensureOwnerOnlyRoot :: FilePath -> IO ()`
+helper. Keep the established per-suite copies; a new shared library is unnecessary.
+Create missing roots with `System.Posix.Directory.createDirectory root 0o700`, handling only
+already-exists as a possible normal result. On either path use a non-following status check
+(`getSymbolicLinkStatus`), require an actual directory owned by the effective uid, then set
+and verify mode `0700` before starting the database. Do not chmod an unvalidated path or
+follow a symlink. Propagate other filesystem errors with useful context. Leave root contents
+and process-registration records intact. An untrusted path fails before any database starts;
+resolving foreign ownership is an operator action, not recursive deletion or ownership repair.
 
-In each of the four files, replace the `createDirectoryIfMissing True root` line with a call
-to a small helper defined in the same module (the three `EphemeralDb.hs` copies are kept in
-sync by hand; copy the helper verbatim into each and into `pgmq-migration/test/Main.hs`):
+Add focused helper tests in each affected suite using a private disposable parent and an
+explicit path argument, never the production shared root. Cover missing-directory creation,
+an existing owned `0755` directory with a sentinel file that survives tightening, a second
+invocation, a regular file, and a symlink whose target is unchanged. A foreign-owned-path test
+may run only when the environment can construct one without privileges; record its availability.
+Use the same helper body in all five files and register local test modules in their Cabal
+files if introduced. Add `unix` only if a site's current test stanza lacks it.
 
-```haskell
-import Control.Exception (throwIO, try)
-import System.IO.Error (IOError, isAlreadyExistsError)
-import System.Posix.Directory qualified as Posix
+Observe the real root after a normal suite run, without deleting it. A second suite should
+reuse it and leave its registry intact. `just nix-test` checks the hasql and migration paths
+under the sandbox uid; Cabal acceptance in M3 covers all five creators.
 
--- | Create the shared root owner-only. An existing directory is this user's
--- (the path is keyed by uid) and is left exactly as it is.
-ensureOwnerOnlyRoot :: FilePath -> IO ()
-ensureOwnerOnlyRoot root = do
-  result <- try (Posix.createDirectory root 0o700)
-  case result of
-    Right () -> pure ()
-    Left err
-      | isAlreadyExistsError (err :: IOError) -> pure ()
-      | otherwise -> throwIO err
-```
+### Milestone 2: prepare the candidate and its archives
 
-`System.Posix.Directory.createDirectory` calls `mkdir(2)` with the given mode (the umask still
-applies, and `0700 & ~umask` is `0700` for any sane umask) and raises an `IOError` whose kind
-is "already exists" on `EEXIST`. Remove the now-unused `createDirectoryIfMissing` import where
-nothing else uses it (`pgmq-hasql/test/EphemeralDb.hs` imports `doesFileExist` from the same
-module; keep that). Update the comment above `ephemeralRoot` to say the directory is created
-`0700` by this helper.
+Set all six library `.cabal` versions to 0.7.0.0, including `pgmq-inspect`; leave
+`pgmq-bench` at 0.1.0.0. Update every internal family dependency range to the matching 0.7
+range, in libraries, tests, executables, and the benchmark. Inspect all `.cabal` files, not
+only the original five. Do not narrow or bump third-party dependencies as part of this task.
 
-Verify on macOS with `stat -f '%Lp'` (Linux: `stat -c '%a'`) after removing the root and
-running one suite. Then run `just nix-test`, which builds the test checks inside the Nix
-sandbox under a different uid; it must still pass, which proves the uid key and the new mode
-coexist.
+Merge each existing Unreleased section into one dated 0.7.0.0 entry. Preserve unrelated
+Unreleased work and all published sections (including 0.6.1.1) byte-for-byte. Add the root
+permission fix to every affected package entry. Root release notes aggregate the entire
+candidate: migration `0007`, both report constructors and their JSON shapes, the five
+already-added `Pgmq` constructors (`PeekMessages`, `PeekArchivedMessages`, `LookupMessage`,
+`LookupArchivedMessage`, `QueueMetricsUnvalidated`), JSON instance/orphan guidance, and the
+initial inspection package, in addition to the other accumulated changes. Replace pending
+inspection release-handoff wording with the concrete inclusion in this candidate.
 
-### Milestone 2: acceptance on the current server
+Build all packages, run `cabal check` from each of the six library directories, and produce
+source archives for those six explicit targets. Do not use `sdist all` while asserting that
+it emits only six archives: `pgmq-bench` is also a project package. Inspect migration payloads
+and new report goldens inside the archives, and record archive hashes. Extract these six
+archives into a fresh temporary validation directory and compile/test using an explicit
+Cabal project whose packages are only the extracted candidates. Carry the repository's
+compiler, dependency-source pins, constraints, and dependency test exclusions into that
+project, replacing its local package list; no original workspace package may satisfy a
+candidate dependency. This catches missing SQL, fixtures, and inspection assets.
 
-Scope: run the family's suites in the `partman` shell after EP-1 and EP-2 are complete,
-capture the server version, and record everything.
+Finalize code, versions, bounds, formatting, and changelog content before M3. A meaningful
+candidate commit is permitted during implementation; record its SHA in the evidence. A later
+evidence-only commit can refer to that SHA. If executable/package content changes after it,
+repeat affected checks and identify the new tested candidate rather than retaining stale evidence.
 
-Run, from the repository root, in the order below (the migration suite shares one connection
-and resets one database, so it runs serially; the client suites tolerate `-j2`):
+### Milestone 3: accept that candidate on the actual server
 
-```bash
-nix develop .#partman --command cabal build all
-nix develop .#partman --command cabal test pgmq-migration:pgmq-migration-test --test-show-details=direct -j1
-nix develop .#partman --command cabal test pgmq-core pgmq-hasql pgmq-effectful pgmq-config --test-show-details=direct -j2
-PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-hasql pgmq-effectful pgmq-config --test-show-details=direct -j2
-nix develop .#partman --command cabal build pgmq-config -f-effectful
-nix develop .#partman --command cabal test pgmq-config -f-effectful --test-show-details=direct
-just effectful-floor
-just nix-test
-```
+Run the validation matrix below after M2. The native run covers all six packages and both
+config backends; stock 1.12 covers all schema-selectable client suites, including inspection.
+The separate `-f-effectful` config run must remain independent of the enabled run. Confirm
+partition cases actually ran under `PGMQ_REQUIRE_PARTMAN=1`; record skipped tests as skips.
+Use Tasty serial execution for the migration suite and two workers for client suites.
 
-Capture the line the migration suite prints of the form `PostgreSQL 18.6 / pg_partman <x.y.z>`.
-If the harness does not show it, read the versions the shell provides directly:
+Capture `Partition test versions: <server_version> / pg_partman <extversion>` from the
+migration test output. If absent, query `current_setting('server_version')` and
+`pg_extension.extversion` on the actual disposable server before teardown. A `postgres
+--version` binary or extension filename is not proof of the version installed in the server.
+Do not traverse `/nix/store` to infer versions.
 
-```bash
-nix develop .#partman --command postgres --version
-nix develop .#partman --command sh -c 'ls "$(pg_config --sharedir)/extension" | grep "^pg_partman--" | sort -V | tail -1'
-```
+Write `docs/releases/0.7.0.0-candidate.md`: tested candidate SHA, flake lock identity, unchanged
+vendored pgmq v1.13.0 identity, six package versions and archive hashes, migration `0007`
+MD5, archive inspection/build results, exact commands, pass/skip counts, runtime versions,
+and retained consumer state. Run `mori registry dependents shinzui/pgmq-hs --packages`,
+inspect the consumers it identifies, and cite their canonical Mori package/project URIs.
+Registry data may lag; check actual bounds and relevant matches/instances. Explicitly list
+consumers still excluding 0.7 and explain that no external rollout or consumer acceptance
+was performed. The five effect constructors and JSON instances mean the impact is broader
+than report matchers alone.
 
-Write `docs/releases/0.7.0.0-candidate.md` in the shape of `docs/releases/0.6.0.0-candidate.md`:
-a heading naming this plan; the candidate commit; the upstream identity (still pgmq
-`v1.13.0`, `32c075bb6dbed66a303d1a792393c93e36c09a97`); a "Consumer inventory" section built
-by re-running `mori registry dependents shinzui/pgmq-hs --packages` and reading each consumer's
-retained bounds, with an explicit sentence that no rollout was performed and why (Decision
-Log); a "Package integrity" section from `cabal sdist all` (five `0.7.0.0` tarballs, the
-migration tarball containing the manifest and seven SQL payloads, the MD5 of
-`0007-notify-only-registered-queues.sql`); and a "Validation commands and results" section with
-the commands above, their pass counts, and the server line.
-
-Edit `docs/adr/pgmq-1.12-1.13-compatibility.md`: after the sentence recording 17.10 / 5.4.3,
-add "Re-verified on <date> with PostgreSQL 18.6 and pg_partman <version>, the server the
-`partman` shell has provided since the nix-haskell-flake 0.24.0 migration; see
-[the 0.7.0.0 release evidence](../releases/0.7.0.0-candidate.md)." Edit
-`docs/adr/haskell-dependency-bounds-and-nix-pin-policy.md`: add one paragraph under its
-Decision stating that the same principle covers PostgreSQL: the `partman` shell's server is
-nixpkgs' default `pkgs.postgresql` under the flake's locked nixpkgs, so release evidence names
-the version observed at run time rather than a version assumed from an earlier record.
-
-### Milestone 3: the 0.7.0.0 candidate
-
-Scope: versions, bounds, and changelogs are ready for a release commit; nothing is tagged.
-
-Set `version: 0.7.0.0` in `pgmq-core/pgmq-core.cabal`, `pgmq-hasql/pgmq-hasql.cabal`,
-`pgmq-effectful/pgmq-effectful.cabal`, `pgmq-config/pgmq-config.cabal`, and
-`pgmq-migration/pgmq-migration.cabal`; leave `pgmq-bench` at `0.1.0.0`. Find every internal
-bound with `grep -rn 'pgmq-[a-z]* *[>^]' --include='*.cabal' .` and move `>=0.6 && <0.7` or
-`^>=0.6` to the 0.7 equivalents (the `pgmq-bench` package's bounds on the libraries included).
-Confirm with `nix develop --command cabal build all` that the solver still finds a plan.
-
-In each package changelog, rename the sibling plans' "## Unreleased" heading to
-`## 0.7.0.0 -- <date>` and keep their text; add a "Coordinated family version bump" paragraph
-to `pgmq-effectful/CHANGELOG.md` and to any package with no other change (the pattern used in
-0.6.1.0). In the root `CHANGELOG.md`, write the `## 0.7.0.0 -- <date>` entry: a summary
-paragraph (migration `0007` restores upstream's silence on partitioned queues; the reconciler
-reports name collisions and partitioned notifications; the drift wording; the ephemeral root
-mode; the re-recorded server evidence), a "Breaking Changes" paragraph for `pgmq-config`
-with the exhaustive-matcher note and a three-line example of handling the two constructors,
-a "Bug Fixes" list carried from the package entries, and a "Documentation" list. Never edit a
-published section.
-
-Run `cabal sdist all --output-directory=dist-sdist-0.7.0.0` and list the migration tarball's
-`migrations/` entries to confirm seven SQL files and the manifest are present.
+Append dated observed-version evidence to the compatibility ADR, retaining its historical
+17.10 / 5.4.3 sentence. Add the PostgreSQL application of the pin policy to the dependency ADR:
+the shell's locked server is the test target and evidence reports its observed version.
+Do not change the old release document to imply it ran on the new server. Finish with docs
+validation and review the final diff for candidate/evidence consistency.
 
 
 ## Concrete Steps
 
-All commands run from the repository root
-`/Users/shinzui/Keikaku/bokuno/libraries/pgmq-hs-project/pgmq-hs`.
+Run from the repository root. These are implementation acceptance commands, not evidence
+that the review update has executed them.
 
-Milestone 1:
+For M1, after adding the focused tests, run the affected suites in the matrix below and
+inspect the root without removing it:
 
 ```bash
-rm -rf "/tmp/ephpg-pgmq-hs-$(id -u)"
-nix develop --command cabal test pgmq-core pgmq-hasql --test-show-details=direct
-stat -f '%Lp %N' "/tmp/ephpg-pgmq-hs-$(id -u)"
-just nix-test
+stat -f '%Lp %N' "/tmp/ephpg-pgmq-hs-$(id -u)"  # macOS
+# Linux equivalent:
+# stat -c '%a %n' "/tmp/ephpg-pgmq-hs-$(id -u)"
 ```
 
-Expected: the suites pass, and the `stat` line reads `700 /tmp/ephpg-pgmq-hs-<uid>` (on
-Linux, `stat -c '%a %n'` reads `700 ...`). Before the change the same line reads `755` (or the
-umask's value).
-
-Milestone 2: the command list in Plan of Work. Expected: every suite green with the counts
-recorded in the evidence document; the migration suite prints `PostgreSQL 18.6 / pg_partman <version>`;
-`just effectful-floor` builds against `effectful-core <2.7`; `just nix-test` passes.
-
-Milestone 3:
+For M2:
 
 ```bash
-grep -rn 'version: *0\.' --include='*.cabal' . | grep -v pgmq-bench
-grep -rn 'pgmq-[a-z]* *[>^]' --include='*.cabal' .
+rg -n '^version:|pgmq-.*(>=|\^>=)' --glob '*.cabal'
 nix develop --command cabal build all
-nix develop --command cabal sdist all --output-directory=dist-sdist-0.7.0.0
-tar tzf dist-sdist-0.7.0.0/pgmq-migration-0.7.0.0.tar.gz | grep 'migrations/'
+nix develop --command cabal sdist pgmq-core pgmq-hasql pgmq-effectful pgmq-migration pgmq-config pgmq-inspect --output-directory=dist-sdist-0.7.0.0
+tar tzf dist-sdist-0.7.0.0/pgmq-migration-0.7.0.0.tar.gz
 nix fmt
 git diff --check
-just docs-check
 ```
 
-Expected: five `0.7.0.0` versions; no bound still naming `0.6`; the tarball listing shows
-`migrations/manifest` and `0001` through `0007`; formatting and whitespace clean; docs valid.
+Run `cabal check` with each library directory as the working directory. Generate and run the
+extracted-archive project described in M2 before recording packaging acceptance. Its explicit
+`--project-file` and working directory must be retained in the evidence, using a portable
+placeholder for the temporary directory, not a committed local pin.
 
-Commit after each milestone with the trailers
+For M3:
+
+```bash
+nix develop .#partman --command cabal build all
+nix develop .#partman --command cabal test pgmq-migration:pgmq-migration-test --test-show-details=direct -j1 --test-options='-j1'
+nix develop .#partman --command cabal test pgmq-core pgmq-hasql pgmq-effectful pgmq-config pgmq-inspect -feffectful --test-show-details=direct --test-options='-j2'
+PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-hasql pgmq-effectful pgmq-config pgmq-inspect -feffectful --test-show-details=direct --test-options='-j2'
+nix develop .#partman --command cabal build pgmq-config -f-effectful
+nix develop .#partman --command cabal test pgmq-config -f-effectful --test-show-details=direct --test-options='-j2'
+nix develop --command just effectful-floor
+nix develop --command just nix-test
+nix flake check
+just docs-check
+git diff --check
+```
+
+Expected: all selected suites run and pass, partition tests do not skip, focused root tests
+verify both creation and upgrade, and final evidence reports actual counts. Nix builds do
+not substitute for the explicit effectful and inspection Cabal runs. Existing documented
+Nix coverage limitations remain explicit. Do not mask failed checks with output-filter pipes.
+
+Implementation commits use Conventional Commits and these trailers:
 
 ```text
 MasterPlan: docs/masterplans/6-close-the-notification-reconciler-and-evidence-gaps-surfaced-by-the-0-6-1-0-review.md
@@ -352,48 +289,50 @@ ExecPlan: docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-an
 Intention: intention_01m2nz9a82ejh91yg9sk7t6a7a
 ```
 
-using Conventional Commits (`test: ...` for the root mode, `docs(release): ...` for evidence,
-`chore(release): prepare 0.7.0.0` for the bump).
-
 
 ## Validation and Acceptance
 
-The root: after deleting `/tmp/ephpg-pgmq-hs-<uid>` and running any one suite, the directory
-exists with mode `700` and the suite passed; running a second suite reuses it without error;
-`just nix-test` passes under the sandbox uid.
+All five helpers create and reuse a real owned `0700` directory, tighten an existing `0755`
+directory without losing contents, and reject unsafe path types before database startup.
+No shared-root deletion is part of acceptance.
 
-The evidence: `docs/releases/0.7.0.0-candidate.md` exists, names the candidate commit, the
-server and extension versions actually printed, pass counts for every command, the migration
-`0007` digest, and a consumer inventory with the explicit no-rollout statement; the
-compatibility ADR names both 17.10 and 18.6 with dates; the dependency-bounds ADR states the
-PostgreSQL principle.
+Six library versions and their internal bounds are 0.7-compatible, the benchmark remains
+0.1.0.0, and the candidate builds and passes the matrix after these changes. Six explicit
+source archives contain the manifest, seven SQL payloads, all old/new JSON goldens, and
+inspection resources; the extracted candidate builds/tests without workspace-package fallback.
+All prior published changelog sections remain unchanged.
 
-The candidate: five `.cabal` files at `0.7.0.0`, internal bounds at 0.7, `cabal build all`
-resolves, `cabal sdist all` yields five library tarballs whose migration archive holds seven
-SQL payloads, and every changelog's top entry is `0.7.0.0` with the published `0.6.1.0` and
-older sections byte-identical to before (check with `git diff --stat -- '*/CHANGELOG.md' CHANGELOG.md`
-and read the diff: only additions above the `0.6.1.0` heading).
+The release evidence ties those results to the tested candidate and archive identities,
+records the running server/extension versions, and distinguishes external inventory from
+consumer acceptance. Both ADR updates reference that evidence and retain historical facts.
 
 
 ## Idempotence and Recovery
 
-Every step repeats safely. Deleting the ephemeral root discards only disposable clusters;
-`ephemeral-pg` recreates what it needs. If a suite fails because a stale postmaster holds a
-port, delete the root and re-run; the sweep at start reaps registered clusters, and a fresh
-root has none. If `just nix-test` fails on permissions, the helper threw on an error other
-than "already exists" inside the sandbox; the sandbox uid differs from yours, so its root is a
-different path and must be creatable under `/tmp`, which Nix provides. If a version bump leaves
-the solver without a plan, the missing edit is an internal bound; the `grep` in Milestone 3
-finds it. The evidence document and ADR edits are plain text and can be corrected in place
-before the release commit. Nothing here touches a production database or publishes anything.
+Repeated helper calls preserve contents and establish the same mode. Use private disposable
+test directories for helper failure scenarios. Never remove a shared root to free a port:
+that can erase live clusters and the registry needed to reap them. Let the existing
+`ephemeral-pg` lifecycle reclaim abandoned instances; investigate a specific remaining
+process and use its lifecycle cleanup before any targeted directory removal.
+
+Re-run failed checks after addressing their actual error. A bound failure may involve the
+new inspection package as well as the original five; inspect all local stanzas. Rebuild
+archives after any package-content change and refresh candidate identity and affected
+evidence. No step changes a production database or publishes a package.
 
 
 ## Interfaces and Dependencies
 
-No library API changes. Test support gains `ensureOwnerOnlyRoot :: FilePath -> IO ()` in four
-test modules, using `System.Posix.Directory.createDirectory` from `unix` (already a test
-dependency of all four suites) and `System.IO.Error.isAlreadyExistsError` from `base`.
-Package versions become `0.7.0.0` for `pgmq-core`, `pgmq-hasql`, `pgmq-effectful`,
-`pgmq-config`, and `pgmq-migration`; internal bounds move to `>=0.7 && <0.8` (or `^>=0.7`)
-wherever they are written today. New documents: `docs/releases/0.7.0.0-candidate.md`. Edited
-ADRs: `docs/adr/pgmq-1.12-1.13-compatibility.md`, `docs/adr/haskell-dependency-bounds-and-nix-pin-policy.md`.
+Each of five test modules gains the same `ensureOwnerOnlyRoot :: FilePath -> IO ()` behavior,
+using existing `unix`/`base` facilities. Library APIs are unchanged by this child. The six
+family packages become 0.7.0.0; local family dependency bounds move to `>=0.7 && <0.8` (or
+the corresponding caret range). Existing third-party bounds and pins stay unchanged.
+
+This child owns `docs/releases/0.7.0.0-candidate.md` and evidence updates to the compatibility
+and dependency-policy ADRs. EP-1 owns the SQL ledger and EP-2 owns report constructors and
+JSON fields; this plan consumes their accepted artifacts without changing their semantics.
+
+Revision note (2026-10-25): included the inspection handoff, existing-root correction and safe
+verification, six-package archives, complete release notes, Tasty worker controls, and
+candidate-before-evidence ordering. Removed unsafe shared-root deletion and installed-version
+guesses. Implementation remains pending.

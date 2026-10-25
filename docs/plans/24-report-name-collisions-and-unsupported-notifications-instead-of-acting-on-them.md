@@ -11,6 +11,18 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-09-16T20:42:28Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-25T20:33:49Z
+      mode: "update"
+      note: "Added required report JSON cases and goldens, schema-selectable collision fixtures, and effective-shape acceptance."
+  reviews:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-25T20:33:49Z
+      verdict: "approved"
+      note: "Reviewed revised planning document; implementation evidence remains pending. Added required report JSON cases and goldens, schema-selectable collision fixtures, and effective-shape acceptance."
 ---
 
 # Report name collisions and unsupported notifications instead of acting on them
@@ -44,8 +56,7 @@ FIFO-index, or topic-binding declarations.
 
 A notification declared on a partitioned queue (`partitionedQueue qn pc & withNotifyInsert ms`)
 is enabled today, which installs a trigger that can never deliver on the documented channel:
-PostgreSQL clones the trigger onto leaf partitions, where the extracted queue name never
-matches a throttle row. After this plan the reconciler reports
+PostgreSQL clones the trigger onto leaf partitions, where the extracted queue name does not match the parent queue's throttle row. After this plan the reconciler reports
 `UnsupportedNotifyOnPartitionedQueue qn` and issues no enable or update.
 
 `DetectedQueueTypeDrift`'s Haddock says "Nothing was mutated and nothing will be". The queue
@@ -63,16 +74,9 @@ throttle row after reconciling a partitioned queue with a notification declared.
 
 ## Progress
 
-- [ ] M1: `pgmq-config/test/CollisionSpec.hs` (dedicated server) red on both backends: today a second `pgmq.meta` row appears
-- [ ] M1: `pgmq-config/test/PartitionSpec.hs` case "notify on a partitioned queue is reported unsupported" red on both backends: today a trigger and a throttle row appear
-- [ ] M2: `DetectedQueueNameCollision` and `UnsupportedNotifyOnPartitionedQueue` added to `ReconcileAction`; `reconcileQueue` reports them; both tests green
-- [ ] M2: `cabal build pgmq-config -f-effectful` and `cabal test pgmq-config -f-effectful` green
-- [ ] M3: Haddocks on `DetectedQueueTypeDrift`, `ensureQueues`, and the new constructors; `ObservedQueueType` unchanged
-- [ ] M3: design note 018 section on collisions and unsupported notifications; drift paragraph corrected
-- [ ] M3: `docs/user/queue-configuration.md` Notify Insert, Reconciliation Functions, and Idempotency Guarantees sections corrected
-- [ ] M3: `docs/capabilities/declarative-queue-reconciliation.md` limits and evidence updated, bundle log entry added
-- [ ] M3: "Unreleased" sections in `CHANGELOG.md` and `pgmq-config/CHANGELOG.md`
-- [ ] `nix fmt`, `git diff --check`, `just docs-check` clean
+- [ ] M1: compiling tests reproduce collisions and unsupported partition notifications and cover the specified alias, sub-resource, and drift variants on both backends/schemas.
+- [ ] M2: both report constructors, reconciler decisions, JSON encodings and goldens pass acceptance, including the effectful-disabled build.
+- [ ] M3: Haddocks, design notes 018/020, guide, capability evidence and Unreleased entries state the implemented contract; documentation checks pass.
 
 
 ## Surprises & Discoveries
@@ -80,7 +84,10 @@ throttle row after reconciling a partitioned queue with a notification declared.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+The 2026-10-25 review found `reconcileActionFields` and `JsonGoldenSpec` added since this
+plan was drafted. The constructor change must update those in the same milestone. A new
+collision spec copied literally from `ForeignQueueSpec` would always install native SQL,
+so this plan now requires the schema-selectable isolated fixture.
 
 
 ## Decision Log
@@ -130,7 +137,8 @@ this section into docs/adr/. Keep task-local execution details here.
 
 `pgmq-hs` is a multi-package Cabal project: `pgmq-core` (types), `pgmq-hasql` (SQL statements
 and sessions over the hasql driver), `pgmq-effectful` (an effect wrapper), `pgmq-config` (this
-plan's package), and `pgmq-migration` (the extension-free installer). The toolchain comes from
+plan's package), `pgmq-migration` (the extension-free installer), and `pgmq-inspect`
+(the inspection service). The toolchain comes from
 Nix: `nix develop` gives GHC 9.12 and cabal; `nix develop .#partman` is the same shell with
 the `pg_partman` extension available and `PGMQ_REQUIRE_PARTMAN=1` exported so partition tests
 fail instead of skipping. Tests start disposable PostgreSQL servers through `ephemeral-pg`.
@@ -151,7 +159,9 @@ mixed-case row can only come from another client. `pgmq.list_queues()` returns t
 `pgmq.enable_notify_insert(name, ms)` inserts a throttle row and creates the trigger
 `trigger_notify_queue_insert_listeners` on `pgmq.q_<lower(name)>`; on a partitioned table
 PostgreSQL clones the trigger onto every leaf partition, and the cloned trigger's
-`TG_TABLE_NAME` is the partition, so the trigger's throttle lookup never matches. The sibling
+`TG_TABLE_NAME` is the partition, so the trigger's throttle lookup normally has no matching row. Foreign leaf aliases are
+separately hardened by the native migration; they do not establish supported parent-channel
+delivery. The sibling
 plan `docs/plans/23-gate-the-notification-fail-open-on-a-real-queue-row-and-state-the-partitioned-queue-contract.md`
 records the evidence and makes migration `0007` stop the resulting notification storm on
 native installs; on every install the fact this plan reports is the same: partitioned queues
@@ -237,7 +247,11 @@ There is no profiled `docs/adr` bundle. No ADR governs the reconciler directly; 
 contract lives in design note 018, which this plan updates.
 [docs/adr/pgmq-1.12-1.13-compatibility.md](../adr/pgmq-1.12-1.13-compatibility.md) is
 relevant only for its rule that `ReconcileOps` is internal and premake is creation-only,
-neither of which this plan changes. The parent MasterPlan is
+neither of which this plan changes. The
+[inspection boundary ADR](../adr/queue-inspection-surface-boundary-and-wire-contract.md)
+and [design note 020](../design/020-json-wire-encodings.md) now require a JSON encoding case
+and byte-golden/encoder-parity coverage for every `ReconcileAction` constructor. These were
+added after this plan's initial draft and are part of this change, not a separate workstream. The parent MasterPlan is
 [docs/masterplans/6-close-the-notification-reconciler-and-evidence-gaps-surfaced-by-the-0-6-1-0-review.md](../masterplans/6-close-the-notification-reconciler-and-evidence-gaps-surfaced-by-the-0-6-1-0-review.md),
 whose Decision Log records why collisions and unsupported notifications are reported rather
 than repaired or rejected, and why the drift sentence is reworded rather than the behavior
@@ -254,14 +268,16 @@ has a new dedicated-server spec and a new partition case, both red.
 Create `pgmq-config/test/CollisionSpec.hs` modeled on `ForeignQueueSpec.hs`: start a dedicated
 server, apply the ledger, seed `SELECT pgmq.create('Billing_Events')` through a raw session
 script, then for each backend run
-`ensureQueuesReport [standardQueue billingEvents & withNotifyInsert (Just 0) & withFifoIndex, standardQueue other]`
-where `billingEvents = parseQueueName "billing_events"` and `other` is an unrelated name, and
+`ensureQueuesReport [standardQueue billingEvents & withNotifyInsert (Just 0) & withFifoIndex & withTopicBinding topic, standardQueue other]`
+where `billingEvents` is the successfully parsed `QueueName` from `parseQueueName "billing_events"` and `other` is an unrelated name, and
 record: the actions; the number of rows in `pgmq.meta` whose `lower(queue_name) = 'billing_events'`
 (via a raw statement); whether a throttle row exists for `billing_events`; whether an index
-named `q_billing_events_fifo_idx` exists in `pg_indexes`. Assert, as separate test cases: the
+named `q_billing_events_fifo_idx` exists in `pg_indexes`; and whether the declared topic
+binding exists in `pgmq.topic_bindings`. Use the existing modifier and parse the topic through
+`parseTopicPattern`; bind a pattern specific to this isolated fixture. Assert, as separate test cases: the
 actions for `billing_events` are exactly `[DetectedQueueNameCollision billingEvents ("Billing_Events" :| [])]`
 (pattern-match the constructor and compare fields; `ReconcileAction` has no `Eq`); the
-registry still has one row for that table; no throttle row and no FIFO index were created;
+registry still has one row for that table; no throttle row, FIFO index, or topic binding was created;
 and `other` reports `CreatedQueue`. Seed and reconcile in one fresh database per backend so
 the second backend does not see the first's rows. Register the spec in
 `pgmq-config/test/Main.hs` with the same comment style as `ForeignQueueSpec` (it must run on
@@ -280,17 +296,34 @@ Add a second case for the pre-existing-row shape: create the partitioned queue, 
 `withNotifyInsert (Just 500)`, and expect `UnsupportedNotifyOnPartitionedQueue` with no
 `UpdatedNotifyThrottle` and the stored interval still `250`.
 
-Both tests must not compile until Milestone 2 adds the constructors; that is acceptable for
-the red state only if you first commit the tests referencing the constructors together with
-the type change in Milestone 2 and observe the assertion failures. To keep a genuinely red
-commit, write the tests first against the *behavior* (registry row count, trigger count,
-throttle row) without naming the new constructors, observe them fail, commit, then tighten
-the action assertions in Milestone 2.
+Write Milestone 1 assertions against observable state without naming the constructors that
+Milestone 2 has not added yet. Observe assertion failures in a compiling suite, then tighten
+the report assertions when adding the constructors. Never commit an uncompilable red state.
+Use a test group literally named `CollisionSpec` so the filter below selects it.
+
+Expand collision acceptance to multiple differently cased aliases, a repeated reconciliation,
+and an exact lowercase row coexisting with aliases. The first two must keep all sub-resources
+absent; the last reports the normal existence/drift action followed by one collision action
+and reconciles declared sub-resources. Compare the collision payload as a set unless the
+implementation explicitly chooses and documents a stable order. Also cover a foreign name
+that does not collide, and require the unrelated declared queue to proceed in every case.
+
+Add both observed/declared drift directions: an observed partitioned queue declared standard
+must report drift plus unsupported notification and make no notification mutation; an observed
+standard queue declared partitioned must report drift and reconcile notifications normally.
+For a partitioned queue with no notification declaration, emit no unsupported action. These
+cases distinguish the effective-shape policy from a check of the declaration alone.
+
+For collision fixtures use `EphemeralDb.withPgmqDb` with fresh database lifetime per scenario
+and backend. Copying `ForeignQueueSpec`'s unconditional native install would silently bypass
+`PGMQ_TEST_SCHEMA_VERSION=1.12.0`; the new cases must exercise both schema selections.
+This is snapshot-based collision detection, not serialization against a foreign client
+creating an alias after the snapshot. Preserve and document that concurrency limit.
 
 Run in the `partman` shell:
 
 ```bash
-nix develop .#partman --command cabal test pgmq-config --test-show-details=direct --test-options='-p "/CollisionSpec/ || /unsupported/"'
+nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct --test-options='-p "/CollisionSpec/ || /unsupported/"'
 ```
 
 Expected red output (abbreviated): the collision case reports `2` registry rows where `1` was
@@ -320,7 +353,7 @@ In `pgmq-config/src/Pgmq/Config/Types.hs`, import `Data.List.NonEmpty (NonEmpty)
     DetectedQueueNameCollision !QueueName !(NonEmpty Text)
   | -- | The config declares insert notifications on a queue that is partitioned
     -- (observed, or created as such by this run). pgmq's insert trigger is cloned
-    -- onto leaf partitions and never matches a throttle row there, so notifications
+    -- onto leaf partitions rather than the queue table, so notifications
     -- are never delivered on 'Pgmq.Types.notifyChannelName' for a partitioned
     -- queue on any install; see @docs/design/015-notification-delivery-contract.md@.
     -- Nothing was enabled, updated, or re-enabled. A throttle row that another
@@ -342,10 +375,9 @@ it to `reconcileQueue`. In `reconcileQueue`, compute
 `colliding = filter (/= qnText) (Map.findWithDefault [] qnText collisionsByLowerName)`
 (declared names are already lowercase, so the key is `qnText`). Restructure the body so that:
 
-- if the exact row is missing and `colliding` is non-empty, return
-  `[DetectedQueueNameCollision qn (NE.fromList colliding)]` immediately (use
-  `Data.List.NonEmpty.nonEmpty` and pattern-match rather than `fromList`, so the empty case is
-  handled by types);
+- if the exact row is missing and `Data.List.NonEmpty.nonEmpty colliding` is `Just cs`,
+  return `[DetectedQueueNameCollision qn cs]` immediately; handle the empty case through
+  the ordinary existence branch;
 - otherwise compute `queueAction` as today, appending `DetectedQueueNameCollision qn cs` after
   the existence action when `nonEmpty colliding` is `Just cs`;
 - compute `effectiveShape` as `observedQueueType observed` for an existing row or
@@ -358,10 +390,23 @@ Keep `ReconcileOps` unchanged. Keep every existing action's semantics unchanged:
 without collision or partitioned notification produces exactly the actions it produces today
 (the existing `ConfigSpec` cases pin that).
 
+In the same type-change milestone, extend `reconcileActionFields` in
+`pgmq-config/src/Pgmq/Config/Types.hs`; both `toJSON` and `toEncoding` delegate to it.
+`DetectedQueueNameCollision` encodes fields, in order, `action`, `queue`, `colliding_names`,
+with tag `detected_queue_name_collision` and a nonempty JSON string array preserving the
+reported names. `UnsupportedNotifyOnPartitionedQueue` encodes `action`, `queue` with tag
+`unsupported_notify_on_partitioned_queue`. Preserve every existing encoding byte-for-byte.
+Add both values to `pgmq-config/test/JsonGoldenSpec.hs`, including multiple collision names,
+and matching `test/golden/detected_queue_name_collision.json` and
+`test/golden/unsupported_notify_on_partitioned_queue.json`. Follow design note 020's explicit
+new-fixture acceptance workflow; the existing helper supplies encoder-parity assertions.
+Run the golden group without `--accept` for final validation and verify the new files are
+included by the Cabal source-file glob.
+
 Then tighten the Milestone 1 tests to assert the constructors, and run:
 
 ```bash
-nix develop .#partman --command cabal test pgmq-config --test-show-details=direct
+nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct
 nix develop .#partman --command cabal build pgmq-config -f-effectful
 nix develop .#partman --command cabal test pgmq-config -f-effectful --test-show-details=direct
 ```
@@ -372,7 +417,7 @@ green.
 
 ### Milestone 3: say what the reconciler does
 
-Scope: every document that states the contract matches Milestone 2, and the changelog carries
+Scope: every document that states the contract matches Milestone 2, including design note 020's action table and constructor-count prose, and the changelog carries
 the breaking change.
 
 In `pgmq-config/src/Pgmq/Config.hs`, extend the `ensureQueues` Haddock: in the "What is /not/
@@ -398,7 +443,9 @@ to the example's commentary; replace the opening sentence "Every operation is id
 calling it repeatedly is safe and produces no errors or duplicate side effects" with a
 sentence that a second run against an unchanged config issues no mutations and that the one
 in-place mutation (throttle drift) and the reported-not-repaired cases are described on
-`ensureQueues`; in "Idempotency Guarantees", keep the per-function list but add that the
+`ensureQueues`; in "Idempotency Guarantees", remove the blanket "Every underlying pgmq operation is
+idempotent" claim, retain only qualified per-function descriptions consistent with design
+note 018's stock/native concurrency caveats, and add that the
 reconciler does not call `pgmq.create` for a colliding name or `pgmq.enable_notify_insert` for
 a partitioned queue.
 
@@ -410,7 +457,7 @@ Then `okf log add docs/capabilities --kind Update -m "CAP-<n>: name collisions a
 (use the capability's actual id from its front matter) and `okf index docs/capabilities --write`
 if the preview differs.
 
-Changelogs: add "## Unreleased" at the top of `pgmq-config/CHANGELOG.md` with a "Breaking"
+Changelogs: append to the existing "## Unreleased" section (create only if absent) in `pgmq-config/CHANGELOG.md` with a "Breaking"
 paragraph (two new constructors; exhaustive matchers must handle them; `Data.List.NonEmpty`
 appears in the type) and a "Fixes" paragraph for each behavior, and a matching paragraph under
 "## Unreleased" in the root `CHANGELOG.md` (create the section if EP-1 has not). Never edit a
@@ -423,14 +470,14 @@ All commands run from the repository root
 `/Users/shinzui/Keikaku/bokuno/libraries/pgmq-hs-project/pgmq-hs`.
 
 ```bash
-nix develop .#partman --command cabal test pgmq-config --test-show-details=direct
+nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct
 nix develop .#partman --command cabal build pgmq-config -f-effectful
 nix develop .#partman --command cabal test pgmq-config -f-effectful --test-show-details=direct
-PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-config --test-show-details=direct
+PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct
 nix fmt
 git diff --check
 just docs-check
-cabal haddock pgmq-config 2>&1 | grep -E '^\s*[0-9]+% '
+nix develop --command cabal haddock pgmq-config
 ```
 
 Expected after Milestone 2: every `pgmq-config` case passes on both backends
@@ -459,7 +506,7 @@ Collision: on a database whose registry holds `Billing_Events` (created by raw S
 `standardQueue billing_events & withNotifyInsert (Just 0) & withFifoIndex` reports exactly one
 action for that config, `DetectedQueueNameCollision billing_events ("Billing_Events" :| [])`;
 afterwards `SELECT count(*) FROM pgmq.meta WHERE lower(queue_name) = 'billing_events'` is `1`,
-no throttle row and no `q_billing_events_fifo_idx` exist, and an unrelated declared queue in
+no throttle row, `q_billing_events_fifo_idx`, or declared topic binding exists, and an unrelated declared queue in
 the same run is created normally. Both backends.
 
 Partitioned notification: reconciling `partitionedQueue qn pc & withNotifyInsert (Just 0)`
@@ -471,6 +518,11 @@ as unsupported. Both backends, native and stock 1.12.
 
 Unchanged behavior: every pre-existing `ConfigSpec`, `PartitionSpec`, `NotifyCrashSpec`, and
 `ForeignQueueSpec` case passes without edits to its assertions.
+
+JSON: both new reports encode with the specified tags and fields; new golden/parity cases
+pass in the default and flag-off builds and all existing fixtures remain unchanged. All
+collision variants and both drift directions in Milestone 1 pass under each backend and
+schema selection. No-notification declarations emit no unsupported report.
 
 Documentation: `grep -n "DetectedQueueNameCollision\|UnsupportedNotifyOnPartitionedQueue" docs/user/queue-configuration.md docs/design/018-reconciliation-contract.md pgmq-config/src/Pgmq/Config.hs`
 finds each in every file; the guide's listing names all twelve constructors; `just docs-check`
@@ -504,3 +556,9 @@ Libraries: `containers` (`Data.Map.Strict`), `base` (`Data.List.NonEmpty`), `tex
 `generic-lens` and `lens` for field access, all already dependencies of `pgmq-config`. Tests
 use `tasty`, `tasty-hunit`, `hasql`, `hasql-pool`, `ephemeral-pg`, `pg-migrate`, and
 `pgmq-migration`, all already test dependencies. The new spec needs no new dependency.
+
+
+Revision note (2026-10-25): added the current JSON wire-contract obligations, complete
+collision/sub-resource and effective-shape acceptance, schema-selectable isolated fixtures,
+and snapshot/idempotence limits. Existing reconciliation policy and constructor signatures
+are retained; implementation remains pending.
