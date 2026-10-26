@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 
-module PartitionSpec (tests) where
+module PartitionSpec (tests, backends, isolated, reconcile, right, session) where
 
 import Control.Exception (finally)
 import Control.Monad (forM_)
@@ -71,6 +71,11 @@ backendTests effectful =
               counts pool qn >>= (@?= [expected, expected])
       | requested <- [Nothing, Just 2]
       ]
+      ++ [ testCase "unsupported partition notify installs no trigger or throttle" $ isolated $ \pool -> withPartman pool $ do
+             qn <- right (parseQueueName "partition_notify")
+             _ <- right =<< reconcile effectful pool [withNotifyInsert (Just 0) (partitionedQueue qn (PartitionConfig "10" "100" Nothing))]
+             session pool (Session.script "DO $$ BEGIN IF EXISTS (SELECT FROM pgmq.notify_insert_throttle WHERE queue_name='partition_notify') OR EXISTS (SELECT FROM pg_trigger WHERE tgrelid='pgmq.q_partition_notify'::regclass AND tgname='trigger_notify_queue_insert_listeners') THEN RAISE EXCEPTION 'unsupported notification installed'; END IF; END $$")
+         ]
       ++ [ testCase "zero and negative counts fail on new queues" $ forM_ [0, -1] $ \n -> isolated $ \pool -> withPartman pool $ do
              stock <- (== Just "1.12.0") <$> lookupEnv "PGMQ_TEST_SCHEMA_VERSION"
              qn <- right (parseQueueName "invalid_partition_config")

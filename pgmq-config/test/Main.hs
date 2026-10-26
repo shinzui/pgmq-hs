@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import CollisionSpec qualified
 import ConfigSpec qualified
 import EphemeralDb (withPgmqDb)
 import ForeignQueueSpec qualified
@@ -19,6 +20,8 @@ main = do
             [ JsonGoldenSpec.tests,
               ConfigSpec.tests pool,
               PartitionSpec.tests,
+              -- Foreign names require an isolated, schema-selectable server.
+              CollisionSpec.tests,
               -- NotifyCrashSpec manages its own PostgreSQL instance: it crashes
               -- the server, which the shared pool above could not survive.
               NotifyCrashSpec.tests,

@@ -97,6 +97,7 @@ test-suite pgmq-config-test
     -with-rtsopts=-N
 
   other-modules:
+    CollisionSpec
     ConfigSpec
     EphemeralDb
     ForeignQueueSpec

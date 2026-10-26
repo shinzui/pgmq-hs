@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-26T03:51:08Z
       mode: "update"
       note: "Clarify repeated collision fixtures, native-only fixture evidence, and state-qualified idempotence."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-26T04:10:52Z
+      mode: "implement"
+      note: "Implement snapshot collision reports, effective partition notification policy, and JSON contract."
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
