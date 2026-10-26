@@ -113,3 +113,13 @@ These dependencies do not enter the inspection library's public API. The initial
 CLI bound is ^>=0.19: a constrained 0.18 acceptance attempt cannot solve this
 workspace because pg-migrate-import-hasql-migration requires >=0.19. Do not carry
 an untested 0.18 claim or relax that unrelated package's dependency to force it.
+
+
+## PostgreSQL runtime evidence
+
+The same pin policy applies to PostgreSQL: the locked development shell selects the test
+server. Acceptance records `current_setting('server_version')` and the installed
+`pg_extension.extversion` from the running disposable server; a binary version or extension
+filename is insufficient. Historical evidence remains historical. See the dated
+[0.7.0.0 candidate acceptance](../releases/0.7.0.0-candidate.md) for PostgreSQL 18.6 /
+pg_partman 5.5.0 and the retained older run in the compatibility ADR.

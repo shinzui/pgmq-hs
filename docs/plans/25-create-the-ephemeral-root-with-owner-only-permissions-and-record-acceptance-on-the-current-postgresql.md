@@ -64,14 +64,25 @@ consumer edits, and deployment remain outside scope.
 
 ## Progress
 
-- [x] M1 (2026-10-26): 25 focused tests passed across all five creators. Normal suite startup tightened the real root from 0755 to 0700 with inode 71275968 and registry inode 71275969 retained. No shared cluster was deleted. Foreign ownership is checked before chmod; a foreign-owned private fixture could not be constructed without privileges.
-- [ ] M2: all six library versions, internal bounds, changelogs, and source archives form the 0.7.0.0 candidate; published history is unchanged.
-- [ ] M3: the prepared candidate passes native/stock, both-backend, flag-off, floor, Nix, and packaging acceptance; observed versions and consumer inventory are recorded.
+- [x] M1 (2026-10-26): 25 focused tests passed across all five creators. Normal suite startup tightened the real root from 0755 to 0700 with inode 71275968 and registry inode 71275969 retained. No shared root or registry was deleted. Foreign ownership is checked before chmod; a foreign-owned private fixture could not be constructed without privileges.
+- [x] M2 (2026-10-26): six libraries and all internal bounds form the 0.7.0.0 candidate at `5bbb311d962edc17cd805f90eea5d4a8e2242773`; benchmark version stays 0.1.0.0. All six cabal checks pass. Six regenerated archives match packaged sources, contain SQL/goldens/inspection assets, and independently build and pass 517 native tests. Published changelog history is byte-for-byte unchanged.
+- [x] M3 (2026-10-26): native suites passed 517 cases in total; stock-selected clients reported 427 passing cases including four explicit native-contract skips. Config flag-off passed 83; both adapters and native-only fixture boundaries are recorded. The floor build uses effectful-core 2.6.1.0; normal resolution uses 2.7.1.2. All 11 local flake checks and just nix-test pass. [Candidate evidence](../releases/0.7.0.0-candidate.md) records PostgreSQL 18.6 / pg_partman 5.5.0, archive hashes, exact commands and all 19 retained external consumers.
 
 EP-1 and EP-2 are whole-child hard prerequisites. Do not start M1 until both are Complete.
 
 
 ## Surprises & Discoveries
+
+The full stock-selected inventory also found hasql's dedicated alias/remediation/foreign-name
+fixtures and effectful's disconnect fixture always install native SQL. Candidate evidence
+labels these alongside the previously known config native fixtures. Native/stock acceptance
+of selector-aware cases is unchanged.
+
+The cold Nix format check found two files skipped by cached `nix fmt`; a no-cache pass fixed
+them and the archives were regenerated before extraction/acceptance. See
+[FRIC-1](../friction-log/1-cached-formatting-misses-changes-found-by-the-cold-nix-check.md).
+Inspection's CLI version assertion and OpenAPI metadata golden also needed the release
+version update before freezing the candidate.
 
 The 2026-10-25 review found a fifth root creator in `pgmq-inspect/test/EphemeralDb.hs`,
 explicit six-package release handoffs in the changelogs, and new JSON/effect API changes
@@ -83,6 +94,10 @@ and moved formatting ahead of archive creation to keep archive identities curren
 
 
 ## Decision Log
+
+- Decision (2026-10-26): run `nix fmt -- --no-cache` before final archives and retain the cold
+  flake check; regenerate archives after any packaged formatting change. The initial cached
+  pass did not establish the archive identity required by the plan.
 
 - Decision (2026-10-25, supersedes the original create-only policy): validate the root's
   type and effective-uid ownership, then ensure `0700` for new and existing directories.
@@ -102,8 +117,21 @@ and moved formatting ahead of archive creation to keep archive identities curren
 
 ## Outcomes & Retrospective
 
-Implementation and candidate acceptance remain pending. Record actual results and remaining
-limitations here when implementing; do not convert planned test counts into evidence.
+All five roots now establish owner-only permissions on fresh and existing owned directories,
+while unsafe paths fail before chmod and lifecycle state is retained. The six-package
+0.7.0.0 candidate, including inspection, passes the complete acceptance matrix and an
+independent six-archive build/test. See [release evidence](../releases/0.7.0.0-candidate.md)
+for identities, counts, actual server versions and consumer blockers. Publication and external
+rollout remain excluded. The unavailable privileged foreign-owner fixture is recorded rather
+than counted as a success.
+
+The durable root-lifetime and runtime-version principles are distilled in the
+[root ownership ADR](../adr/ephemeral-postgres-root-ownership-and-lifetime.md),
+[compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md), and
+[dependency pin ADR](../adr/haskell-dependency-bounds-and-nix-pin-policy.md).
+[FRIC-1](../friction-log/1-cached-formatting-misses-changes-found-by-the-cold-nix-check.md)
+is accepted: use a no-cache formatting pass before archives and retain the cold check.
+No friction entries remain logged under this initiative.
 
 
 ## Context and Orientation

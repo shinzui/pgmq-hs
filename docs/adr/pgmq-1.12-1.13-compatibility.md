@@ -70,6 +70,16 @@ Both catalog checkpoints converge with exactly the three planned local body exce
 The underlying SQL runner uses a transaction per migration, so queue-creation traffic must
 wait until the entire suffix is applied, including the local override in 0006.
 
+Dated re-acceptance on 2026-10-26 used the current locked shell's running PostgreSQL
+18.6 with pg_partman 5.5.0. The six-package 0.7.0.0 candidate passed serial native migration
+acceptance, native and stock-selected clients, both reconciliation adapters, the flag-off
+config build/tests, the effectful floor build, local Nix checks and independent extracted
+source-archive compilation/tests. The populated six-to-seven-entry notification upgrade
+preserves data and trigger identities without re-enabling notifications. Historical
+17.10 / 5.4.3 evidence above remains historical. Exact counts, dedicated native-only fixture
+boundaries, archive identities and retained consumers are in
+[the 0.7.0.0 candidate evidence](../releases/0.7.0.0-candidate.md).
+
 Migration acceptance shares a connection and resets a single database, so run that suite
 serially (-j1); the two-worker client recommendation must not be applied globally.
 Property-test queue identifiers need enough entropy for hundreds of concurrent/shrinking

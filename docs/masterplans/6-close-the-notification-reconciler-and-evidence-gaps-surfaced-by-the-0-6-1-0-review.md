@@ -177,7 +177,7 @@ notes that carry the affected contracts are
 |---|-------|------|-----------|-----------|--------|
 | 1 | Gate the notification fail-open on a real queue row and state the partitioned-queue contract | docs/plans/23-gate-the-notification-fail-open-on-a-real-queue-row-and-state-the-partitioned-queue-contract.md | None | None | Complete |
 | 2 | Report name collisions and unsupported notifications instead of acting on them | docs/plans/24-report-name-collisions-and-unsupported-notifications-instead-of-acting-on-them.md | None | EP-1 | Complete |
-| 3 | Create the ephemeral root with owner-only permissions and record acceptance on the current PostgreSQL | docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md | EP-1, EP-2 | None | In Progress |
+| 3 | Create the ephemeral root with owner-only permissions and record acceptance on the current PostgreSQL | docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md | EP-1, EP-2 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -263,14 +263,21 @@ that note).
 
 ## Progress
 
-EP-1 and EP-2 are Complete. The notification ledger, existing-trigger upgrade, shared
-reconciliation policy and new report JSON cases are accepted. EP-3 is In Progress and owns
-all five root helpers, six-package release preparation and final candidate acceptance.
-Runtime evidence so far uses PostgreSQL 18.6 / pg_partman 5.5.0. Child plans hold detailed
-milestone evidence; the final candidate matrix and extracted archives remain outstanding.
+All three children and the final integration gates are Complete (2026-10-26 UTC).
+The six-package 0.7.0.0 candidate passes native/stock-selected suites, both reconciliation
+adapters, flag-off config, the effectful floor, all 11 local Nix checks, packaging checks and
+an independent six-archive native run. [Candidate evidence](../releases/0.7.0.0-candidate.md)
+records exact identities, counts/skips, PostgreSQL 18.6 / pg_partman 5.5.0, immutable history,
+archive payloads and retained consumers. Publication and consumer rollout remain excluded.
+
 
 
 ## Surprises & Discoveries
+
+Final stock-selected acceptance includes dedicated native-only hasql alias/remediation/foreign
+fixtures and effectful disconnect fixtures, in addition to the known config fixtures. The
+release record labels each boundary. Native/stock selector-aware partition and collision
+cases passed. The shell's actual extension version is 5.5.0, rather than the historical 5.4.3.
 
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
@@ -343,12 +350,28 @@ formats before archiving and regenerates archives after any packaged-file change
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original vision. Before marking the MasterPlan complete,
-distill durable project context from this MasterPlan and its child ExecPlans into
-docs/adr/. Keep task-local execution and coordination details here.
+The initiative closes the reviewed notification regression, reconciler ownership/capability
+mismatches and test-root/evidence gaps. Append-only migration 0007 repairs existing cloned
+triggers without recreation and retains ordinary crash fail-open. Both adapters now report
+name collisions and unsupported partition notifications, including their stable JSON shapes.
+All five test-root creators validate ownership/type and tighten existing roots without
+removing lifecycle records.
 
-(To be filled during and after implementation.)
+The family candidate at `5bbb311d962edc17cd805f90eea5d4a8e2242773` includes all six libraries,
+inspection's initial release and the accumulated Unreleased work. Native acceptance and the
+independent source-archive run each pass 517 cases; stock-selected suites report 427 with
+four explicit native-contract skips and dedicated native fixtures labeled separately.
+Flag-off, lower-effectful, Nix and documentation checks pass. External consumer bounds remain
+retained and many exclude 0.7; this is a documented handoff, not a rollout claim.
+
+ADR distillation is complete: the notification-lineage ADR records implemented boundaries;
+the reconciliation ownership ADR preserves snapshot/effective-shape policy; the shared-root
+ADR preserves ownership and lifecycle constraints; compatibility and dependency ADRs retain
+historical facts and dated runtime evidence. No logged friction remains under the initiative.
+The deliberate exclusions remain: no parent-channel notification feature, FIFO work, vendor
+changes, Hackage publication, release tag/push or external consumer mutation. Exact artifacts
+and validation commands are in [the candidate record](../releases/0.7.0.0-candidate.md).
+
 
 
 Revision note (2026-10-25): reviewed against the current tree and corrected the partition
