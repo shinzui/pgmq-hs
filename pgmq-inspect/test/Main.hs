@@ -17,6 +17,7 @@ import OutboxSpec qualified
 import PrivilegesSpec qualified
 import RawWebSocketSpec qualified
 import RefreshSpec qualified
+import RootPermissionsSpec qualified
 import RouterSpec qualified
 import ServerSpec qualified
 import SmokeSpec qualified
@@ -29,7 +30,8 @@ main =
   defaultMain $
     testGroup
       "pgmq-inspect"
-      [ CliSpec.tests,
+      [ RootPermissionsSpec.tests ensureOwnerOnlyRoot,
+        CliSpec.tests,
         ConfigSpec.tests,
         CorsSpec.tests,
         ErrorSpec.tests,

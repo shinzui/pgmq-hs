@@ -66,6 +66,7 @@ docs-check:
     dhall type --file docs/reviews/profile.dhall > /dev/null
     okf validate docs/reviews --profile docs/reviews/profile.dhall --profile-enforce --log-enforce
     okf graph docs/capabilities >/dev/null
+    okf validate docs/friction-log --strict --profile docs/friction-log/profile.dhall --profile-enforce --log-enforce
     okf validate docs/improvement-requests --profile docs/improvement-requests/profile.dhall --profile-enforce --log-enforce
     okf validate docs/bug-reports --profile docs/bug-reports/profile.dhall --profile-enforce --log-enforce
 

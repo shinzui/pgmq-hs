@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-26T03:51:08Z
       mode: "update"
       note: "Format before archiving and distinguish native-only tests inside stock-selected acceptance."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-26T04:15:31Z
+      mode: "implement"
+      note: "Harden all shared roots and prepare and accept the six-package 0.7.0.0 candidate."
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -59,7 +64,7 @@ consumer edits, and deployment remain outside scope.
 
 ## Progress
 
-- [ ] M1: all five root creators establish `0700`; fresh, existing, repeated, and unsafe-path cases are verified without deleting shared clusters.
+- [x] M1 (2026-10-26): 25 focused tests passed across all five creators. Normal suite startup tightened the real root from 0755 to 0700 with inode 71275968 and registry inode 71275969 retained. No shared cluster was deleted. Foreign ownership is checked before chmod; a foreign-owned private fixture could not be constructed without privileges.
 - [ ] M2: all six library versions, internal bounds, changelogs, and source archives form the 0.7.0.0 candidate; published history is unchanged.
 - [ ] M3: the prepared candidate passes native/stock, both-backend, flag-off, floor, Nix, and packaging acceptance; observed versions and consumer inventory are recorded.
 

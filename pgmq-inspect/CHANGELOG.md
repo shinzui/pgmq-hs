@@ -1,6 +1,9 @@
 # Revision history for pgmq-inspect
 
-## Unreleased
+## 0.7.0.0 -- 2026-10-25
+
+Test infrastructure: create and validate owner-only (`0700`) ephemeral roots, tighten
+existing owned directories, reject unsafe paths and preserve lifecycle registry contents.
 
 A dedicated runtime-wide LISTEN backend refcounts notification channels, bounds
 buffered batches, reconnects with backoff and restores LISTENs. Polling remains
@@ -23,9 +26,8 @@ prefix mounts, including the canonical trailing-slash root. Tests validate actua
 responses and exact int64 client operations. The inspection guide documents role
 grants, deployment, all routes/frames and measured workload limits.
 
-Initial package version remains 0.1.0.0 until the family's next lockstep release.
-That release must include this package and move its internal family dependency
-bounds together with the other pgmq packages; no publication is performed here.
+Initial release at 0.7.0.0 with the six-package family. Internal family bounds move
+together; this candidate preparation does not publish packages.
 
 The initial CLI supports optparse-applicative 0.19, the released family exercised
 by both Cabal and Nix; the library does not depend on the CLI parser.

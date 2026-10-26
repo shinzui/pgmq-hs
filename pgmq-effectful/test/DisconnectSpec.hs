@@ -26,6 +26,7 @@ import Effectful (Eff, IOE, runEff)
 import Effectful.Error.Static (Error, runError)
 import EphemeralDb (ephemeralConfig, installPgmqNative)
 import EphemeralPg qualified as Pg
+
 -- 'shutdownMode' names a field of both Pg.Config and Pg.Database, so the record
 -- update below needs the selector from the module that defines only Database.
 import EphemeralPg.Database qualified as PgDb

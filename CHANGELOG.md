@@ -1,6 +1,10 @@
 # Revision history for pgmq-hs
 
-## Unreleased
+## 0.7.0.0 -- 2026-10-25
+
+All five ephemeral PostgreSQL root creators now create, validate and tighten owned roots
+to mode `0700`, reject unsafe path types/ownership before chmod, and preserve registry
+contents. This corrects the earlier umask-dependent creation behavior.
 
 - Breaking: add `DetectedQueueNameCollision QueueName (NonEmpty Text)` and `UnsupportedNotifyOnPartitionedQueue QueueName`, with matching JSON tags/fields. Exhaustive report matches must handle both constructors.
 - Report foreign name collisions before creating a missing alias or sub-resources; report partition notifications without enabling or updating them. Drift still reconciles supported sub-resources against observed shape. Correct the guide's reconciliation and idempotence contract.
@@ -14,13 +18,11 @@ links and server URLs support prefix mounts. Actual-response schema tests,
 lossless int64 client tests and a restricted-role integration accompany the
 [inspection guide](docs/user/queue-inspection.md).
 
-Release handoff: the next lockstep family release, prepared by
-`docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md`
-under MasterPlan 6 or its successor, must include the initial `pgmq-inspect`
-package and move its internal dependency bounds with the family. Announce the
-breaking `Pgmq` constructors `PeekMessages`, `PeekArchivedMessages`, `LookupMessage`,
-`LookupArchivedMessage` and `QueueMetricsUnvalidated` for exhaustive downstream
-interpreters. Versions and publication remain the release train's work.
+This candidate releases all six libraries at 0.7.0.0, including the initial `pgmq-inspect`
+package, with matching internal bounds. Exhaustive downstream `Pgmq` interpreters must
+handle `PeekMessages`, `PeekArchivedMessages`, `LookupMessage`, `LookupArchivedMessage`
+and `QueueMetricsUnvalidated`. The benchmark keeps its independent version.
+Publication is outside candidate preparation.
 
 `pgmq-inspect` adds metrics subscriptions over WebSocket: shared rate-limited
 refreshes, bounded queues and frames, snapshot/generation ordering, overflow and
@@ -39,8 +41,8 @@ topic and notification records, and reconciliation reports. Hand-written instanc
 use pgmq's snake_case column names, emit optional fields as null, and are a
 published compatibility surface under design note 020. Four records also decode;
 explicit JSON-null headers normalize to Nothing, while IDs remain exact numeric
-int64 tokens. Fifty-three golden files pin the shapes. Adding instances is a PVP
-minor change, carried by the next lockstep release; downstream orphan instances
+int64 tokens. Fifty-five golden files pin the shapes. Adding instances is a PVP
+minor change, included in this coordinated breaking release; downstream orphan instances
 for these types must be removed.
 
 Document inspection paging as a moving view: late commits and late archival require

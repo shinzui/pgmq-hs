@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name: pgmq-core
-version: 0.6.1.1
+version: 0.7.0.0
 synopsis: Core types for pgmq-hs, a Haskell client for PGMQ
 description:
   Core types and type classes for pgmq-hs, a Haskell client library
@@ -67,7 +67,7 @@ test-suite pgmq-core-test
     aeson ^>=2.2,
     base >=4.18 && <5,
     bytestring >=0.11 && <0.13,
-    pgmq-core >=0.6 && <0.7,
+    pgmq-core >=0.7 && <0.8,
     tasty ^>=1.5,
     tasty-golden ^>=2.3.6,
     tasty-hunit ^>=0.10,

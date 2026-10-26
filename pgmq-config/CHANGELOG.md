@@ -1,6 +1,9 @@
 # Revision history for pgmq-config
 
-## Unreleased
+## 0.7.0.0 -- 2026-10-25
+
+Test infrastructure: create and validate owner-only (`0700`) ephemeral roots, tighten
+existing owned directories, reject unsafe paths and preserve lifecycle registry contents.
 
 - Breaking: add `DetectedQueueNameCollision QueueName (NonEmpty Text)` and `UnsupportedNotifyOnPartitionedQueue QueueName`, with matching JSON tags/fields. Exhaustive report matches must handle both constructors.
 - Report foreign name collisions before creating a missing alias or sub-resources; report partition notifications without enabling or updating them. Drift still reconciles supported sub-resources against observed shape. Correct the guide's reconciliation and idempotence contract.

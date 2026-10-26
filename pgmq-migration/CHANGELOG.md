@@ -1,6 +1,9 @@
 # Changelog for pgmq-migration
 
-## Unreleased
+## 0.7.0.0 -- 2026-10-25
+
+Test infrastructure: create and validate owner-only (`0700`) ephemeral roots, tighten
+existing owned directories, reject unsafe paths and preserve lifecycle registry contents.
 
 - Append migration 0007: reject physical partitions before throttle updates and restrict missing-row fail-open to registered queue names. Existing triggers adopt the correction without recreation; ordinary crash recovery is retained.
 

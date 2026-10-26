@@ -4,8 +4,9 @@ module Main (main) where
 
 import ClassificationSpec qualified
 import DisconnectSpec qualified
-import EphemeralDb (withPgmqPool)
+import EphemeralDb (ensureOwnerOnlyRoot, withPgmqPool)
 import PlainInterpreterSpec qualified
+import RootPermissionsSpec qualified
 import Test.Tasty (defaultMain, testGroup)
 import TracedInterpreterSpec qualified
 import UmbrellaExportsSpec ()
@@ -16,7 +17,8 @@ main = do
     let tree =
           testGroup
             "pgmq-effectful"
-            [ ClassificationSpec.tests,
+            [ RootPermissionsSpec.tests ensureOwnerOnlyRoot,
+              ClassificationSpec.tests,
               PlainInterpreterSpec.tests pool,
               TracedInterpreterSpec.tests pool,
               DisconnectSpec.tests

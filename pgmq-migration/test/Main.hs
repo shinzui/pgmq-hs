@@ -5,7 +5,8 @@ module Main (main) where
 
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, finally, try)
-import Control.Monad (filterM, forM_)
+import Control.Monad (filterM, forM_, unless)
+import Data.Bits ((.&.))
 import Data.ByteString qualified as ByteString
 import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -87,8 +88,12 @@ import Pgmq.Migration.History.HasqlMigration
     pgmqHasqlMigrationSourceConfig,
     pgmqHasqlMigrationSourceConfigWithPolicy,
   )
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import RootPermissionsSpec qualified
+import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
+import System.IO.Error (catchIOError, isAlreadyExistsError)
+import System.Posix.Directory qualified as Posix
+import System.Posix.Files (deviceID, fileID, fileMode, fileOwner, getSymbolicLinkStatus, isDirectory, setFileMode)
 import System.Posix.User (getEffectiveUserID)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -108,11 +113,36 @@ ephemeralRoot = do
   uid <- getEffectiveUserID
   pure ("/tmp/ephpg-pgmq-hs-" <> show uid)
 
+-- | Establish a real effective-uid-owned root without deleting its contents.
+ensureOwnerOnlyRoot :: FilePath -> IO ()
+ensureOwnerOnlyRoot root = do
+  catchIOError (Posix.createDirectory root 0o700) $ \err ->
+    unless (isAlreadyExistsError err) (ioError err)
+  uid <- getEffectiveUserID
+  before <- getSymbolicLinkStatus root
+  unless (isDirectory before && fileOwner before == uid) $
+    ioError (userError ("Unsafe ephemeral PostgreSQL root: " <> root))
+  setFileMode root 0o700
+  after <- getSymbolicLinkStatus root
+  unless
+    ( isDirectory after
+        && fileOwner after
+          == uid
+        && deviceID before
+          == deviceID after
+        && fileID before
+          == fileID after
+        && fileMode after
+          .&. 0o7777
+          == 0o700
+    )
+    (ioError (userError ("Ephemeral PostgreSQL root changed or is not owner-only: " <> root)))
+
 -- | Cached-startup configuration pinned to 'ephemeralRoot'.
 ephemeralConfig :: IO Config
 ephemeralConfig = do
   root <- ephemeralRoot
-  createDirectoryIfMissing True root
+  ensureOwnerOnlyRoot root
   pure defaultConfig {temporaryRoot = Last (Just root)}
 
 main :: IO ()
@@ -133,7 +163,8 @@ tests :: Text -> Settings.Settings -> Connection.Connection -> TestTree
 tests conninfo settings conn =
   testGroup
     "pgmq-migration"
-    [ testGroup
+    [ RootPermissionsSpec.tests ensureOwnerOnlyRoot,
+      testGroup
         "native definition"
         [ testCase "immutable history and upstream payload provenance" (testNativePayload conn),
           testCase "component pgmq lists the ledger in order and has no dependencies" testNativeComponent

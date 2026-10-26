@@ -1,6 +1,6 @@
 # Revision history for pgmq-core
 
-## Unreleased
+## 0.7.0.0 -- 2026-10-25
 
 - Document that notifyChannelName names an unsupported parent channel for partitioned queues.
 

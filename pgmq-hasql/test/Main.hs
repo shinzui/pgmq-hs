@@ -6,7 +6,7 @@ import AdvancedOpsSpec qualified
 import AliasingSpec qualified
 import AllFunctionsDecoderSpec qualified
 import DecoderValidationSpec qualified
-import EphemeralDb (withPgmqDb)
+import EphemeralDb (ensureOwnerOnlyRoot, withPgmqDb)
 import InspectionCostSpec qualified
 import InspectionForeignNameSpec qualified
 import InspectionSpec qualified
@@ -20,6 +20,7 @@ import NullBodySpec qualified
 import NullSemanticsSpec qualified
 import PartitionedNotifySpec qualified
 import QueueSpec qualified
+import RootPermissionsSpec qualified
 import RoundTripSpec qualified
 import SchemaSpec qualified
 import System.Environment (lookupEnv)
@@ -35,7 +36,8 @@ main = do
     let tree =
           testGroup
             "pgmq-hasql"
-            ( [ JsonGoldenSpec.tests,
+            ( [ RootPermissionsSpec.tests ensureOwnerOnlyRoot,
+                JsonGoldenSpec.tests,
                 QueueSpec.tests pool,
                 MessageSpec.tests pool,
                 InspectionSpec.tests pool db,

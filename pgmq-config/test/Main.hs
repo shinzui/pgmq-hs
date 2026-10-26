@@ -4,11 +4,12 @@ module Main (main) where
 
 import CollisionSpec qualified
 import ConfigSpec qualified
-import EphemeralDb (withPgmqDb)
+import EphemeralDb (ensureOwnerOnlyRoot, withPgmqDb)
 import ForeignQueueSpec qualified
 import JsonGoldenSpec qualified
 import NotifyCrashSpec qualified
 import PartitionSpec qualified
+import RootPermissionsSpec qualified
 import Test.Tasty (defaultMain, testGroup)
 
 main :: IO ()
@@ -17,7 +18,8 @@ main = do
     let tree =
           testGroup
             "pgmq-config"
-            [ JsonGoldenSpec.tests,
+            [ RootPermissionsSpec.tests ensureOwnerOnlyRoot,
+              JsonGoldenSpec.tests,
               ConfigSpec.tests pool,
               PartitionSpec.tests,
               -- Foreign names require an isolated, schema-selectable server.

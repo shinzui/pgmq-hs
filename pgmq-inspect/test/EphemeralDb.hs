@@ -10,6 +10,7 @@ module EphemeralDb
   ( withPgmqDb,
     withPgmqPool,
     ephemeralConfig,
+    ensureOwnerOnlyRoot,
     installPgmqNative,
     StartError,
     Database,
@@ -17,7 +18,8 @@ module EphemeralDb
 where
 
 import Control.Exception (bracket)
-import Control.Monad (filterM, when)
+import Control.Monad (filterM, unless, when)
+import Data.Bits ((.&.))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Monoid (Last (..))
 import Data.Text.IO qualified as TextIO
@@ -40,8 +42,11 @@ import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as PoolConfig
 import Hasql.Session qualified as Session
 import Pgmq.Migration qualified as Migration
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
+import System.IO.Error (catchIOError, isAlreadyExistsError)
+import System.Posix.Directory qualified as Posix
+import System.Posix.Files (deviceID, fileID, fileMode, fileOwner, getSymbolicLinkStatus, isDirectory, setFileMode)
 import System.Posix.User (getEffectiveUserID)
 
 -- | Root directory for ephemeral PostgreSQL clusters.
@@ -59,11 +64,31 @@ ephemeralRoot = do
   uid <- getEffectiveUserID
   pure ("/tmp/ephpg-pgmq-hs-" <> show uid)
 
+-- | Establish a real effective-uid-owned root without deleting its contents.
+ensureOwnerOnlyRoot :: FilePath -> IO ()
+ensureOwnerOnlyRoot root = do
+  catchIOError (Posix.createDirectory root 0o700) $ \err ->
+    unless (isAlreadyExistsError err) (ioError err)
+  uid <- getEffectiveUserID
+  before <- getSymbolicLinkStatus root
+  unless (isDirectory before && fileOwner before == uid) $
+    ioError (userError ("Unsafe ephemeral PostgreSQL root: " <> root))
+  setFileMode root 0o700
+  after <- getSymbolicLinkStatus root
+  unless
+    ( isDirectory after
+        && fileOwner after == uid
+        && deviceID before == deviceID after
+        && fileID before == fileID after
+        && fileMode after .&. 0o7777 == 0o700
+    )
+    (ioError (userError ("Ephemeral PostgreSQL root changed or is not owner-only: " <> root)))
+
 -- | Cached-startup configuration pinned to 'ephemeralRoot'.
 ephemeralConfig :: IO Config
 ephemeralConfig = do
   root <- ephemeralRoot
-  createDirectoryIfMissing True root
+  ensureOwnerOnlyRoot root
   pure defaultConfig {temporaryRoot = Last (Just root)}
 
 -- | Run an action with a temporary PostgreSQL database that has the

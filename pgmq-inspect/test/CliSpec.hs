@@ -36,7 +36,7 @@ tests =
     [ testCase "version/help do not need a database" $ forM_ ["--version", "--help"] $ \arg -> do
         (code, out, _) <- readProcessWithExitCode "pgmq-inspect" [arg] ""
         code @?= ExitSuccess
-        assertBool "expected output" ((if arg == "--version" then "0.1.0.0" else "--database-url") `isInfixOf` out),
+        assertBool "expected output" ((if arg == "--version" then "0.7.0.0" else "--database-url") `isInfixOf` out),
       testCase "URL errors are one line, exit 2, and never echo secrets" $ do
         inherited <- getEnvironment
         forM_ [[], ["--database-url", "password='sensitive url' not-valid"]] $ \args -> do

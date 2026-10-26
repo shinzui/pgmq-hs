@@ -1,6 +1,9 @@
 # Revision history for pgmq-effectful
 
-## Unreleased
+## 0.7.0.0 -- 2026-10-25
+
+Test infrastructure: create and validate owner-only (`0700`) ephemeral roots, tighten
+existing owned directories, reject unsafe paths and preserve lifecycle registry contents.
 
 - Clarify that enableNotifyInsert does not deliver on a partitioned queue's documented parent channel.
 
