@@ -1,15 +1,6 @@
 # Revision history for pgmq-effectful
 
-## 0.7.0.0 -- 2026-10-25
-
-Test infrastructure: create and validate owner-only (`0700`) ephemeral roots, tighten
-existing owned directories, reject unsafe paths and preserve lifecycle registry contents.
-
-- Clarify that enableNotifyInsert does not deliver on a partitioned queue's documented parent channel.
-
-Inspection Haddocks now state the moving-view cursor contract and the need for
-finite database deadlines and inspection capacity separate from workers; a row limit
-does not bound scan work or payload bytes.
+## 0.7.0.0 -- 2026-10-26
 
 ### Bug Fixes
 
@@ -54,6 +45,17 @@ does not bound scan work or payload bytes.
 - The `Pgmq` effect gained five constructors (`PeekMessages`, `PeekArchivedMessages`,
   `LookupMessage`, `LookupArchivedMessage`, `QueueMetricsUnvalidated`). An interpreter that
   matches every constructor, such as a mock in a consumer's test suite, must add five cases.
+
+### Other Changes
+
+Test infrastructure: create and validate owner-only (`0700`) ephemeral roots, tighten
+existing owned directories, reject unsafe paths and preserve lifecycle registry contents.
+
+- Clarify that enableNotifyInsert does not deliver on a partitioned queue's documented parent channel.
+
+Inspection Haddocks now state the moving-view cursor contract and the need for
+finite database deadlines and inspection capacity separate from workers; a row limit
+does not bound scan work or payload bytes.
 
 ## 0.6.1.1 -- 2026-09-25
 

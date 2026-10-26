@@ -1,45 +1,38 @@
 # Revision history for pgmq-hasql
 
-## 0.7.0.0 -- 2026-10-25
-
-Test infrastructure: create and validate owner-only (`0700`) ephemeral roots, tighten
-existing owned directories, reject unsafe paths and preserve lifecycle registry contents.
-
-- Document partitioned notification silence; cover native/stock partition channels, native aliases, and ordinary throttling.
-
-Add ToJSON QueueMetrics with pgmq's snake_case field names and explicit nulls.
-The encoding keeps queue_length (total depth) distinct from queue_visible_length
-(available depth); null default_partition_length remains unavailable/inapplicable,
-not zero. Golden tests and encoder-parity properties pin this published compatibility
-surface under design note 020. This instance addition is a PVP minor change carried
-by the next lockstep release.
-
-### Verification and limits
-
-Inspection tests now cover late lower-ID commits and late archival, propagate consumer
-thread failures, and exercise 100,000-row ordinary/unlogged and numeric/time partitioned
-queue/archive layouts. Design note 019 retains the complete query plans and states the
-scan costs, moving-view semantics, finite database deadlines and separate capacity
-requirements. No public signatures, SQL builders or migrations changed.
+## 0.7.0.0 -- 2026-10-26
 
 ### New Features
 
-- Non-destructive inspection reads (IR-1), exported from `Pgmq` and
-  `Pgmq.Hasql.Sessions`: `peekMessages` and `peekArchivedMessages` return a keyset page of
-  `pgmq.q_<name>` or `pgmq.a_<name>` (rows with `msg_id` strictly after an optional
-  exclusive cursor, ascending, at most `limit`, never `OFFSET`); `lookupMessage` and
-  `lookupArchivedMessage` fetch one row by id. None of them leases: `vt`, `read_ct`, and
-  `last_read_at` are untouched, and a concurrently polling consumer is undisturbed.
-- The argument records `PeekMessages` and `LookupMessage` take the queue name as plain
-  `Text`, so the reads work for foreign and mixed-case names `parseQueueName` rejects. The
-  physical table is resolved on the server by `pgmq.format_table_name` and spliced as a
-  quoted identifier. A missing queue fails with the server's `42P01`; a missing message is
-  `Nothing`.
-- `queueMetricsUnvalidated :: Text -> Session QueueMetrics`, the `queueMetrics` projection
-  for a queue named by plain text.
-- New module `Pgmq.Hasql.Statements.Inspection` (`formatTableName`, `quoteIdentifier`, and
-  four `unpreparable` statement builders) and `archivedMessageDecoder` in
-  `Pgmq.Hasql.Decoders`. See `docs/design/019-non-destructive-inspection-reads.md`.
+- Add non-destructive inspection reads, exported from `Pgmq` and
+  `Pgmq.Hasql.Sessions`: `peekMessages`, `peekArchivedMessages`, `lookupMessage`,
+  `lookupArchivedMessage` and `queueMetricsUnvalidated`. Paging uses ascending
+  `msg_id` with an exclusive cursor and a row limit, never `OFFSET`; lookups return
+  `Nothing` for missing messages. Reads leave `vt`, `read_ct` and `last_read_at`
+  untouched.
+- `PeekMessages` and `LookupMessage` accept plain `Text` names, including foreign and
+  mixed-case names that `parseQueueName` rejects. Physical tables are resolved with
+  `pgmq.format_table_name` and quoted as identifiers; missing queues retain server
+  error `42P01`.
+- Add `Pgmq.Hasql.Statements.Inspection` with `formatTableName`, `quoteIdentifier`
+  and four `unpreparable` statement builders, plus `archivedMessageDecoder` in
+  `Pgmq.Hasql.Decoders`.
+- Add `ToJSON QueueMetrics` with snake_case fields and explicit nulls. Total depth
+  (`queue_length`) stays distinct from available depth (`queue_visible_length`);
+  null `default_partition_length` means unavailable/inapplicable, not zero.
+  Goldens and parity properties pin the published contract in design note 020.
+
+### Other Changes
+
+- Document partition notification silence and cover native/stock partition channels,
+  native aliases and ordinary throttling.
+- Inspection tests cover late lower-ID commits and late archival, propagate consumer
+  failures and exercise 100,000-row ordinary/unlogged and numeric/time-partitioned
+  live/archive layouts. Design note 019 records query plans, moving-view semantics,
+  finite database deadlines and separate inspection capacity requirements. Row
+  limits do not bound scan work or payload bytes.
+- Ephemeral PostgreSQL roots are created/validated as owner-only (`0700`), existing
+  owned roots are tightened, unsafe paths are rejected and registry contents survive.
 
 ## 0.6.1.1 -- 2026-09-25
 

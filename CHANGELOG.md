@@ -1,77 +1,71 @@
 # Revision history for pgmq-hs
 
-## 0.7.0.0 -- 2026-10-25
+## 0.7.0.0 -- 2026-10-26
 
-All five ephemeral PostgreSQL root creators now create, validate and tighten owned roots
-to mode `0700`, reject unsafe path types/ownership before chmod, and preserve registry
-contents. This corrects the earlier umask-dependent creation behavior.
+All six packages share version 0.7.0.0, including the initial `pgmq-inspect`
+release. This release adds non-destructive inspection, stable domain JSON encodings,
+and HTTP/WebSocket inspection, and fixes disconnect classification, partition
+notifications and reconciliation reporting. The benchmark retains its independent version.
 
-- Breaking: add `DetectedQueueNameCollision QueueName (NonEmpty Text)` and `UnsupportedNotifyOnPartitionedQueue QueueName`, with matching JSON tags/fields. Exhaustive report matches must handle both constructors.
-- Report foreign name collisions before creating a missing alias or sub-resources; report partition notifications without enabling or updating them. Drift still reconciles supported sub-resources against observed shape. Correct the guide's reconciliation and idempotence contract.
+### Breaking Changes
 
-- Fix native partition notification storms with append-only migration 0007; ordinary crash fail-open lasts until an explicit enable/reconcile restores the throttle row. Clarify partition silence and recovery in public notification documentation.
+- `pgmq-effectful`: exhaustive `Pgmq` interpreters must handle `PeekMessages`,
+  `PeekArchivedMessages`, `LookupMessage`, `LookupArchivedMessage` and
+  `QueueMetricsUnvalidated`.
+- `pgmq-config`: exhaustive `ReconcileAction` matches must handle
+  `DetectedQueueNameCollision QueueName (NonEmpty Text)` and
+  `UnsupportedNotifyOnPartitionedQueue QueueName`, including their JSON tags and fields.
+- Remove downstream orphan JSON instances for the newly supported domain records.
+  Their hand-written encodings are now a published compatibility surface, with
+  snake_case fields, explicit nulls and exact numeric int64 message IDs.
 
-`pgmq-inspect` is runnable from a database URL and serves OpenAPI 3 at
-`/openapi.json`. Its isolated connections have finite statement/lock/connect/
-acquisition budgets; CLI integers and CORS are checked before allocation. Relative
-links and server URLs support prefix mounts. Actual-response schema tests,
-lossless int64 client tests and a restricted-role integration accompany the
-[inspection guide](docs/user/queue-inspection.md).
+### New Features
 
-This candidate releases all six libraries at 0.7.0.0, including the initial `pgmq-inspect`
-package, with matching internal bounds. Exhaustive downstream `Pgmq` interpreters must
-handle `PeekMessages`, `PeekArchivedMessages`, `LookupMessage`, `LookupArchivedMessage`
-and `QueueMetricsUnvalidated`. The benchmark keeps its independent version.
-Publication is outside candidate preparation.
+- Non-destructive live/archive paging, message lookup and unvalidated metrics across
+  `pgmq-hasql` and both `pgmq-effectful` interpreters; add `ArchivedMessage` in
+  `pgmq-core`. Reads leave `vt`, `read_ct` and `last_read_at` untouched and accept
+  server-accepted names that `parseQueueName` rejects.
+- Stable JSON encodings for queues, messages, metrics, topics, notification records
+  and reconciliation reports. Four core records also decode; explicit JSON-null
+  headers normalize to `Nothing`. Fifty-five domain/report goldens pin the wire shapes.
+- Initial `pgmq-inspect`: mountable read-only HTTP inspection, a standalone Warp
+  executable, OpenAPI 3 at `/openapi.json`, explicit-origin CORS, safe errors,
+  nonblocking admission and isolated connections with finite database budgets.
+  Relative links and server URLs support prefix mounts. See the
+  [inspection guide](docs/user/queue-inspection.md).
+- Inspection WebSocket metrics subscriptions share rate-limited refreshes, bounded
+  queues and frames, generation ordering, overflow signaling and graceful shutdown.
+  A refcounted LISTEN backend reconnects and restores channels; polling remains
+  authoritative. `withInspectRuntime` owns cleanup, and listener health and channel
+  acknowledgement remain separate observables.
+- `pgmq-effectful`: add `isAmbiguousReply` to identify lost replies whose operations
+  may already have committed. Check it before retrying non-idempotent sends; see
+  [disconnect classification and retry guidance](docs/design/017-transient-error-classification.md).
 
-`pgmq-inspect` adds metrics subscriptions over WebSocket: shared rate-limited
-refreshes, bounded queues and frames, snapshot/generation ordering, overflow and
-goodbye, plus a single refcounted reconnecting LISTEN backend. Polling stays
-authoritative. `withInspectRuntime` owns cleanup; listener health and channel
-acknowledgement are separate observables. Workload evidence records real cost.
+### Bug Fixes
 
-New `pgmq-inspect` package: mountable read-only HTTP inspection and scoped Warp
-runner, non-destructive message/archive paging, domain JSON, metrics, bindings,
-routing tests, throttles and health probes. Checked configuration, shared
-nonblocking read admission, safe errors and explicit-origin CORS. Hosts supply
-isolated inspection capacity with finite database budgets. See design note 021.
+- `pgmq-effectful`: classify receive-side connection losses as transient, including
+  empty-SQLSTATE server errors and exactly `UnexpectedRowCountStatementError 1 1 1`.
+  Script errors follow the same SQLSTATE rule as statement errors. The pool may
+  produce one more transient failure before replacing a dead connection.
+- `pgmq-migration`: append migration 0007 to silence physical partition notification
+  storms without recreating triggers. Ordinary queues retain crash fail-open until
+  an explicit enable/reconcile restores the throttle row.
+- `pgmq-config`: report foreign name collisions before creating missing aliases or
+  sub-resources, and report unsupported partition notifications without enabling or
+  updating them. Drift still reconciles supported resources against observed shape.
 
-Add stable JSON wire encodings (IR-2) for queues, live/archive messages, metrics,
-topic and notification records, and reconciliation reports. Hand-written instances
-use pgmq's snake_case column names, emit optional fields as null, and are a
-published compatibility surface under design note 020. Four records also decode;
-explicit JSON-null headers normalize to Nothing, while IDs remain exact numeric
-int64 tokens. Fifty-five golden files pin the shapes. Adding instances is a PVP
-minor change, included in this coordinated breaking release; downstream orphan instances
-for these types must be removed.
+### Other Changes
 
-Document inspection paging as a moving view: late commits and late archival require
-a first-page refresh. Real 100,000-row live/archive fixtures on PGMQ 1.12 and 1.13
-show scan/sort costs in time partitions and numeric archives; row limits are not
-query-work budgets. The inspection consumer test now propagates worker failures.
-See the retained plans linked from design note 019.
-
-`pgmq-effectful`'s `isTransient` now treats a PostgreSQL connection lost mid-statement as
-transient (BUG-1). hasql surfaces that loss as a server error with an empty SQLSTATE, or as
-`UnexpectedRowCountStatementError 1 1 1`, and both used to be permanent. Script errors now
-follow the same SQLSTATE rule as statement errors. A new `isAmbiguousReply` marks exactly
-the lost-reply shapes. A send whose reply was lost may already have committed, so check it
-before re-sending. A new `DisconnectSpec` reproduces backend termination, backend SIGKILL,
-and an immediate restart against a dedicated cluster. The rules, the one extra transient
-failure the pool produces per dead connection, and the remaining `DriverSessionError` gap
-are in `docs/design/017-transient-error-classification.md`.
-
-Add non-destructive inspection reads across the family (IR-1): `peekMessages`,
-`peekArchivedMessages`, `lookupMessage`, `lookupArchivedMessage`, and
-`queueMetricsUnvalidated` in `pgmq-hasql`, the same five operations on the `Pgmq` effect in
-`pgmq-effectful` under both interpreters, and the `ArchivedMessage` record in `pgmq-core`.
-The reads observe a queue or its archive without leasing: `vt`, `read_ct`, and
-`last_read_at` are untouched. They accept any server-accepted queue name (including names
-`parseQueueName` rejects) and page by exclusive `msg_id` cursor, never `OFFSET`. See
-`docs/design/019-non-destructive-inspection-reads.md`.
-
-Breaking for `pgmq-effectful` consumers that interpret every `Pgmq` constructor: the effect
-gained five constructors.
+- All five ephemeral PostgreSQL root creators create, validate and tighten owned
+  roots to mode `0700`, reject unsafe path types/ownership before chmod and preserve
+  lifecycle registry contents.
+- Document inspection paging as a moving view: late commits and archival require a
+  first-page refresh. Real 100,000-row PGMQ 1.12/1.13 fixtures record scan/sort costs;
+  row limits do not bound query work or payload bytes. Consumer tests propagate
+  worker failures, and inspection tests cover actual response schemas, lossless
+  int64 clients and a restricted database role.
+- Coordinate all internal family bounds at `>=0.7 && <0.8`.
 
 ## 0.6.1.1 -- 2026-09-25
 

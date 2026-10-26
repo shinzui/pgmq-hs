@@ -1,11 +1,19 @@
 # Changelog for pgmq-migration
 
-## 0.7.0.0 -- 2026-10-25
+## 0.7.0.0 -- 2026-10-26
 
-Test infrastructure: create and validate owner-only (`0700`) ephemeral roots, tighten
-existing owned directories, reject unsafe paths and preserve lifecycle registry contents.
+### Bug Fixes
 
-- Append migration 0007: reject physical partitions before throttle updates and restrict missing-row fail-open to registered queue names. Existing triggers adopt the correction without recreation; ordinary crash recovery is retained.
+- Append `0007-notify-only-registered-queues.sql`: reject physical partitions before
+  throttle updates and restrict missing-row fail-open to registered queue names.
+  Existing triggers adopt the correction without recreation. Ordinary queues retain
+  crash fail-open until an explicit enable/reconcile restores the throttle row.
+  Migrations 0001–0006 are unchanged.
+
+### Other Changes
+
+- Ephemeral PostgreSQL roots are created/validated as owner-only (`0700`), existing
+  owned roots are tightened, unsafe paths are rejected and registry contents survive.
 
 ## 0.6.1.1 -- 2026-09-25
 

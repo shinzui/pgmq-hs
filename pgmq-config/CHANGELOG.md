@@ -1,20 +1,33 @@
 # Revision history for pgmq-config
 
-## 0.7.0.0 -- 2026-10-25
+## 0.7.0.0 -- 2026-10-26
 
-Test infrastructure: create and validate owner-only (`0700`) ephemeral roots, tighten
-existing owned directories, reject unsafe paths and preserve lifecycle registry contents.
+### Breaking Changes
 
-- Breaking: add `DetectedQueueNameCollision QueueName (NonEmpty Text)` and `UnsupportedNotifyOnPartitionedQueue QueueName`, with matching JSON tags/fields. Exhaustive report matches must handle both constructors.
-- Report foreign name collisions before creating a missing alias or sub-resources; report partition notifications without enabling or updating them. Drift still reconciles supported sub-resources against observed shape. Correct the guide's reconciliation and idempotence contract.
+- Add `DetectedQueueNameCollision QueueName (NonEmpty Text)` and
+  `UnsupportedNotifyOnPartitionedQueue QueueName`, with matching JSON tags and
+  fields. Exhaustive `ReconcileAction` matches must handle both constructors.
 
-Add hand-written ToJSON instances for ReconcileAction, QueueType, PartitionConfig
-and ObservedQueueType, with a new aeson ^>=2.2 library dependency. Reports use
-snake_case action tags and field names; optional throttle/premake values encode
-as null, preserving a declared server default. Goldens cover every current action
-and supporting queue shape. The encoding is a published compatibility surface
-under design note 020. These added instances are a PVP minor change carried by
-the next lockstep release; no version is bumped here.
+### New Features
+
+- Add hand-written `ToJSON` instances for `ReconcileAction`, `QueueType`,
+  `PartitionConfig` and `ObservedQueueType`, with an aeson `^>=2.2` library dependency.
+  Reports use snake_case tags and field names; optional throttle/premake values
+  encode as null, preserving declared defaults. Goldens cover every action and queue
+  shape. The encoding is a published compatibility surface under design note 020;
+  remove downstream orphan instances for these types.
+
+### Bug Fixes
+
+- Report foreign name collisions before creating missing aliases or sub-resources.
+- Report partition notifications without enabling or updating unsupported resources.
+  Drift still reconciles supported sub-resources against observed shape. Correct
+  the guide's reconciliation and idempotence contract.
+
+### Other Changes
+
+- Ephemeral PostgreSQL roots are created/validated as owner-only (`0700`), existing
+  owned roots are tightened, unsafe paths are rejected and registry contents survive.
 
 ## 0.6.1.1 -- 2026-09-25
 
