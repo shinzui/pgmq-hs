@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-25T20:33:49Z
       mode: "update"
       note: "Corrected partition identity guard, alias and ordinary-queue regression coverage, recovery wording, and serial test invocation."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-26T03:51:08Z
+      mode: "update"
+      note: "Add populated six-entry upgrade proof without trigger recreation and explicit native test selection."
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -75,7 +80,7 @@ Context and Orientation, which shows three notifications before and none after.
 ## Progress
 
 - [ ] M1: compiling tests reproduce partition notifications, including native leaf-alias paths, with a working listener control.
-- [ ] M2: immutable-ledger migration 0007 makes partition tests pass while ordinary throttling, post-crash delivery, and reconciliation recovery remain correct.
+- [ ] M2: immutable-ledger migration 0007 fixes fresh and populated six-entry installs without trigger recreation; ordinary throttling, post-crash delivery, and reconciliation recovery remain correct.
 - [ ] M3: delivery docs, Haddocks, capability evidence, ADR verification, and all affected Unreleased entries agree; documentation checks pass.
 
 
@@ -89,6 +94,10 @@ The 2026-10-25 review found that queue metadata does not establish physical rela
 leaf name can acquire alias metadata. A throttle row for that alias would also bypass an
 ELSIF-only fix. The revised migration tests physical partition membership before UPDATE;
 the new isolated cases must demonstrate the counterexamples and correction.
+
+The pre-implementation refresh found that `testPartitions` applies only the historical
+six-entry prefix. Fresh-install behavior and catalog convergence alone would leave already
+installed notification triggers untested; M2 now covers that transition explicitly.
 
 
 ## Decision Log
@@ -161,9 +170,12 @@ pg-migrate component named `pgmq`. The SQL runner applies each file in its own t
 records it, so a file is applied exactly once per database. Files are never edited after they
 ship: `pgmq-migration/test/Main.hs` pins the MD5 of the three historical local files in
 `testNativePayload`, compares `0004` and `0005` byte-for-byte to the vendored upstream upgrade
-scripts, and `testNativeComponent` spells out the ledger as a list. Every other expectation in
-that suite derives from `nativeMigrationNames`, except one positional count in
-`testConvergence`, which applies `take (if latest then 6 else 4)` migrations before comparing
+scripts, and `testNativeComponent` spells out the ledger as a list. Most ledger expectations in
+that suite derive from `nativeMigrationNames`. `testPartitions` deliberately installs through
+`0006` twice to test the historical 1.13 partition upgrade and re-entry; retain those
+checkpoints. They do not exercise notification triggers across a `0006` to `0007` upgrade.
+There is also a positional count in `testConvergence`, which applies
+`take (if latest then 6 else 4)` migrations before comparing
 the catalog to fresh upstream SQL; that `6` must become the ledger length when `0007` is
 appended. The convergence comparison excepts exactly three function bodies from the
 byte-for-byte catalog comparison:
@@ -501,6 +513,30 @@ table row `| \`0007-notify-only-registered-queues\` | Local notification fail-op
 add `0007-notify-only-registered-queues AppliedNow` to the sample applied-names output after the
 `0006` line.
 
+Prove the deployed upgrade path in a new serial case in
+`pgmq-migration/test/Main.hs`, using its existing `installPrefix settings 6` helper.
+The client fixture installs the latest ledger before tests run, and the public
+`Pgmq.Migration` API does not expose historical payloads for a client test to select.
+Keep prefix construction beside the packaged SQL files rather than introducing a public
+API or reading sibling-package sources. Start from the suite's clean database, install
+pg_partman using the existing required/skip policy, and bracket cleanup of the fixture.
+Add `postgresql-libpq` to this suite's test dependencies, reusing the dependency already
+used by hasql/config tests without changing the project's resolution or third-party pins.
+Adapt `NotifyChannelSpec`'s listener to connect to this suite's disposable database (pass its
+connection string from setup), subscribe to the ordinary, parent, and leaf channels, and
+check connection/input errors. Keep this transport helper local to the test suite.
+
+Create an ordinary queue and a numeric partitioned queue, enable both with interval zero,
+and store messages before applying the suffix. Capture the message IDs/payloads, trigger identities,
+and throttle settings. Show the pre-upgrade partition notification with a live listener,
+then drain pending events before running the full `pgmqMigrations` plan. Require six
+`AlreadyApplied` entries and only `0007` as `AppliedNow`, preserved data/trigger identities
+and throttle settings, silence on parent/leaf channels for new partition inserts, and
+continued ordinary delivery. Do not call enable or reconcile between the upgrade and these
+assertions: the existing cloned triggers must pick up the replaced function. A second
+migration run reports all seven entries `AlreadyApplied`. Keep the existing historical
+`testPartitions` checkpoints at six; this separate case supplies the missing upgrade proof.
+
 Run the migration suite and the new test in the `partman` shell, then the new test again with
 `PGMQ_TEST_SCHEMA_VERSION=1.12.0` (the stock fixture has upstream's trigger, which is silent
 for the normal partition fixture, so the test must pass there too and proves the contract is the same
@@ -591,7 +627,7 @@ All commands run from the repository root
 Milestone 1, after writing and registering the test:
 
 ```bash
-nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct --test-options='-p "/PartitionedNotifySpec/"'
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct --test-options='-j2 -p "/PartitionedNotifySpec/"'
 ```
 
 Expected before the fix (abbreviated):
@@ -608,10 +644,10 @@ Milestone 2, after appending the migration and updating the suite:
 ```bash
 md5 -q pgmq-migration/migrations/0007-notify-only-registered-queues.sql
 nix develop .#partman --command cabal test pgmq-migration:pgmq-migration-test --test-show-details=direct -j1 --test-options='-j1'
-nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct --test-options='-p "/PartitionedNotifySpec/"'
-PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct --test-options='-p "/PartitionedNotifySpec/"'
-nix develop .#partman --command cabal test pgmq-config --test-show-details=direct
-nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct --test-options='-j2 -p "/PartitionedNotifySpec/"'
+PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct --test-options='-j2 -p "/PartitionedNotifySpec/"'
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-config --test-show-details=direct --test-options='-j2'
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-hasql --test-show-details=direct --test-options='-j2'
 ```
 
 Expected: every migration test passes (record the observed count; component and
@@ -656,8 +692,9 @@ Acceptance is behavior, observed three ways.
 On the native ledger with `0007` applied, a partitioned queue with notifications enabled and
 three inserts produces no notification on `notifyChannelName` or on any partition channel
 within one second, and its throttle row's `last_notified_at` remains `to_timestamp(0)`. The
-same test passes with `PGMQ_TEST_SCHEMA_VERSION=1.12.0`. The same test fails on the ledger
-without `0007` (revert the manifest line locally to confirm, then restore it).
+same test passes with `PGMQ_TEST_SCHEMA_VERSION=1.12.0`. The M1 run records the failure
+before the fix; the six-entry upgrade case retains a reproducible failing-behavior control
+without editing the final manifest.
 
 An ordinary queue is unchanged: `NotifyChannelSpec` still receives exactly one notification on
 `notifyChannelName` for a probe send, and `NotifyCrashSpec` still receives a notification on an
@@ -667,6 +704,9 @@ reconcile.
 Native alias acceptance also proves metadata alone cannot enable fail-open and a matching
 leaf throttle row cannot be updated or publish. Ordinary nonzero throttling still suppresses
 a second in-window send; explicit post-crash reconciliation restores its declared interval.
+
+The populated six-entry upgrade fixes existing triggers without reinstalling them, preserves
+messages and throttle settings, applies only `0007`, and is a no-op on the next ledger run.
 
 The ledger is consistent: `testNativeComponent` lists seven names, `testNativePayload` pins the
 new digest, and the latest catalog checkpoint converges with fresh upstream 1.13 SQL with only
@@ -701,6 +741,10 @@ No Haskell type or function signature changes. New artifacts:
   `Pgmq.Hasql.Statements.Types`.
 - `docs/adr/notification-override-lineage-and-partitioned-queue-boundary.md`.
 
+The populated-upgrade fixture uses the migration suite's existing `pg-migrate` dependency
+and packaged historical payloads. Its only added test dependency is `postgresql-libpq`,
+already used elsewhere in this project; no public interface or library dependency changes.
+
 Libraries: `postgresql-libpq` for `LISTEN` (there is no hasql API for notifications), `tasty`
 and `tasty-hunit` as in the rest of the suite, `ephemeral-pg` through the existing
 `EphemeralDb` helper. The `partman` shell is required for the partitioned test and the
@@ -712,3 +756,7 @@ UPDATE, added native alias and listener-liveness acceptance, clarified explicit 
 recovery, preserved existing Unreleased entries, and passed serial execution to Tasty itself.
 The membership-only design is superseded by the notification boundary ADR; implementation
 and live SQL acceptance remain pending.
+
+Pre-implementation refresh (2026-10-25): Added populated 0006-to-0007 upgrade acceptance in the
+serial migration suite using packaged payloads and existing triggers; retained historical
+partition checkpoints.

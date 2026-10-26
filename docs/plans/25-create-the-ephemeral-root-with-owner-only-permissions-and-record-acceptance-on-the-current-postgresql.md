@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-25T20:33:49Z
       mode: "update"
       note: "Included six-package inspection handoff, safe existing-root upgrades, final-candidate acceptance ordering, and runtime evidence."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-26T03:51:08Z
+      mode: "update"
+      note: "Format before archiving and distinguish native-only tests inside stock-selected acceptance."
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -67,7 +72,9 @@ The 2026-10-25 review found a fifth root creator in `pgmq-inspect/test/Ephemeral
 explicit six-package release handoffs in the changelogs, and new JSON/effect API changes
 already waiting for this release. `Justfile`'s `nix-test` runs only hasql and migration tests;
 it is not evidence for every suite. The migration suite prints
-`Partition test versions: <server_version> / pg_partman <extversion>`.
+`Partition test versions: <server_version> / pg_partman <extversion>`. The pre-implementation
+refresh found that legacy config fixtures remain native-only during stock-selected runs,
+and moved formatting ahead of archive creation to keep archive identities current.
 
 
 ## Decision Log
@@ -184,10 +191,13 @@ already-added `Pgmq` constructors (`PeekMessages`, `PeekArchivedMessages`, `Look
 initial inspection package, in addition to the other accumulated changes. Replace pending
 inspection release-handoff wording with the concrete inclusion in this candidate.
 
+Finalize source, versions, bounds, changelogs, and `nix fmt` before creating archives.
 Build all packages, run `cabal check` from each of the six library directories, and produce
 source archives for those six explicit targets. Do not use `sdist all` while asserting that
 it emits only six archives: `pgmq-bench` is also a project package. Inspect migration payloads
-and new report goldens inside the archives, and record archive hashes. Extract these six
+and new report goldens inside the archives, and record archive hashes. If any packaged file
+changes afterward, including a formatter change, regenerate and revalidate those archives
+before recording their hashes. Extract these six
 archives into a fresh temporary validation directory and compile/test using an explicit
 Cabal project whose packages are only the extracted candidates. Carry the repository's
 compiler, dependency-source pins, constraints, and dependency test exclusions into that
@@ -206,6 +216,11 @@ config backends; stock 1.12 covers all schema-selectable client suites, includin
 The separate `-f-effectful` config run must remain independent of the enabled run. Confirm
 partition cases actually ran under `PGMQ_REQUIRE_PARTMAN=1`; record skipped tests as skips.
 Use Tasty serial execution for the migration suite and two workers for client suites.
+Set `PGMQ_TEST_SCHEMA_VERSION=1.13.0` explicitly for native client runs so an inherited
+shell setting cannot silently select stock SQL. The migration suite always tests its native
+ledger and catalog fixtures. `pgmq-config`'s existing `NotifyCrashSpec` and `ForeignQueueSpec`
+likewise always install native SQL even in a stock-selected suite run; list those separately
+from stock acceptance. New collision and partition tests must honor the schema selector.
 
 Capture `Partition test versions: <server_version> / pg_partman <extversion>` from the
 migration test output. If absent, query `current_setting('server_version')` and
@@ -248,10 +263,11 @@ For M2:
 
 ```bash
 rg -n '^version:|pgmq-.*(>=|\^>=)' --glob '*.cabal'
+nix fmt
+git diff --check
 nix develop --command cabal build all
 nix develop --command cabal sdist pgmq-core pgmq-hasql pgmq-effectful pgmq-migration pgmq-config pgmq-inspect --output-directory=dist-sdist-0.7.0.0
 tar tzf dist-sdist-0.7.0.0/pgmq-migration-0.7.0.0.tar.gz
-nix fmt
 git diff --check
 ```
 
@@ -265,10 +281,10 @@ For M3:
 ```bash
 nix develop .#partman --command cabal build all
 nix develop .#partman --command cabal test pgmq-migration:pgmq-migration-test --test-show-details=direct -j1 --test-options='-j1'
-nix develop .#partman --command cabal test pgmq-core pgmq-hasql pgmq-effectful pgmq-config pgmq-inspect -feffectful --test-show-details=direct --test-options='-j2'
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-core pgmq-hasql pgmq-effectful pgmq-config pgmq-inspect -feffectful --test-show-details=direct --test-options='-j2'
 PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-hasql pgmq-effectful pgmq-config pgmq-inspect -feffectful --test-show-details=direct --test-options='-j2'
 nix develop .#partman --command cabal build pgmq-config -f-effectful
-nix develop .#partman --command cabal test pgmq-config -f-effectful --test-show-details=direct --test-options='-j2'
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-config -f-effectful --test-show-details=direct --test-options='-j2'
 nix develop --command just effectful-floor
 nix develop --command just nix-test
 nix flake check
@@ -302,7 +318,9 @@ source archives contain the manifest, seven SQL payloads, all old/new JSON golde
 inspection resources; the extracted candidate builds/tests without workspace-package fallback.
 All prior published changelog sections remain unchanged.
 
-The release evidence ties those results to the tested candidate and archive identities,
+The release evidence includes the populated six-entry-to-seven-entry notification upgrade,
+and distinguishes schema-selectable stock cases from dedicated native-only fixtures.
+It ties those results to the tested candidate and archive identities,
 records the running server/extension versions, and distinguishes external inventory from
 consumer acceptance. Both ADR updates reference that evidence and retain historical facts.
 
@@ -336,3 +354,6 @@ Revision note (2026-10-25): included the inspection handoff, existing-root corre
 verification, six-package archives, complete release notes, Tasty worker controls, and
 candidate-before-evidence ordering. Removed unsafe shared-root deletion and installed-version
 guesses. Implementation remains pending.
+
+Pre-implementation refresh (2026-10-25): Moved formatting before archives and made native/stock
+evidence selection explicit, including the existing-trigger upgrade result.

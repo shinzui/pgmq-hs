@@ -16,6 +16,11 @@ provenance:
       at: 2026-10-25T20:33:49Z
       mode: "update"
       note: "Corrected current-tree release scope, shared ownership, dependencies, and integration acceptance across all three children."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-26T03:51:08Z
+      mode: "update"
+      note: "Refresh existing-trigger upgrade acceptance, schema evidence boundaries, and archive ordering before implementation."
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -212,7 +217,10 @@ as part of its unchanged-behavior gate.
 
 The migration ledger (`pgmq-migration/migrations/manifest`, the new `0007` file, and the
 ledger-derived expectations in `pgmq-migration/test/Main.hs`) is owned by EP-1. EP-3 records
-the new file's MD5 in the release evidence and does not change the ledger.
+the new file's MD5 in the release evidence and does not change the ledger. EP-1 also owns
+the populated six-entry-to-seven-entry upgrade case in the serial migration suite: existing
+triggers must pick up the fix without enable/reconcile calls. EP-3 retains that result in
+candidate evidence alongside fresh-install acceptance.
 
 Changelogs: EP-1 owns the root `CHANGELOG.md` notification entry and EP-2 appends its
 reconciler entry to the same existing Unreleased section, preserving unrelated entries.
@@ -253,7 +261,10 @@ that note).
 All three children are Not Started. EP-1 and EP-2 are eligible; EP-3 is blocked until both
 are Complete. Implementation milestones live only in the child plans. Final integration
 requires the six-package candidate to pass EP-3's native/stock schema matrix after version
-and bound changes, with the new migration, report JSON cases, and owner-only root behavior.
+and bound changes, with the new migration (including existing-trigger upgrade acceptance),
+report JSON cases, and owner-only root behavior. The pre-implementation refresh was checked
+against commit `5cb33cf`; no implementation or runtime acceptance is claimed by this update.
+Start with EP-1 M1; retain EP-1 → EP-2 → EP-3 as the default sequence.
 
 
 ## Surprises & Discoveries
@@ -267,6 +278,12 @@ next lockstep release. `ReconcileAction` now has a hand-written JSON encoder, so
 the constructors would leave an incomplete encoder. The original membership-only SQL guard
 also misses leaf-name metadata aliases; EP-1 now checks relation identity before either
 notification branch. These findings are reflected in all affected children.
+
+The pre-implementation refresh on 2026-10-25 found that `testPartitions` deliberately stops
+at migration `0006`, while the new notification cases primarily described fresh installs.
+EP-1 now proves the populated upgrade on existing triggers. Stock-selected config runs also
+contain dedicated native-only fixtures, which EP-2 and EP-3 must label accurately. EP-3
+formats before archiving and regenerates archives after any packaged-file change.
 
 
 ## Decision Log
@@ -333,3 +350,7 @@ Revision note (2026-10-25): reviewed against the current tree and corrected the 
 guard, report-codec coverage, shared-file ownership, whole-child ordering, root-upgrade
 behavior, six-package release handoff, and candidate-before-evidence sequence. No child has
 been implemented by this update.
+
+Pre-implementation refresh (2026-10-25): Added existing-trigger upgrade acceptance, explicit
+schema evidence boundaries, and format-before-archive ordering; retained all three children and
+their dependencies.

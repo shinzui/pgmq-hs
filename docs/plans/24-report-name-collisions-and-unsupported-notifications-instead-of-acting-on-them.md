@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-25T20:33:49Z
       mode: "update"
       note: "Added required report JSON cases and goldens, schema-selectable collision fixtures, and effective-shape acceptance."
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-26T03:51:08Z
+      mode: "update"
+      note: "Clarify repeated collision fixtures, native-only fixture evidence, and state-qualified idempotence."
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -87,7 +92,9 @@ implementation. Provide concise evidence.
 The 2026-10-25 review found `reconcileActionFields` and `JsonGoldenSpec` added since this
 plan was drafted. The constructor change must update those in the same milestone. A new
 collision spec copied literally from `ForeignQueueSpec` would always install native SQL,
-so this plan now requires the schema-selectable isolated fixture.
+so this plan now requires the schema-selectable isolated fixture. The pre-implementation
+refresh also distinguishes native-only legacy fixtures inside stock-selected runs and
+qualifies repeat-run idempotence by database state, preserving post-crash restoration.
 
 
 ## Decision Log
@@ -302,8 +309,9 @@ the report assertions when adding the constructors. Never commit an uncompilable
 Use a test group literally named `CollisionSpec` so the filter below selects it.
 
 Expand collision acceptance to multiple differently cased aliases, a repeated reconciliation,
-and an exact lowercase row coexisting with aliases. The first two must keep all sub-resources
-absent; the last reports the normal existence/drift action followed by one collision action
+and an exact lowercase row coexisting with aliases. For the alias-only multiple-name and
+repeated-run cases, all sub-resources must remain absent; the exact-row case reports the
+normal existence/drift action followed by one collision action
 and reconciles declared sub-resources. Compare the collision payload as a set unless the
 implementation explicitly chooses and documents a stable order. Also cover a foreign name
 that does not collide, and require the unrelated declared queue to proceed in every case.
@@ -318,12 +326,16 @@ For collision fixtures use `EphemeralDb.withPgmqDb` with fresh database lifetime
 and backend. Copying `ForeignQueueSpec`'s unconditional native install would silently bypass
 `PGMQ_TEST_SCHEMA_VERSION=1.12.0`; the new cases must exercise both schema selections.
 This is snapshot-based collision detection, not serialization against a foreign client
-creating an alias after the snapshot. Preserve and document that concurrency limit.
+creating an alias after the snapshot. Preserve and document that concurrency limit. Keep the
+existing `NotifyCrashSpec` and `ForeignQueueSpec` native-only: their dedicated setup explicitly
+installs the ledger even when the suite is selected with `PGMQ_TEST_SCHEMA_VERSION=1.12.0`.
+Report those cases as native evidence within the stock-selected run; only the new
+schema-selectable collision cases and the partition/config fixtures prove the stock path.
 
 Run in the `partman` shell:
 
 ```bash
-nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct --test-options='-p "/CollisionSpec/ || /unsupported/"'
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct --test-options='-j2 -p "/CollisionSpec/ || /unsupported/"'
 ```
 
 Expected red output (abbreviated): the collision case reports `2` registry rows where `1` was
@@ -406,9 +418,9 @@ included by the Cabal source-file glob.
 Then tighten the Milestone 1 tests to assert the constructors, and run:
 
 ```bash
-nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct --test-options='-j2'
 nix develop .#partman --command cabal build pgmq-config -f-effectful
-nix develop .#partman --command cabal test pgmq-config -f-effectful --test-show-details=direct
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-config -f-effectful --test-show-details=direct --test-options='-j2'
 ```
 
 The flag-off build matters: plans 16 and 17 both found that an accidental `effectful` import
@@ -441,7 +453,9 @@ partitioned queue are reported as `UnsupportedNotifyOnPartitionedQueue` and neve
 and their fields, and add `DetectedQueueNameCollision` and `UnsupportedNotifyOnPartitionedQueue`
 to the example's commentary; replace the opening sentence "Every operation is idempotent —
 calling it repeatedly is safe and produces no errors or duplicate side effects" with a
-sentence that a second run against an unchanged config issues no mutations and that the one
+sentence that a second run with an unchanged config and unchanged, already-satisfied
+database state issues no mutations, while crash-lost throttle rows are restored on a later
+run; explain that the one
 in-place mutation (throttle drift) and the reported-not-repaired cases are described on
 `ensureQueues`; in "Idempotency Guarantees", remove the blanket "Every underlying pgmq operation is
 idempotent" claim, retain only qualified per-function descriptions consistent with design
@@ -470,10 +484,10 @@ All commands run from the repository root
 `/Users/shinzui/Keikaku/bokuno/libraries/pgmq-hs-project/pgmq-hs`.
 
 ```bash
-nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct --test-options='-j2'
 nix develop .#partman --command cabal build pgmq-config -f-effectful
-nix develop .#partman --command cabal test pgmq-config -f-effectful --test-show-details=direct
-PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct
+PGMQ_TEST_SCHEMA_VERSION=1.13.0 nix develop .#partman --command cabal test pgmq-config -f-effectful --test-show-details=direct --test-options='-j2'
+PGMQ_TEST_SCHEMA_VERSION=1.12.0 nix develop .#partman --command cabal test pgmq-config -feffectful --test-show-details=direct --test-options='-j2'
 nix fmt
 git diff --check
 just docs-check
@@ -562,3 +576,6 @@ Revision note (2026-10-25): added the current JSON wire-contract obligations, co
 collision/sub-resource and effective-shape acceptance, schema-selectable isolated fixtures,
 and snapshot/idempotence limits. Existing reconciliation policy and constructor signatures
 are retained; implementation remains pending.
+
+Pre-implementation refresh (2026-10-25): Clarified alias-only repeat fixtures, native-only
+evidence within stock-selected runs, and database-state-qualified idempotence.
