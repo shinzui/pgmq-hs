@@ -175,8 +175,8 @@ notes that carry the affected contracts are
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Gate the notification fail-open on a real queue row and state the partitioned-queue contract | docs/plans/23-gate-the-notification-fail-open-on-a-real-queue-row-and-state-the-partitioned-queue-contract.md | None | None | In Progress |
-| 2 | Report name collisions and unsupported notifications instead of acting on them | docs/plans/24-report-name-collisions-and-unsupported-notifications-instead-of-acting-on-them.md | None | EP-1 | Not Started |
+| 1 | Gate the notification fail-open on a real queue row and state the partitioned-queue contract | docs/plans/23-gate-the-notification-fail-open-on-a-real-queue-row-and-state-the-partitioned-queue-contract.md | None | None | Complete |
+| 2 | Report name collisions and unsupported notifications instead of acting on them | docs/plans/24-report-name-collisions-and-unsupported-notifications-instead-of-acting-on-them.md | None | EP-1 | In Progress |
 | 3 | Create the ephemeral root with owner-only permissions and record acceptance on the current PostgreSQL | docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md | EP-1, EP-2 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -263,13 +263,11 @@ that note).
 
 ## Progress
 
-All three children are Not Started. EP-1 and EP-2 are eligible; EP-3 is blocked until both
-are Complete. Implementation milestones live only in the child plans. Final integration
-requires the six-package candidate to pass EP-3's native/stock schema matrix after version
-and bound changes, with the new migration (including existing-trigger upgrade acceptance),
-report JSON cases, and owner-only root behavior. The pre-implementation refresh was checked
-against commit `5cb33cf`; no implementation or runtime acceptance is claimed by this update.
-Start with EP-1 M1; retain EP-1 → EP-2 → EP-3 as the default sequence.
+EP-1 is Complete: the seven-entry ledger passes fresh and populated-upgrade acceptance,
+partition/alias silence, ordinary throttling and crash recovery. EP-2 is In Progress.
+EP-3 remains blocked on EP-2 completion. Runtime evidence so far uses PostgreSQL 18.6 /
+pg_partman 5.5.0. Final integration still requires the six-package 0.7.0.0 candidate matrix,
+archive validation, and owner-only-root acceptance. Child plans hold milestone evidence.
 
 
 ## Surprises & Discoveries

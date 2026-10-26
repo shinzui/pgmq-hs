@@ -74,6 +74,10 @@ detachArchive = preparable sql queueNameEncoder D.noResult
 -- NOTIFY is fire-and-forget: notifications are not queued for disconnected
 -- listeners, and a configured throttle interval suppresses them by design. Every
 -- consumer needs a poll fallback in addition to LISTEN.
+--
+-- Normal partitioned queues receive no insert notifications on their documented
+-- parent channel. See @docs/design/015-notification-delivery-contract.md@.
+-- The reconciler reports partitioned notification declarations as unsupported.
 enableNotifyInsert :: Statement EnableNotifyInsert ()
 enableNotifyInsert = preparable sql enableNotifyInsertEncoder D.noResult
   where

@@ -1,5 +1,8 @@
 # Capability catalog log
 
+## 2026-10-26
+* **Update**: CAP-4: partitioned queues receive no insert notifications; post-crash duration stated
+
 ## 2026-10-20
 * **Update**: CAP-12: standalone CLI, served prefix-safe OpenAPI, exact-int64 client and response-schema acceptance, restricted-role tests and owned adoption guide (ExecPlan 31)
 * **Update**: CAP-12: shared WebSocket metrics feed, reconnecting listener and concurrency/fault/workload evidence (ExecPlan 30)

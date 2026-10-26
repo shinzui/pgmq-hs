@@ -103,3 +103,5 @@ NOTIFY is fire-and-forget. Notifications are not queued for disconnected listene
 configured throttle interval suppresses them by design, so every consumer needs a poll
 fallback in addition to LISTEN. See `docs/design/015-notification-delivery-contract.md`
 for the crash-recovery half of the contract.
+
+Normal partitioned queues receive no insert notifications; see [the delivery contract](015-notification-delivery-contract.md).

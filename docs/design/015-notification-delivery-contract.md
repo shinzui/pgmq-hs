@@ -68,7 +68,7 @@ The consequence is that PostgreSQL truncates the table during crash recovery (do
 intended behaviour — it is what makes unlogged tables fast). Before migration 0003 the
 trigger notified only when its throttle `UPDATE` matched a row, so after a crash it fired,
 matched nothing, and **silently never notified again**. Sends succeeded, messages
-accumulated, listeners starved. Only an application restart healed it, because
+accumulated, listeners starved. An explicit enable/reconcile invocation heals it, commonly at application startup, because
 `ensureQueues` reads the same truncated table and re-enables what is missing.
 
 The rule adopted here:
@@ -95,8 +95,10 @@ extra; a throttle-suppressed insert pays one additional index probe.
 
 The trigger deliberately does **not** re-insert the row. The configured interval is gone —
 that is the crash's data loss — and inventing one in the hot path would silently change
-throttling for the queue. The degradation is bounded and self-correcting: unthrottled
-notifications until the next reconcile restores the configured value.
+throttling for the queue. After a crash, ordinary queues remain unthrottled until an explicit enable or reconcile
+call restores the configured interval, commonly at application startup. A process restart
+is not required by either API. Until that call, every inserting transaction pays PostgreSQL
+notification serialization at commit. Recovery is not automatic.
 
 One sharp edge inherited from the queue-name aliasing family (design note 016):
 `enable_notify_insert` stores the throttle row under the caller's original casing, while
@@ -106,7 +108,8 @@ fail-open converts that mismatch from "never notify" (the pre-0003 behaviour) in
 "notify unthrottled on every insert", which no re-enable under the same mixed-case name
 can heal. This is unreachable through pgmq-hs, whose `parseQueueName` rejects the casing
 at every entry path, but remains open to any non-Haskell caller; the detection and
-remediation are design note 016's.
+remediation are design note 016's. Migration 0007 suppresses this missing-row fail-open
+when no exact lowercase metadata row exists. It does not repair existing aliases.
 
 `pgmq-config/test/NotifyCrashSpec.hs` drives the real cycle: start PostgreSQL, enable
 notify, SIGQUIT it, restart on the same data directory, and prove that a post-recovery send
@@ -118,6 +121,44 @@ commit still in the WAL buffers — including the schema install itself. Issue a
 before the crash. It flushes WAL and dirty buffers to the OS, which survives a process
 kill, and it does not make unlogged tables crash-safe, so the behaviour under test is
 preserved exactly.
+
+
+## Fail-open applies only to a registered queue
+
+Migration `0007-notify-only-registered-queues.sql` first returns for an actual partition
+relation (`pg_class.relispartition` at `TG_RELID`), before the throttle UPDATE. It then
+requires an exact extracted-name row in `pgmq.meta` for missing-row fail-open. The relation
+check costs a catalog lookup on every trigger invocation; the metadata and throttle probes
+run only when UPDATE matches nothing. The earlier 0003 explanation above describes its
+historical body, not the complete current guard.
+
+PostgreSQL clones the parent row trigger onto each leaf, where `TG_TABLE_NAME` is the leaf
+(`q_pq_p0`) and the extracted name is `pq_p0`. Before 0007, that missing throttle row caused
+an unthrottled notification on the leaf channel. The review reproduced:
+
+```sql
+SELECT pgmq.create_partitioned('pq', '10', '100');
+SELECT pgmq.enable_notify_insert('pq', 250);
+LISTEN "pgmq.q_pq.INSERT";
+LISTEN "pgmq.q_pq_p0.INSERT";
+SELECT pgmq.send('pq', '{"a":1}'::jsonb);
+SELECT pgmq.send('pq', '{"a":2}'::jsonb);
+SELECT pg_sleep(0.3);
+SELECT pgmq.send('pq', '{"a":3}'::jsonb);
+SELECT 1 AS flush;
+```
+
+```text
+Before 0007: three notifications on pgmq.q_pq_p0.INSERT; last_notified_at remained epoch.
+After 0007: no notifications; last_notified_at remains epoch.
+```
+
+Normal partitioned queues receive no insert notifications on native or stock schemas.
+`notifyChannelName` for a partitioned queue names a parent channel nothing publishes to.
+Native 0007 additionally rejects leaf-name metadata aliases, including aliases with their
+own throttle row, before any timestamp advances. Stock SQL is not hardened against those
+manually constructed aliases. Resolving a leaf's parent to deliver on its channel would be
+a separate upstream feature, outside this override correction.
 
 
 ## Reconciling the same queue from two replicas is convergent
@@ -162,4 +203,4 @@ traffic. See [the compatibility ADR](../adr/pgmq-1.12-1.13-compatibility.md).
 - Design note 014: the NULL-parameter contract. Migration 0003 also adds the server-side
   `COALESCE(throttle_interval_ms, 250)` that note calls for, for non-Haskell callers.
 - Design note 016: queue-name validation and the mixed-case remediation, including the
-  aliased throttle key that fail-open turns into permanent unthrottled notification.
+  aliased throttle key and its remediation boundary.

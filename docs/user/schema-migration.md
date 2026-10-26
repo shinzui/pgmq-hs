@@ -29,7 +29,7 @@ Only `pgmqMigrations`, `AlternativeHistoryPolicy`, `SourceLedgerPolicy`,
 ## What the component contains
 
 `pgmqMigrations :: Either DefinitionError MigrationComponent` is a component named `pgmq`
-with no dependencies and six migrations, ending at PGMQ 1.13.0:
+with no dependencies and seven migrations, ending at PGMQ 1.13.0:
 
 | Migration | Purpose |
 |-----------|---------|
@@ -39,6 +39,7 @@ with no dependencies and six migrations, ending at PGMQ 1.13.0:
 | `0004-upgrade-v1.12.0` | The two pristine upstream upgrades delivering grouped-head reads and polling |
 | `0005-upgrade-v1.13.0` | Pristine upstream premake, default-partition metrics and existing partitioned identity upgrade |
 | `0006-preserve-partitioned-reentry-v1.13.0` | Local four-argument partition function restoring queue and archive registration guards |
+| `0007-notify-only-registered-queues` | Reject physical partitions before throttle updates; restrict missing-row fail-open to registered queues |
 
 The baseline MD5 remains `faa9b8800005f80fbdf6a33d071183d2`; tests pin all three historical
 payloads, compare new upstream payloads byte-for-byte, and compare the 1.12 checkpoint and
@@ -255,6 +256,7 @@ After a successful import, the native plan reports:
 0004-upgrade-v1.12.0            AppliedNow
 0005-upgrade-v1.13.0            AppliedNow
 0006-preserve-partitioned-reentry-v1.13.0 AppliedNow
+0007-notify-only-registered-queues AppliedNow
 ```
 
 `0002` is the point of the exercise. It is the first migration the native runner applies on

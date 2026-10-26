@@ -226,6 +226,10 @@ detachArchive :: QueueName -> Session ()
 detachArchive q = statement q Stmt.detachArchive
 
 -- | Enable insert notifications for a queue (pgmq 1.7.0+)
+--
+-- Normal partitioned queues receive no insert notifications on their documented
+-- parent channel. See @docs/design/015-notification-delivery-contract.md@.
+-- The reconciler reports partitioned notification declarations as unsupported.
 enableNotifyInsert :: EnableNotifyInsert -> Session ()
 enableNotifyInsert config = statement config Stmt.enableNotifyInsert
 

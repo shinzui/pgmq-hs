@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix native partition notification storms with append-only migration 0007; ordinary crash fail-open lasts until an explicit enable/reconcile restores the throttle row. Clarify partition silence and recovery in public notification documentation.
+
 `pgmq-inspect` is runnable from a database URL and serves OpenAPI 3 at
 `/openapi.json`. Its isolated connections have finite statement/lock/connect/
 acquisition budgets; CLI integers and CORS are checked before allocation. Relative

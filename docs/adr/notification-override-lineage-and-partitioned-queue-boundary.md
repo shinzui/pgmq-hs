@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted design, 2026-10-25. Implementation and live acceptance remain pending in
+Accepted, 2026-10-25; implemented and verified 2026-10-26 in
 [ExecPlan 23](../plans/23-gate-the-notification-fail-open-on-a-real-queue-row-and-state-the-partitioned-queue-contract.md)
 under [MasterPlan 6](../masterplans/6-close-the-notification-reconciler-and-evidence-gaps-surfaced-by-the-0-6-1-0-review.md).
 This record uses the repository's plain-Markdown ADR convention.
@@ -18,11 +18,11 @@ The original review evidence is in
 
 A metadata-membership check alone does not establish that the relation is an ordinary
 queue. The checked-in `vendor/pgmq/pgmq-extension/sql/pgmq.sql` creates tables with
-`IF NOT EXISTS` and inserts caller-supplied queue names into `pgmq.meta`. Code inspection
-therefore identifies a counterexample: registering a name matching an existing leaf can
+`IF NOT EXISTS` and inserts caller-supplied queue names into `pgmq.meta`. Regression acceptance
+also demonstrates a counterexample: registering a name matching an existing leaf can
 give that leaf metadata without changing its physical shape. A throttle row keyed to that
 alias can also reach the notification function's UPDATE branch, bypassing a fail-open-only
-guard. ExecPlan 23 must reproduce both cases before accepting the fix.
+guard. ExecPlan 23 reproduced both cases before applying the fix.
 
 PostgreSQL exposes physical partition membership as `pg_class.relispartition`; this lets
 the trigger inspect the relation identified by `TG_RELID` without finding its parent or
@@ -51,8 +51,10 @@ if the application does not reconcile the declared notification configuration.
 ## Consequences and verification
 
 EP-1 owns the migration, native alias cases, normal native/stock partition cases, listener
-liveness controls, and ordinary throttle/crash regression checks. No runtime verification
-is claimed by this design review. Implementation must record results before completion.
+liveness controls, and ordinary throttle/crash regression checks. Live acceptance on PostgreSQL 18.6 / pg_partman 5.5.0 passed the 12-case serial migration
+suite, including a populated six-entry upgrade with unchanged trigger identities and data.
+Native hasql/config suites passed 116/70 cases; stock 1.12 normal partition/throttle cases
+passed with three explicit native-only hardening skips.
 The relation check adds a catalog lookup to each trigger invocation; retain that cost in
 the delivery design note instead of describing the new guard as only a zero-update probe.
 

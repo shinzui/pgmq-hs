@@ -4,7 +4,7 @@
 module Main (main) where
 
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, finally, try)
 import Control.Monad (filterM, forM_)
 import Data.ByteString qualified as ByteString
 import Data.Foldable (toList)
@@ -56,8 +56,11 @@ import Database.PostgreSQL.Migrate.Internal
     migrationNameText,
     planDescription,
   )
+
 -- MigrationDescription's 'migrationId' field would shadow the smart constructor
 -- of the same name imported above, so it is reached through this alias only.
+
+import Database.PostgreSQL.LibPQ qualified as PQ
 import Database.PostgreSQL.Migrate.Internal qualified as MigrateInternal
 import EphemeralPg
   ( Config (temporaryRoot),
@@ -66,6 +69,7 @@ import EphemeralPg
     defaultConfig,
     withCachedConfig,
   )
+import EphemeralPg qualified as Pg
 import Hasql.Connection qualified as Connection
 import Hasql.Connection.Settings qualified as Settings
 import Hasql.Decoders qualified as Decoders
@@ -74,6 +78,7 @@ import Hasql.Session (Session)
 import Hasql.Session qualified as Session
 import Hasql.Statement (preparable)
 import Hasql.Statement qualified as Statement
+import NotifyListener (awaitNotify, withListener)
 import Pgmq.Migration qualified as Migration
 import Pgmq.Migration.History.HasqlMigration
   ( AlternativeHistoryPolicy (..),
@@ -119,13 +124,13 @@ main = do
     case connResult of
       Left err -> error $ "Failed to connect: " <> show err
       Right conn ->
-        defaultMain (tests connSettings conn)
+        defaultMain (tests (Pg.connectionString db) connSettings conn)
   case result of
     Left startErr -> error $ "Failed to start temp database: " <> show startErr
     Right () -> pure ()
 
-tests :: Settings.Settings -> Connection.Connection -> TestTree
-tests settings conn =
+tests :: Text -> Settings.Settings -> Connection.Connection -> TestTree
+tests conninfo settings conn =
   testGroup
     "pgmq-migration"
     [ testGroup
@@ -137,7 +142,8 @@ tests settings conn =
         "native runner"
         [ testCase "fresh install applies once and is idempotent" (testNativeRunner settings conn),
           testCase "1.12 and 1.13 catalog convergence" (testConvergence conn),
-          testCase "populated partition upgrades and spill recovery" (testPartitions settings conn)
+          testCase "populated partition upgrades and spill recovery" (testPartitions settings conn),
+          testCase "existing triggers adopt notification correction on populated upgrade" (testNotifyUpgrade conninfo settings conn)
         ],
       testGroup
         "history import"
@@ -155,7 +161,8 @@ testNativePayload conn = do
   forM_
     [ ("0001-install-v1.11.0.sql", "faa9b8800005f80fbdf6a33d071183d2"),
       ("0002-schema-management-comment.sql", "f3010777d47ec6d4f7d92a179bcf09b8"),
-      ("0003-notify-crash-safety-and-locking.sql", "e0a66c96bd8811607440dbca0cb302ea")
+      ("0003-notify-crash-safety-and-locking.sql", "e0a66c96bd8811607440dbca0cb302ea"),
+      ("0007-notify-only-registered-queues.sql", "2892dc6622062d1530a3fa29c17039bb")
     ]
     $ \(name, digest) -> do
       bytes <- readMigration name
@@ -183,7 +190,7 @@ testConvergence :: Connection.Connection -> IO ()
 testConvergence conn = forM_ [False, True] $ \latest -> do
   resetDb conn
   names <- nativeMigrationNames
-  forM_ (take (if latest then 6 else 4) names) $ \name ->
+  forM_ (take (if latest then length names else 4) names) $ \name ->
     readMigration (T.unpack name <> ".sql") >>= runSql conn . Text.decodeUtf8
   upgraded <- schemaSnapshot conn
   resetDb conn
@@ -339,6 +346,60 @@ testPartitions settings conn = do
       resetDb conn
       runSql conn "DROP EXTENSION pg_partman CASCADE"
 
+-- | Install six entries, preserve deployed trigger OIDs/data/settings, then apply 0007.
+testNotifyUpgrade :: Text -> Settings.Settings -> Connection.Connection -> IO ()
+testNotifyUpgrade conninfo settings conn = do
+  required <- (== Just "1") <$> lookupEnv "PGMQ_REQUIRE_PARTMAN"
+  available <- queryText conn "SELECT EXISTS (SELECT FROM pg_available_extensions WHERE name='pg_partman')::text"
+  if available /= "true"
+    then if required then assertFailure "pg_partman required" else putStrLn "SKIPPED: notification upgrade requires pg_partman"
+    else flip finally (resetDb conn >> runSql conn "DROP EXTENSION IF EXISTS pg_partman CASCADE") $ do
+      resetDb conn
+      runSql conn "CREATE SCHEMA IF NOT EXISTS partman; CREATE EXTENSION IF NOT EXISTS pg_partman SCHEMA partman"
+      installPrefix settings 6
+      runSql conn "SELECT pgmq.create('notify_ordinary'); SELECT pgmq.create_partitioned('notify_partition','10','100'); SELECT pgmq.enable_notify_insert('notify_ordinary',0); SELECT pgmq.enable_notify_insert('notify_partition',0)"
+      withListener conninfo "pgmq.q_notify_partition_p0.INSERT" $ \listener -> do
+        runSql conn "SELECT pgmq.send('notify_partition','{\"before\":true}')"
+        beforeNotify <- awaitNotify listener 20
+        fmap PQ.notifyRelname beforeNotify @?= Just "pgmq.q_notify_partition_p0.INSERT"
+        runSql conn "SELECT pgmq.send('notify_ordinary','{\"before\":true}')"
+        before <- queryText conn notifyUpgradeSnapshot
+        plan <- nativePlan
+        report <- runMigrationPlan defaultRunOptions settings plan >>= either (assertFailure . show) pure
+        map outcome (toList (results report)) @?= replicate 6 AlreadyApplied <> [AppliedNow]
+        queryText conn notifyUpgradeSnapshot >>= (@?= before)
+        -- No enable/reconcile occurs: every parent and cloned trigger retains its OID.
+        runListen listener "pgmq.q_notify_partition.INSERT"
+        partitionResult <- PQ.exec listener "SELECT 'pgmq.' || c.relname || '.INSERT' FROM pg_inherits i JOIN pg_class c ON c.oid=i.inhrelid WHERE i.inhparent='pgmq.q_notify_partition'::regclass"
+        case partitionResult of
+          Nothing -> assertFailure "partition channel query failed"
+          Just res -> do
+            PQ.resultStatus res >>= (@?= PQ.TuplesOk)
+            rows <- PQ.ntuples res
+            forM_ [0 .. rows - 1] $ \row -> do
+              value <- PQ.getvalue res row 0
+              maybe (assertFailure "null partition channel") (runListen listener . Text.decodeUtf8) value
+        forM_ [1 :: Int .. 3] $ \_ -> runSql conn "SELECT pgmq.send('notify_partition','{\"after\":true}')"
+        silent <- awaitNotify listener 10
+        fmap PQ.notifyRelname silent @?= Nothing
+        assertSql conn "(SELECT count(*)=4 FROM pgmq.q_notify_partition) AND (SELECT last_notified_at=to_timestamp(0) FROM pgmq.notify_insert_throttle WHERE queue_name='notify_partition')"
+      withListener conninfo "pgmq.q_notify_ordinary.INSERT" $ \listener -> do
+        runSql conn "SELECT pgmq.send('notify_ordinary','{\"after\":true}')"
+        ordinary <- awaitNotify listener 20
+        fmap PQ.notifyRelname ordinary @?= Just "pgmq.q_notify_ordinary.INSERT"
+      plan <- nativePlan
+      again <- runMigrationPlan defaultRunOptions settings plan >>= either (assertFailure . show) pure
+      map outcome (toList (results again)) @?= replicate 7 AlreadyApplied
+  where
+    runListen listener channel = do
+      result <- PQ.exec listener (Text.encodeUtf8 ("LISTEN \"" <> channel <> "\""))
+      case result of
+        Nothing -> assertFailure "LISTEN failed"
+        Just res -> PQ.resultStatus res >>= (@?= PQ.CommandOk)
+
+notifyUpgradeSnapshot :: Text
+notifyUpgradeSnapshot = "SELECT jsonb_build_object('data',(SELECT jsonb_agg(to_jsonb(m) ORDER BY source,msg_id) FROM (SELECT 'ordinary' source,msg_id,message FROM pgmq.q_notify_ordinary UNION ALL SELECT 'partition',msg_id,message FROM pgmq.q_notify_partition) m),'triggers',(SELECT jsonb_agg(jsonb_build_array(oid::text,tgrelid::text,tgfoid::text,tgparentid::text) ORDER BY oid) FROM pg_trigger WHERE tgname='trigger_notify_queue_insert_listeners'),'throttles',(SELECT jsonb_agg(to_jsonb(t) ORDER BY queue_name) FROM pgmq.notify_insert_throttle t))::text"
+
 preservedDataSql :: Text
 preservedDataSql = "SELECT jsonb_agg(to_jsonb(m) ORDER BY source,msg_id)::text FROM (SELECT 'numeric' source,msg_id,message FROM pgmq.q_numeric_old UNION ALL SELECT 'archive',msg_id,message FROM pgmq.a_numeric_old UNION ALL SELECT 'time',msg_id,message FROM pgmq.q_time_old UNION ALL SELECT 'ordinary',msg_id,message FROM pgmq.q_ordinary_old) m"
 
@@ -363,7 +424,8 @@ testNativeComponent = do
               "0003-notify-crash-safety-and-locking",
               "0004-upgrade-v1.12.0",
               "0005-upgrade-v1.13.0",
-              "0006-preserve-partitioned-reentry-v1.13.0"
+              "0006-preserve-partitioned-reentry-v1.13.0",
+              "0007-notify-only-registered-queues"
             ]
     actual -> assertFailure ("unexpected native PGMQ plan: " <> show actual)
 

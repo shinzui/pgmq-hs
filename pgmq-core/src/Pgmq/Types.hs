@@ -253,6 +253,10 @@ data NotifyInsertThrottle = NotifyInsertThrottle
 -- NOTIFY is fire-and-forget. Notifications are not queued for disconnected
 -- listeners, and a configured throttle interval suppresses them by design.
 -- Consumers must keep a poll fallback regardless of LISTEN.
+--
+-- Normal partitioned queues receive no insert notifications on their documented
+-- parent channel. See @docs/design/015-notification-delivery-contract.md@.
+-- The reconciler reports partitioned notification declarations as unsupported.
 notifyChannelName :: QueueName -> Text
 notifyChannelName q = "pgmq.q_" <> T.toLower (queueNameToText q) <> ".INSERT"
 

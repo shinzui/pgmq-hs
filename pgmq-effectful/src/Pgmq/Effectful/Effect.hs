@@ -250,6 +250,11 @@ createUnloggedQueue = send . CreateUnloggedQueue
 detachArchive :: (Pgmq :> es) => QueueName -> Eff es ()
 detachArchive = send . DetachArchive
 
+-- | Enable best-effort insert notifications for an ordinary queue.
+--
+-- Normal partitioned queues receive no insert notifications on their documented
+-- parent channel. See @docs/design/015-notification-delivery-contract.md@.
+-- The reconciler reports partitioned notification declarations as unsupported.
 enableNotifyInsert :: (Pgmq :> es) => EnableNotifyInsert -> Eff es ()
 enableNotifyInsert = send . EnableNotifyInsert
 

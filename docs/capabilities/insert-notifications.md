@@ -20,6 +20,9 @@ interface:
   - Pgmq.Types
 evidence:
   - kind: test
+    resource: pgmq-hasql/test/PartitionedNotifySpec.hs
+    proves: No notification arrives on the documented channel or any partition channel for a normal partitioned queue on native and stock 1.12 schemas; native leaf aliases are also silent.
+  - kind: test
     resource: pgmq-hasql/test/NotifyChannelSpec.hs
     proves: A real notification arrives on exactly the channel notifyChannelName computes, and the previously-documented name receives nothing.
   - kind: test
@@ -61,6 +64,11 @@ Pool.use pool $ enableNotifyInsert (EnableNotifyInsert q Nothing)   -- 250 ms th
 ```
 
 ## Limits
+
+- Partitioned queues receive no insert notifications. The trigger runs on leaf partitions,
+  whose names normally have no throttle rows; native migration `0007` also rejects leaf aliases.
+- After a crash, native ordinary queues remain unthrottled until an explicit enable/reconcile
+  call restores the row, typically at application startup; a restart is not required.
 
 - **Notifications are fire-and-forget; a poll fallback is mandatory.** PostgreSQL does not
   queue NOTIFY for disconnected listeners, and the throttle interval suppresses

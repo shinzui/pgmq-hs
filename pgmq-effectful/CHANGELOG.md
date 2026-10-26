@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Clarify that enableNotifyInsert does not deliver on a partitioned queue's documented parent channel.
+
 Inspection Haddocks now state the moving-view cursor contract and the need for
 finite database deadlines and inspection capacity separate from workers; a row limit
 does not bound scan work or payload bytes.

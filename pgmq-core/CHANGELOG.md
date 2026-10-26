@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Document that notifyChannelName names an unsupported parent channel for partitioned queues.
+
 Add hand-written ToJSON instances for Queue, UnvalidatedQueue, Message,
 ArchivedMessage, TopicBinding, RoutingMatch, TopicSendResult and NotifyInsertThrottle,
 and FromJSON instances for the first four. Encodings use pgmq's snake_case columns

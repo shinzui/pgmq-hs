@@ -35,6 +35,7 @@ import Database.PostgreSQL.Migrate
   )
 import EphemeralDb (ephemeralConfig)
 import EphemeralPg qualified as Pg
+
 -- 'shutdownMode' names a field of both Pg.Config and Pg.Database, so the record
 -- update below needs the selector from the module that defines only Database.
 import EphemeralPg.Database qualified as PgDb
@@ -70,7 +71,9 @@ data CrashObservations = CrashObservations
     -- | Channel of the notification delivered by the post-crash send, if any.
     obsNotifyAfterCrash :: !(Maybe ByteString),
     -- | Queue names in the throttle table after a reconcile ran.
-    obsThrottlesAfterReconcile :: ![Text]
+    obsThrottlesAfterReconcile :: ![Text],
+    -- | Restored nonzero interval, without restarting the application.
+    obsRestoredInterval :: !Int64
   }
 
 tests :: TestTree
@@ -102,6 +105,7 @@ tests =
         testCase "post-crash: a reconcile restores the throttle row" $ do
           obs <- getObs
           obsThrottlesAfterReconcile obs @?= [queueNameToText (obsQueueName obs)]
+          obsRestoredInterval obs @?= 3600000
       ]
 
 -- | Start a dedicated PostgreSQL instance, enable notify, crash it, recover it,
@@ -118,7 +122,7 @@ crashCycle qn ref = do
   db0 <- readIORef ref
   installPgmq db0
 
-  -- Pre-crash: create the queue, enable unthrottled notify, send one message.
+  -- Pre-crash: create the queue, enable a nonzero throttle, send one message.
   -- No listener is opened yet: an immediate shutdown kills every pre-crash
   -- connection, so a listener created here could never see the assertion's
   -- notification.
@@ -128,7 +132,7 @@ crashCycle qn ref = do
       Sessions.enableNotifyInsert
         StmtTypes.EnableNotifyInsert
           { StmtTypes.queueName = qn,
-            StmtTypes.throttleIntervalMs = Just 0
+            StmtTypes.throttleIntervalMs = Just 3600000
           }
     runSession pool (sendProbe qn "before-crash")
     -- ephemeral-pg runs PostgreSQL with fsync, synchronous_commit and
@@ -153,8 +157,9 @@ crashCycle qn ref = do
       _ <- runSession pool (sendProbe qn "after-crash")
       awaitNotify conn 20
 
-    runSession pool (ensureQueues [withNotifyInsert (Just 0) (standardQueue qn)])
+    runSession pool (ensureQueues [withNotifyInsert (Just 3600000) (standardQueue qn)])
     throttlesAfterReconcile <- listThrottleNames pool
+    restored <- runSession pool (Session.statement (queueNameToText qn) (preparable "SELECT throttle_interval_ms::bigint FROM pgmq.notify_insert_throttle WHERE queue_name=$1" (E.param (E.nonNullable E.text)) (D.singleRow (D.column (D.nonNullable D.int8)))))
 
     pure
       CrashObservations
@@ -164,7 +169,8 @@ crashCycle qn ref = do
           obsTriggersAfterCrash = triggers,
           obsQueueLengthAfterCrash = queueLength,
           obsNotifyAfterCrash = LibPQ.notifyRelname <$> notified,
-          obsThrottlesAfterReconcile = throttlesAfterReconcile
+          obsThrottlesAfterReconcile = throttlesAfterReconcile,
+          obsRestoredInterval = restored
         }
 
 -- | Stop PostgreSQL with SIGQUIT and start it again on the same data directory.
@@ -297,7 +303,8 @@ awaitNotify :: LibPQ.Connection -> Int -> IO (Maybe LibPQ.Notify)
 awaitNotify conn attempts
   | attempts <= 0 = pure Nothing
   | otherwise = do
-      _ <- LibPQ.consumeInput conn
+      ok <- LibPQ.consumeInput conn
+      unless ok (assertFailure "libpq consumeInput failed")
       pending <- LibPQ.notifies conn
       case pending of
         Just n -> pure (Just n)
