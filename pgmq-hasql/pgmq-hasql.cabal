@@ -105,6 +105,7 @@ test-suite pgmq-hasql-test
     NotifyRaceSpec
     NullBodySpec
     NullSemanticsSpec
+    PartitionedNotifySpec
     QueueSpec
     RoundTripSpec
     SchemaSpec

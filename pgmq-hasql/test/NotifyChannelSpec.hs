@@ -10,7 +10,7 @@
 -- This module pins the contract from both sides: a real notification arrives on
 -- exactly the channel the helper computes, and a listener on the old documented
 -- name receives nothing.
-module NotifyChannelSpec (tests) where
+module NotifyChannelSpec (tests, withListener, awaitNotify) where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
@@ -120,7 +120,9 @@ awaitNotify :: LibPQ.Connection -> Int -> IO (Maybe LibPQ.Notify)
 awaitNotify conn attempts
   | attempts <= 0 = pure Nothing
   | otherwise = do
-      _ <- LibPQ.consumeInput conn
+      ok <- LibPQ.consumeInput conn
+      unless ok (assertFailure "libpq consumeInput failed")
+      LibPQ.status conn >>= (@?= LibPQ.ConnectionOk)
       pending <- LibPQ.notifies conn
       case pending of
         Just n -> pure (Just n)

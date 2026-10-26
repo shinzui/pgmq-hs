@@ -22,6 +22,11 @@ provenance:
       at: 2026-10-26T03:51:08Z
       mode: "update"
       note: "Add populated six-entry upgrade proof without trigger recreation and explicit native test selection."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-26T04:04:58Z
+      mode: "implement"
+      note: "Implement guarded notification migration and native/stock regression evidence."
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -79,7 +84,7 @@ Context and Orientation, which shows three notifications before and none after.
 
 ## Progress
 
-- [ ] M1: compiling tests reproduce partition notifications, including native leaf-alias paths, with a working listener control.
+- [x] M1 (2026-10-26): compiling native tests reproduce notifications on `pgmq.q_pq_p0.INSERT` for ordinary partition and metadata/throttle alias cases after a successful listener control. `/tmp/pgmq-ep23-red.log` records the red run.
 - [ ] M2: immutable-ledger migration 0007 fixes fresh and populated six-entry installs without trigger recreation; ordinary throttling, post-crash delivery, and reconciliation recovery remain correct.
 - [ ] M3: delivery docs, Haddocks, capability evidence, ADR verification, and all affected Unreleased entries agree; documentation checks pass.
 

@@ -18,6 +18,7 @@ import NotifyChannelSpec qualified
 import NotifyRaceSpec qualified
 import NullBodySpec qualified
 import NullSemanticsSpec qualified
+import PartitionedNotifySpec qualified
 import QueueSpec qualified
 import RoundTripSpec qualified
 import SchemaSpec qualified
@@ -57,6 +58,7 @@ main = do
                 -- Needs the Database handle: LISTEN/NOTIFY has no hasql API, so
                 -- the round-trip test opens a raw libpq connection.
                 NotifyChannelSpec.tests pool db,
+                PartitionedNotifySpec.tests,
                 SchemaSpec.tests pool,
                 RoundTripSpec.tests pool,
                 DecoderValidationSpec.tests pool,

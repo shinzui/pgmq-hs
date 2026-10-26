@@ -21,6 +21,11 @@ provenance:
       at: 2026-10-26T03:51:08Z
       mode: "update"
       note: "Refresh existing-trigger upgrade acceptance, schema evidence boundaries, and archive ordering before implementation."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-26T04:04:58Z
+      mode: "implement"
+      note: "Implement notification, reconciliation, and candidate acceptance in registry order."
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -170,7 +175,7 @@ notes that carry the affected contracts are
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Gate the notification fail-open on a real queue row and state the partitioned-queue contract | docs/plans/23-gate-the-notification-fail-open-on-a-real-queue-row-and-state-the-partitioned-queue-contract.md | None | None | Not Started |
+| 1 | Gate the notification fail-open on a real queue row and state the partitioned-queue contract | docs/plans/23-gate-the-notification-fail-open-on-a-real-queue-row-and-state-the-partitioned-queue-contract.md | None | None | In Progress |
 | 2 | Report name collisions and unsupported notifications instead of acting on them | docs/plans/24-report-name-collisions-and-unsupported-notifications-instead-of-acting-on-them.md | None | EP-1 | Not Started |
 | 3 | Create the ephemeral root with owner-only permissions and record acceptance on the current PostgreSQL | docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md | EP-1, EP-2 | None | Not Started |
 
