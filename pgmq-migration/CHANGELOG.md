@@ -1,5 +1,9 @@
 # Changelog for pgmq-migration
 
+## Unreleased
+
+- Append migration 0007: reject physical partitions before throttle updates and restrict missing-row fail-open to registered queue names. Existing triggers adopt the correction without recreation; ordinary crash recovery is retained.
+
 ## 0.6.1.1 -- 2026-09-25
 
 Accept the `pg-migrate` 1.2 series alongside 1.1: `pg-migrate`, `pg-migrate-embed` and
