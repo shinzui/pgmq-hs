@@ -73,8 +73,40 @@ backendTests effectful =
       ]
       ++ [ testCase "unsupported partition notify installs no trigger or throttle" $ isolated $ \pool -> withPartman pool $ do
              qn <- right (parseQueueName "partition_notify")
-             _ <- right =<< reconcile effectful pool [withNotifyInsert (Just 0) (partitionedQueue qn (PartitionConfig "10" "100" Nothing))]
-             session pool (Session.script "DO $$ BEGIN IF EXISTS (SELECT FROM pgmq.notify_insert_throttle WHERE queue_name='partition_notify') OR EXISTS (SELECT FROM pg_trigger WHERE tgrelid='pgmq.q_partition_notify'::regclass AND tgname='trigger_notify_queue_insert_listeners') THEN RAISE EXCEPTION 'unsupported notification installed'; END IF; END $$")
+             let config = withNotifyInsert (Just 0) (partitionedQueue qn (PartitionConfig "10" "100" Nothing))
+             first <- right =<< reconcile effectful pool [config]
+             case first of
+               [CreatedQueue q _, UnsupportedNotifyOnPartitionedQueue n] -> [q, n] @?= [qn, qn]
+               other -> assertFailure (show other)
+             second <- right =<< reconcile effectful pool [config]
+             case second of
+               [SkippedQueue q, UnsupportedNotifyOnPartitionedQueue n] -> [q, n] @?= [qn, qn]
+               other -> assertFailure (show other)
+             session pool (Session.script "DO $$ BEGIN IF EXISTS (SELECT FROM pgmq.notify_insert_throttle WHERE queue_name='partition_notify') OR EXISTS (SELECT FROM pg_trigger WHERE tgrelid='pgmq.q_partition_notify'::regclass AND tgname='trigger_notify_queue_insert_listeners') THEN RAISE EXCEPTION 'unsupported notification installed'; END IF; END $$"),
+           testCase "unsupported existing partition throttle remains unchanged" $ isolated $ \pool -> withPartman pool $ do
+             qn <- right (parseQueueName "partition_existing")
+             session pool (Session.script "SELECT pgmq.create_partitioned('partition_existing','10','100'); SELECT pgmq.enable_notify_insert('partition_existing',250); CREATE TABLE public.before_throttle AS SELECT * FROM pgmq.notify_insert_throttle")
+             actions <- right =<< reconcile effectful pool [withNotifyInsert (Just 500) (partitionedQueue qn (PartitionConfig "10" "100" Nothing))]
+             case actions of
+               [SkippedQueue q, UnsupportedNotifyOnPartitionedQueue n] -> [q, n] @?= [qn, qn]
+               other -> assertFailure (show other)
+             session pool (Session.script "DO $$ BEGIN IF EXISTS ((TABLE public.before_throttle EXCEPT TABLE pgmq.notify_insert_throttle) UNION ALL (TABLE pgmq.notify_insert_throttle EXCEPT TABLE public.before_throttle)) THEN RAISE EXCEPTION 'partition throttle changed'; END IF; END $$"),
+           testCase "observed partition declared standard reports drift and unsupported" $ isolated $ \pool -> withPartman pool $ do
+             qn <- right (parseQueueName "partition_drift")
+             session pool (Session.script "SELECT pgmq.create_partitioned('partition_drift','10','100')")
+             actions <- right =<< reconcile effectful pool [withNotifyInsert (Just 0) (standardQueue qn)]
+             case actions of
+               [DetectedQueueTypeDrift q StandardQueue ObservedPartitioned, UnsupportedNotifyOnPartitionedQueue n] -> [q, n] @?= [qn, qn]
+               other -> assertFailure (show other)
+             session pool (Session.script "DO $$ BEGIN IF EXISTS (SELECT FROM pgmq.notify_insert_throttle WHERE queue_name='partition_drift') THEN RAISE EXCEPTION 'observed partition notification installed'; END IF; END $$"),
+           testCase "observed standard declared partition reconciles notifications" $ isolated $ \pool -> do
+             qn <- right (parseQueueName "standard_drift")
+             session pool (Session.script "SELECT pgmq.create('standard_drift')")
+             actions <- right =<< reconcile effectful pool [withNotifyInsert (Just 0) (partitionedQueue qn (PartitionConfig "10" "100" Nothing))]
+             case actions of
+               [DetectedQueueTypeDrift q (PartitionedQueue _) ObservedStandard, EnabledNotify n (Just 0)] -> [q, n] @?= [qn, qn]
+               other -> assertFailure (show other)
+             session pool (Session.script "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pgmq.notify_insert_throttle WHERE queue_name='standard_drift' AND throttle_interval_ms=0) THEN RAISE EXCEPTION 'standard notification missing'; END IF; END $$")
          ]
       ++ [ testCase "zero and negative counts fail on new queues" $ forM_ [0, -1] $ \n -> isolated $ \pool -> withPartman pool $ do
              stock <- (== Just "1.12.0") <$> lookupEnv "PGMQ_TEST_SCHEMA_VERSION"

@@ -1,6 +1,6 @@
 # Declarative Queue Configuration
 
-The `pgmq-config` package lets you declare your queue topology as Haskell values and ensure all queues exist at application startup. Every operation is idempotent — calling it repeatedly is safe and produces no errors or duplicate side effects.
+The `pgmq-config` package lets you declare your queue topology as Haskell values and ensure all queues exist at application startup. A second run with unchanged config and unchanged, already-satisfied database state issues no mutations. A later run restores ordinary throttle rows lost in a database crash.
 
 ## Quick Start
 
@@ -97,15 +97,21 @@ Modifiers compose with `&` (from `Data.Function`) to add features to any queue c
 
 ### Notify Insert
 
-Enables PostgreSQL `LISTEN/NOTIFY` when messages are inserted. Workers can block on notifications instead of polling. The optional throttle (in milliseconds) limits how often notifications fire.
+Enables PostgreSQL `LISTEN/NOTIFY` when messages are inserted. Notifications reduce wake-up latency; every listener must retain a poll fallback. The optional throttle (in milliseconds) limits how often notifications fire.
 
 ```haskell
 -- Notify at most once per 500ms
 standardQueue myQueue & withNotifyInsert (Just 500)
 
--- Notify on every insert (use pgmq default throttle of 250ms)
+-- Use the pgmq default throttle of 250ms
 standardQueue myQueue & withNotifyInsert Nothing
 ```
+
+Notifications declared on a partitioned queue are reported as
+`UnsupportedNotifyOnPartitionedQueue` and never enabled or updated. Existing foreign throttle
+rows are left unchanged; see [the delivery contract](../design/015-notification-delivery-contract.md).
+Ordinary crash recovery remains unthrottled until an explicit enable/reconcile call, commonly
+at startup; an application restart is not required.
 
 ### FIFO Index
 
@@ -136,7 +142,7 @@ standardQueue myQueue
 
 ### `ensureQueues`
 
-Runs as a hasql `Session`. Creates missing queues, enables notifications, creates indexes, and binds topics. Does not drop or modify existing queues (additive only).
+Runs as a hasql `Session`. Creates missing queues, enables notifications, creates indexes, and binds topics. Never drops, converts, or disables queues. The one in-place mutation is updating a drifted ordinary notification interval; unsupported declarations and name collisions are reported instead of repaired.
 
 ```haskell
 ensureQueues :: [QueueConfig] -> Session ()
@@ -170,7 +176,18 @@ data ReconcileAction
   | SkippedNotify QueueName
   | SkippedFifoIndex QueueName
   | SkippedTopicBinding QueueName TopicPattern
+  | UpdatedNotifyThrottle QueueName Int32 Int32
+  | DetectedQueueTypeDrift QueueName QueueType ObservedQueueType
+  | DetectedQueueNameCollision QueueName (NonEmpty Text)
+  | UnsupportedNotifyOnPartitionedQueue QueueName
 ```
+
+`DetectedQueueNameCollision` contains all foreign colliding names in ascending lexical order.
+Without an exact row it replaces creation and stops that config's sub-resources; with an
+exact row it follows the ordinary existence/drift action and sub-resources proceed.
+`UnsupportedNotifyOnPartitionedQueue` uses the observed shape on drifted queues. Queue shape
+is never changed, but supported notify, FIFO-index and binding declarations still reconcile.
+Collision detection uses the initial snapshot; it does not serialize foreign alias creation.
 
 Example: log what happened at startup:
 
@@ -179,6 +196,8 @@ actions <- runSession pool (ensureQueuesReport myQueues)
 for_ actions $ \case
   CreatedQueue qn _ -> putStrLn $ "Created queue: " <> show qn
   SkippedQueue qn   -> putStrLn $ "Queue exists: " <> show qn
+  DetectedQueueNameCollision qn names -> putStrLn $ "Resolve aliases: " <> show (qn, names)
+  UnsupportedNotifyOnPartitionedQueue qn -> putStrLn $ "Partition notifications unsupported: " <> show qn
   _                 -> pure ()
 ```
 
@@ -197,14 +216,17 @@ These use the same `Pgmq` effect as the rest of your application, so the reconci
 
 ## Idempotency Guarantees
 
-Every underlying pgmq operation is idempotent:
+Reconciliation skips already-satisfied state. Its underlying calls have distinct behavior:
 
-- `pgmq.create()` uses `CREATE TABLE IF NOT EXISTS` and `INSERT ... ON CONFLICT DO NOTHING`
-- `pgmq.enable_notify_insert()` upserts the throttle configuration
-- `pgmq.bind_topic()` uses `ON CONFLICT DO NOTHING` for duplicate bindings
-- `pgmq.create_fifo_index()` uses `CREATE INDEX IF NOT EXISTS`
+- `pgmq.create()` uses `IF NOT EXISTS` and a metadata upsert; the reconciler avoids calling it for a colliding missing name.
+- `pgmq.enable_notify_insert()` upserts and recreates the trigger, resetting its timestamp. The reconciler skips matching ordinary intervals and never enables a partitioned queue.
+- `pgmq.bind_topic()` ignores duplicate bindings.
+- `pgmq.create_fifo_index()` uses `CREATE INDEX IF NOT EXISTS`.
 
-You can safely call `ensureQueues` on every application startup without guards or version checks.
+Native notification enabling is serialized by migration 0003. Concurrent stock enables can
+race with SQLSTATE 42710; retry or serialize startup. A partial run leaves completed work in
+place; retry converges. See [the full contract](../design/018-reconciliation-contract.md) and
+`ensureQueues` for throttle updates, collision/operator boundaries, and concurrency details.
 
 For the coordinated family upgrade and both public record migrations, see
 [upgrading to 0.6](pgmq-0.6-upgrade.md).

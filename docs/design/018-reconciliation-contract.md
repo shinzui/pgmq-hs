@@ -19,7 +19,8 @@ bindings, notification throttles, and FIFO indexes — and then, per declared co
 
 - **Queue absent** → create it with the declared type; report `CreatedQueue`.
 - **Queue present, shape matches** → report `SkippedQueue`; issue nothing.
-- **Queue present, shape differs** → report `DetectedQueueTypeDrift`; issue nothing.
+- **Queue present, shape differs** → report `DetectedQueueTypeDrift`; do not convert the queue.
+  Notification, FIFO-index and binding declarations still run against its observed shape.
 - **Throttle row absent** → enable notify with the declared interval; report
   `EnabledNotify`.
 - **Throttle row present, interval matches** → report `SkippedNotify`; issue nothing.
@@ -57,6 +58,28 @@ observed shapes, and a human decides.
 
 The general rule: **reconcile automatically only where the repair is non-destructive and
 the API supports it in place; otherwise report and stop.**
+
+
+## Two more things that are reported, not repaired
+
+`DetectedQueueNameCollision q names` reports every foreign differently cased registry name
+whose lowercased physical name matches the declaration. Names are reported in ascending
+lexical order. `pgmq.create` creates its table with `IF NOT EXISTS` but inserts the caller's
+original spelling into metadata, so creating a missing lowercase row over a mixed-case row
+would alias their messages. Without an exact row, report only the collision and apply none
+of that config's notification, FIFO or binding declarations. Other configs continue. With
+an exact row, report its normal existence/drift action, then one collision action and
+reconcile its sub-resources. Repair remains the operator procedure in
+[design note 016](016-queue-name-validation.md). Detection uses a snapshot; it cannot prevent
+a foreign client from introducing an alias after the snapshot.
+
+`UnsupportedNotifyOnPartitionedQueue q` reports a notification declaration on the effective
+queue shape: observed shape for existing queues, declared shape for newly created queues.
+No trigger or throttle row is installed, no existing interval is updated or re-enabled.
+Without a notification declaration, no unsupported action is emitted. Migration 0007 stops
+native partition storms, but supported parent-channel delivery is absent on every install;
+see [design note 015](015-notification-delivery-contract.md). A standard queue declared
+partitioned still reconciles ordinary notifications; the opposite drift direction does not.
 
 
 ## Deliberate non-checks
@@ -109,8 +132,9 @@ distinction is the entire reason a report type exists.
 
 ## Concurrency: convergent, with one caveat
 
-Every mutating call the reconciler issues is idempotent and convergent under sequential
-retry. Under concurrent multi-replica startup:
+A second run against unchanged config and unchanged, already-satisfied database state
+issues no mutations. A later run restores crash-lost ordinary throttle rows. Sequential
+retries converge, but re-enabling notifications resets their timestamp. Under concurrent multi-replica startup:
 
 - `pgmq.create` and `pgmq.create_partitioned` serialize on a per-queue advisory lock.
 - `pgmq.bind_topic` upserts.

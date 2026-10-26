@@ -33,6 +33,7 @@ import Control.Lens ((%~), (&), (^.))
 import Data.Aeson (Encoding, KeyValue, Series, ToJSON (..), object, pairs, (.=))
 import Data.Generics.Labels ()
 import Data.Int (Int32)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Pgmq.Types (QueueName, TopicPattern)
@@ -124,10 +125,11 @@ data ReconcileAction
   | -- | The queue exists but its observed shape contradicts the declared one.
     -- Fields: queue, declared type, observed type.
     --
-    -- Nothing was mutated and nothing will be: converting a queue between
-    -- standard, unlogged, and partitioned means dropping and recreating it,
-    -- destroying every message it holds, which a startup reconciler must never
-    -- do. Resolving the drift is an operator decision. This action replaces
+    -- The queue itself is not mutated: conversion between standard, unlogged,
+    -- and partitioned requires destroying its messages. Notification, FIFO-index
+    -- and topic-binding declarations are still reconciled against the observed
+    -- queue and each reports its own action. Resolving drift is an operator
+    -- decision. This action replaces
     -- 'SkippedQueue' for the queue it concerns, so the report still carries
     -- exactly one queue-existence action per declared config.
     --
@@ -136,6 +138,21 @@ data ReconcileAction
     -- and retention settings, because @pgmq.list_queues()@ does not report
     -- them.
     DetectedQueueTypeDrift !QueueName !QueueType !ObservedQueueType
+  | -- | Foreign registry names share the declared name's lowercased physical
+    -- table. Fields: declared queue, every colliding registry name in ascending
+    -- lexical order. Without an exact row this replaces 'CreatedQueue' and no
+    -- notification, FIFO-index or binding declarations run. With an exact row,
+    -- this follows the existence action and sub-resources proceed on that row.
+    -- This action mutates nothing. Detection uses the initial snapshot; a foreign
+    -- client can still create an alias afterward. Resolving aliases follows
+    -- @docs/design/016-queue-name-validation.md@.
+    DetectedQueueNameCollision !QueueName !(NonEmpty Text)
+  | -- | Insert notifications were declared on an observed or newly created
+    -- partitioned queue. Its cloned leaf triggers cannot deliver on
+    -- 'Pgmq.Types.notifyChannelName'; see
+    -- @docs/design/015-notification-delivery-contract.md@. Nothing was enabled,
+    -- updated or re-enabled; an existing foreign throttle row is left unchanged.
+    UnsupportedNotifyOnPartitionedQueue !QueueName
   deriving stock (Show)
 
 -- | The throttle interval pgmq applies when none is given: 250 milliseconds.
@@ -266,6 +283,10 @@ reconcileActionFields action = case action of
       "declared" .= declared,
       "observed" .= observed
     ]
+  DetectedQueueNameCollision q names ->
+    ["action" .= tag "detected_queue_name_collision", "queue" .= q, "colliding_names" .= names]
+  UnsupportedNotifyOnPartitionedQueue q ->
+    ["action" .= tag "unsupported_notify_on_partitioned_queue", "queue" .= q]
   where
     tag :: Text -> Text
     tag = id

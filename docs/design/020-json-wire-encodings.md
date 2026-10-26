@@ -75,6 +75,10 @@ snake_case constructor name. Remaining fields follow this table:
 | skipped_topic_binding | queue, pattern |
 | updated_notify_throttle | queue, observed_throttle_interval_ms, declared_throttle_interval_ms |
 | detected_queue_type_drift | queue, declared, observed |
+| detected_queue_name_collision | queue, colliding_names |
+| unsupported_notify_on_partitioned_queue | queue |
+
+`colliding_names` is a nonempty string array retaining the report's ascending lexical order.
 
 `enabled_notify` preserves a declared default as null, rather than replacing it
 with 250. Declaring a default and declaring an explicit 250 are different facts in
@@ -134,7 +138,7 @@ golden from the real encoder with `--accept` (create an empty file first for a
 new fixture), inspect its diff and write the
 changelog entry describing the additive change. Preserve missing/null normalization
 for optional fields. A new ReconcileAction constructor gets an encoding case and
-an explicit golden; all current ten constructors are covered.
+an explicit golden; all current twelve constructors are covered.
 
 ## Where this is enforced
 
@@ -144,7 +148,7 @@ versus lenient queue decoding, missing optional keys, normalization and encoder
 parity. `pgmq-hasql/test/JsonGoldenSpec.hs` pins metrics and generates arbitrary
 JSON bodies/headers for normalized live/archive round trips and parity checks.
 `pgmq-config/test/JsonGoldenSpec.hs` pins every report constructor, the declared
-queue shapes, partition options and all observed shapes. Their 53 golden files
+queue shapes, partition options and all observed shapes. Their 55 golden files
 live under each package's `test/golden/`, registered in `extra-source-files`.
 
 ## Related documents

@@ -91,7 +91,9 @@ sessionOps =
 --
 -- * A queue whose observed shape (standard, unlogged, or partitioned)
 --   contradicts the declared one is reported as
---   'Pgmq.Config.Types.DetectedQueueTypeDrift' and nothing is mutated.
+--   'Pgmq.Config.Types.DetectedQueueTypeDrift'. The queue's shape is not mutated;
+--   its notify, FIFO-index and binding declarations are still reconciled against
+--   its observed shape.
 --   Changing a queue's type means dropping and recreating it, destroying every
 --   message it holds; that is an operator's decision, not a startup task.
 --
@@ -99,8 +101,19 @@ sessionOps =
 --   compared, because @pgmq.list_queues()@ does not report them. Only the
 --   three-way shape is checked.
 --
+-- * Foreign mixed-case names colliding with the declared physical table are
+--   reported as 'DetectedQueueNameCollision'. Without an exact registry row,
+--   no queue or sub-resources are created. With an exact row, sub-resources proceed.
+--   Detection uses the initial snapshot; it does not serialize foreign alias creation.
+--
+-- * Notifications on an observed or newly created partitioned queue are reported
+--   as 'UnsupportedNotifyOnPartitionedQueue', with no enable, update or re-enable.
+--   Existing throttle rows are left unchanged. See
+--   @docs/design/015-notification-delivery-contract.md@.
+--
 -- Calling this on every application startup is the intended usage, and a second
--- run against an unchanged config issues no mutations at all. One caveat about
+-- run against unchanged config and unchanged, already-satisfied database state
+-- issues no mutations. A later run restores crash-lost ordinary throttle rows. One caveat about
 -- /concurrent/ startups: queue creation and topic binding are serialized
 -- server-side and converge, but enabling insert notifications on a
 -- brand-new queue from two replicas at once can fail one of them with SQLSTATE
@@ -133,7 +146,10 @@ ensureQueuesWithPool pool configs =
 -- order: exactly one queue-existence action per config
 -- ('Pgmq.Config.Types.CreatedQueue', 'Pgmq.Config.Types.SkippedQueue', or
 -- 'Pgmq.Config.Types.DetectedQueueTypeDrift'), then the notify, FIFO, and
--- topic-binding actions for that config. Every @Skipped@ action means no
+-- topic-binding actions for that config. A missing exact row with colliding names
+-- instead reports only 'DetectedQueueNameCollision'; when an exact row exists,
+-- that action follows the ordinary existence action and sub-resources proceed.
+-- Every @Skipped@ action means no
 -- statement was issued.
 ensureQueuesReport :: [QueueConfig] -> Session [ReconcileAction]
 ensureQueuesReport = ensureQueuesReportWith sessionOps

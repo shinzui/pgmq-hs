@@ -6,6 +6,7 @@
 module JsonGoldenSpec (tests) where
 
 import Data.Aeson (ToJSON (..), Value, decode, encode)
+import Data.List.NonEmpty (NonEmpty (..))
 import Pgmq.Config.Types
 import Pgmq.Types (QueueName, TopicPattern, parseQueueName, parseTopicPattern)
 import Test.Tasty (TestTree, localOption, testGroup)
@@ -31,6 +32,8 @@ tests =
         golden "skipped_topic_binding" (SkippedTopicBinding q pat),
         golden "updated_notify_throttle" (UpdatedNotifyThrottle q 250 1000),
         golden "detected_queue_type_drift" (DetectedQueueTypeDrift q UnloggedQueue ObservedPartitioned),
+        golden "detected_queue_name_collision" (DetectedQueueNameCollision q ("ORDERS" :| ["Orders"])),
+        golden "unsupported_notify_on_partitioned_queue" (UnsupportedNotifyOnPartitionedQueue q),
         golden "queue_type_standard" StandardQueue,
         golden "queue_type_unlogged" UnloggedQueue,
         golden "queue_type_partitioned" (PartitionedQueue partition),

@@ -84,9 +84,9 @@ throttle row after reconciling a partitioned queue with a notification declared.
 
 ## Progress
 
-- [ ] M1: compiling tests reproduce collisions and unsupported partition notifications and cover the specified alias, sub-resource, and drift variants on both backends/schemas.
-- [ ] M2: both report constructors, reconciler decisions, JSON encodings and goldens pass acceptance, including the effectful-disabled build.
-- [ ] M3: Haddocks, design notes 018/020, guide, capability evidence and Unreleased entries state the implemented contract; documentation checks pass.
+- [x] M1 (2026-10-26): six compiling red cases reproduced metadata alias creation and unsupported notification mutation through both backends. Expanded native/stock acceptance covers repeated/multiple aliases, exact ownership, unrelated queues, unchanged foreign throttles and both drift directions.
+- [x] M2 (2026-10-26): both constructors, shared decisions and new golden/parity cases pass: 90 native and 90 stock-selected tests with effectful enabled, 78 native tests plus a successful config build with effectful disabled. The stock-selected run includes dedicated native-only crash/foreign fixtures, which are not stock evidence.
+- [x] M3 (2026-10-26): Haddocks, design notes 018/020, guide, capability evidence and Unreleased entries agree. Docs validation, formatting and whitespace checks pass; Config/Types/Effectful public Haddocks report 100%.
 
 
 ## Surprises & Discoveries
@@ -140,7 +140,7 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+The reconciler reports collisions without manufacturing ownership and reports unsupported partition notifications without mutating them. Existing-row sub-resources follow effective shape; other configs continue. All old JSON fixtures remain unchanged and the two new actions have golden/parity coverage. The ownership/snapshot and effective-shape decisions are distilled in [the reconciliation ADR](../adr/reconciliation-ownership-and-unsupported-resource-boundaries.md). No qualifying external-tool friction was recorded. External exhaustive report matchers require the 0.7 update; rollout is outside this plan.
 
 
 ## Context and Orientation

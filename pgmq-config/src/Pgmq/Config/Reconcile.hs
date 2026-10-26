@@ -14,6 +14,8 @@ where
 import Control.Lens ((^.))
 import Data.Generics.Labels ()
 import Data.Int (Int32)
+import Data.List (sort)
+import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -75,6 +77,7 @@ ensureQueuesReportWith ops configs = do
 
   let existingQueuesByName =
         Map.fromList [(q ^. #unvalidatedName, q) | q <- existingQueues]
+      collisionsByLowerName = Map.fromListWith (++) [(T.toLower n, [n]) | n <- Map.keys existingQueuesByName]
       existingBindingSet =
         Set.fromList
           [ (b ^. #bindingQueueName, topicPatternToText (b ^. #bindingPattern))
@@ -92,7 +95,7 @@ ensureQueuesReportWith ops configs = do
 
   concat
     <$> traverse
-      (reconcileQueue ops existingQueuesByName existingBindingSet existingNotifyByName existingFifoSet)
+      (reconcileQueue ops existingQueuesByName collisionsByLowerName existingBindingSet existingNotifyByName existingFifoSet)
       configs
 
 -- | Reconcile a single queue config against existing state, returning actions taken.
@@ -100,88 +103,97 @@ reconcileQueue ::
   (Monad m) =>
   ReconcileOps m ->
   Map.Map T.Text UnvalidatedQueue ->
+  Map.Map T.Text [T.Text] ->
   Set.Set (T.Text, T.Text) ->
   Map.Map T.Text Int32 ->
   Set.Set T.Text ->
   QueueConfig ->
   m [ReconcileAction]
-reconcileQueue ops existingQueues existingBindings existingNotify existingFifo cfg = do
+reconcileQueue ops existingQueues collisionsByLowerName existingBindings existingNotify existingFifo cfg = do
   let qn = cfg ^. #queueName
       qnText = queueNameToText qn
       declaredType = cfg ^. #queueType
 
-  -- Queue creation, or — when the queue is already there — a shape comparison.
-  -- Drift is reported and never repaired: the only way to change a queue's type
-  -- is to drop and recreate it, which would destroy its messages.
-  queueAction <-
-    case Map.lookup qnText existingQueues of
-      Just observed ->
-        let observedType = observedQueueType observed
-         in pure
-              [ if declaredShape declaredType == observedType
-                  then SkippedQueue qn
-                  else DetectedQueueTypeDrift qn declaredType observedType
-              ]
-      Nothing -> do
-        case declaredType of
-          StandardQueue ->
-            (ops ^. #createQueue) qn
-          UnloggedQueue ->
-            (ops ^. #createUnloggedQueue) qn
-          PartitionedQueue pc ->
-            let query =
-                  StmtTypes.CreatePartitionedQueue
-                    { queueName = qn,
-                      partitionInterval = pc ^. #partitionInterval,
-                      retentionInterval = pc ^. #retentionInterval
-                    }
-             in case pc ^. #premake of
-                  Nothing -> (ops ^. #createPartitionedQueue) query
-                  Just n -> (ops ^. #createPartitionedQueueWithPremake) query n
-        pure [CreatedQueue qn declaredType]
+      colliding = NE.nonEmpty (sort (filter (/= qnText) (Map.findWithDefault [] qnText collisionsByLowerName)))
+      collisionAction = maybe [] (\names -> [DetectedQueueNameCollision qn names]) colliding
+      effectiveShape = maybe (declaredShape declaredType) observedQueueType (Map.lookup qnText existingQueues)
 
-  -- Notification. A missing row is enabled; a row whose interval already
-  -- matches is left strictly alone (re-enabling would reset last_notified_at);
-  -- a row whose interval differs is updated in place.
-  notifyAction <- case cfg ^. #notifyInsert of
-    Nothing -> pure []
-    Just nc ->
-      let declaredMs = fromMaybe defaultThrottleMs (nc ^. #throttleMs)
-       in case Map.lookup qnText existingNotify of
-            Nothing -> do
-              (ops ^. #enableNotifyInsert)
-                StmtTypes.EnableNotifyInsert
-                  { queueName = qn,
-                    throttleIntervalMs = nc ^. #throttleMs
-                  }
-              pure [EnabledNotify qn (nc ^. #throttleMs)]
-            Just observedMs
-              | observedMs == declaredMs -> pure [SkippedNotify qn]
-              | otherwise -> do
-                  (ops ^. #updateNotifyInsert)
-                    StmtTypes.UpdateNotifyInsert
+  if Map.notMember qnText existingQueues && not (null collisionAction)
+    then pure collisionAction
+    else do
+      -- Queue creation, or — when the queue is already there — a shape comparison.
+      -- Drift is reported and never repaired: the only way to change a queue's type
+      -- is to drop and recreate it, which would destroy its messages.
+      queueAction <-
+        case Map.lookup qnText existingQueues of
+          Just observed ->
+            let observedType = observedQueueType observed
+             in pure
+                  [ if declaredShape declaredType == observedType
+                      then SkippedQueue qn
+                      else DetectedQueueTypeDrift qn declaredType observedType
+                  ]
+          Nothing -> do
+            case declaredType of
+              StandardQueue ->
+                (ops ^. #createQueue) qn
+              UnloggedQueue ->
+                (ops ^. #createUnloggedQueue) qn
+              PartitionedQueue pc ->
+                let query =
+                      StmtTypes.CreatePartitionedQueue
+                        { queueName = qn,
+                          partitionInterval = pc ^. #partitionInterval,
+                          retentionInterval = pc ^. #retentionInterval
+                        }
+                 in case pc ^. #premake of
+                      Nothing -> (ops ^. #createPartitionedQueue) query
+                      Just n -> (ops ^. #createPartitionedQueueWithPremake) query n
+            pure [CreatedQueue qn declaredType]
+
+      -- Notification. A missing row is enabled; a row whose interval already
+      -- matches is left strictly alone (re-enabling would reset last_notified_at);
+      -- a row whose interval differs is updated in place.
+      notifyAction <- case cfg ^. #notifyInsert of
+        Nothing -> pure []
+        Just _ | effectiveShape == ObservedPartitioned -> pure [UnsupportedNotifyOnPartitionedQueue qn]
+        Just nc ->
+          let declaredMs = fromMaybe defaultThrottleMs (nc ^. #throttleMs)
+           in case Map.lookup qnText existingNotify of
+                Nothing -> do
+                  (ops ^. #enableNotifyInsert)
+                    StmtTypes.EnableNotifyInsert
                       { queueName = qn,
-                        throttleIntervalMs = declaredMs
+                        throttleIntervalMs = nc ^. #throttleMs
                       }
-                  pure [UpdatedNotifyThrottle qn observedMs declaredMs]
+                  pure [EnabledNotify qn (nc ^. #throttleMs)]
+                Just observedMs
+                  | observedMs == declaredMs -> pure [SkippedNotify qn]
+                  | otherwise -> do
+                      (ops ^. #updateNotifyInsert)
+                        StmtTypes.UpdateNotifyInsert
+                          { queueName = qn,
+                            throttleIntervalMs = declaredMs
+                          }
+                      pure [UpdatedNotifyThrottle qn observedMs declaredMs]
 
-  -- FIFO index. The catalog snapshot makes the report truthful; the underlying
-  -- pgmq.create_fifo_index is CREATE INDEX IF NOT EXISTS, so losing a race with
-  -- a concurrent replica degrades to a no-op rather than an error.
-  fifoAction <-
-    if cfg ^. #fifoIndex
-      then
-        if Set.member qnText existingFifo
-          then pure [SkippedFifoIndex qn]
-          else do
-            (ops ^. #createFifoIndex) qn
-            pure [CreatedFifoIndex qn]
-      else pure []
+      -- FIFO index. The catalog snapshot makes the report truthful; the underlying
+      -- pgmq.create_fifo_index is CREATE INDEX IF NOT EXISTS, so losing a race with
+      -- a concurrent replica degrades to a no-op rather than an error.
+      fifoAction <-
+        if cfg ^. #fifoIndex
+          then
+            if Set.member qnText existingFifo
+              then pure [SkippedFifoIndex qn]
+              else do
+                (ops ^. #createFifoIndex) qn
+                pure [CreatedFifoIndex qn]
+          else pure []
 
-  -- Topic bindings
-  bindingActions <- concat <$> traverse (reconcileBinding ops qn qnText existingBindings) (cfg ^. #topicBindings)
+      -- Topic bindings
+      bindingActions <- concat <$> traverse (reconcileBinding ops qn qnText existingBindings) (cfg ^. #topicBindings)
 
-  pure (queueAction ++ notifyAction ++ fifoAction ++ bindingActions)
+      pure (queueAction ++ collisionAction ++ notifyAction ++ fifoAction ++ bindingActions)
 
 -- | The shape a declared config asks for, reduced to what @pgmq.list_queues()@
 -- can actually report. Partition interval, retention and premake are deliberately

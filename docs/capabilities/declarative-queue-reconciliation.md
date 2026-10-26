@@ -20,6 +20,12 @@ interface:
   - Pgmq.Config.Types
 evidence:
   - kind: test
+    resource: pgmq-config/test/CollisionSpec.hs
+    proves: A declared name colliding with foreign mixed-case metadata is reported without creating aliases or sub-resources, through both backends and schema selections.
+  - kind: test
+    resource: pgmq-config/test/PartitionSpec.hs
+    proves: Partition notifications are reported unsupported without installing or changing a throttle; effective observed shape controls drift behavior.
+  - kind: test
     resource: pgmq-config/test/ConfigSpec.hs
     proves: ensureQueues creates standard/unlogged/partitioned queues, is convergent on a second run, and reports the actions it took.
   - kind: test
@@ -68,10 +74,15 @@ ensureQueuesWithPool pool
 
 ## Limits
 
+- **Name collisions are reported, not repaired.** A missing exact row with foreign aliases
+  stops that config's creation and sub-resources. An exact row allows sub-resources to proceed.
+  Detection is snapshot-based, not serialization against foreign clients.
+- **Partition notifications are reported, not repaired.** Neither enable nor update runs
+  on an observed/newly created partitioned queue; existing foreign rows remain unchanged.
+
 - **Reconciliation is additive, not blanket-idempotent.** The reconciler never drops,
   converts, or disables anything, and leaves queues absent from the config untouched. The
-  `docs/user/queue-configuration.md` phrase "every operation is idempotent" is imprecise;
-  the authoritative contract is the `ensureQueues` Haddock and
+  authoritative contract is the `ensureQueues` Haddock and
   `docs/design/018-reconciliation-contract.md`.
 - **Exactly one mutation of existing state.** A declared notify-throttle interval that
   differs from the stored one is written in place — which also resets the throttle's

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Breaking: add `DetectedQueueNameCollision QueueName (NonEmpty Text)` and `UnsupportedNotifyOnPartitionedQueue QueueName`, with matching JSON tags/fields. Exhaustive report matches must handle both constructors.
+- Report foreign name collisions before creating a missing alias or sub-resources; report partition notifications without enabling or updating them. Drift still reconciles supported sub-resources against observed shape. Correct the guide's reconciliation and idempotence contract.
+
 - Fix native partition notification storms with append-only migration 0007; ordinary crash fail-open lasts until an explicit enable/reconcile restores the throttle row. Clarify partition silence and recovery in public notification documentation.
 
 `pgmq-inspect` is runnable from a database URL and serves OpenAPI 3 at

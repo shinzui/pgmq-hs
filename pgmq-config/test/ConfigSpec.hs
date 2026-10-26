@@ -342,6 +342,8 @@ actionForQueue qn (BoundTopic q _) = q == qn
 actionForQueue qn (SkippedTopicBinding q _) = q == qn
 actionForQueue qn (UpdatedNotifyThrottle q _ _) = q == qn
 actionForQueue qn (DetectedQueueTypeDrift q _ _) = q == qn
+actionForQueue qn (DetectedQueueNameCollision q _) = q == qn
+actionForQueue qn (UnsupportedNotifyOnPartitionedQueue q) = q == qn
 
 -- | Silent-variant version of 'testEnsureQueuesIdempotent': call 'ensureQueues'
 -- twice with the same standard-queue config and confirm the queue exists exactly

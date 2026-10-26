@@ -176,8 +176,8 @@ notes that carry the affected contracts are
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Gate the notification fail-open on a real queue row and state the partitioned-queue contract | docs/plans/23-gate-the-notification-fail-open-on-a-real-queue-row-and-state-the-partitioned-queue-contract.md | None | None | Complete |
-| 2 | Report name collisions and unsupported notifications instead of acting on them | docs/plans/24-report-name-collisions-and-unsupported-notifications-instead-of-acting-on-them.md | None | EP-1 | In Progress |
-| 3 | Create the ephemeral root with owner-only permissions and record acceptance on the current PostgreSQL | docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md | EP-1, EP-2 | None | Not Started |
+| 2 | Report name collisions and unsupported notifications instead of acting on them | docs/plans/24-report-name-collisions-and-unsupported-notifications-instead-of-acting-on-them.md | None | EP-1 | Complete |
+| 3 | Create the ephemeral root with owner-only permissions and record acceptance on the current PostgreSQL | docs/plans/25-create-the-ephemeral-root-with-owner-only-permissions-and-record-acceptance-on-the-current-postgresql.md | EP-1, EP-2 | None | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -263,11 +263,11 @@ that note).
 
 ## Progress
 
-EP-1 is Complete: the seven-entry ledger passes fresh and populated-upgrade acceptance,
-partition/alias silence, ordinary throttling and crash recovery. EP-2 is In Progress.
-EP-3 remains blocked on EP-2 completion. Runtime evidence so far uses PostgreSQL 18.6 /
-pg_partman 5.5.0. Final integration still requires the six-package 0.7.0.0 candidate matrix,
-archive validation, and owner-only-root acceptance. Child plans hold milestone evidence.
+EP-1 and EP-2 are Complete. The notification ledger, existing-trigger upgrade, shared
+reconciliation policy and new report JSON cases are accepted. EP-3 is In Progress and owns
+all five root helpers, six-package release preparation and final candidate acceptance.
+Runtime evidence so far uses PostgreSQL 18.6 / pg_partman 5.5.0. Child plans hold detailed
+milestone evidence; the final candidate matrix and extracted archives remain outstanding.
 
 
 ## Surprises & Discoveries
@@ -290,6 +290,8 @@ formats before archiving and regenerates archives after any packaged-file change
 
 
 ## Decision Log
+
+- Decision (2026-10-26): distill snapshot ownership and effective-shape reconciliation boundaries into [a durable ADR](../adr/reconciliation-ownership-and-unsupported-resource-boundaries.md); design note 018 retains the detailed action contract.
 
 - Decision: Fix the partitioned-queue regression inside the override lineage that migration
   `0003` opened, by an append-only migration `0007` that re-creates

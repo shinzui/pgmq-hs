@@ -4,6 +4,8 @@
 module CollisionSpec (tests) where
 
 import Control.Monad (forM_)
+import Data.Foldable (toList)
+import Data.List (sort)
 import Data.Text (Text)
 import Hasql.Pool qualified as Pool
 import Hasql.Session qualified as Session
@@ -11,7 +13,7 @@ import PartitionSpec (backends, isolated, reconcile, right, session)
 import Pgmq.Config
 import Pgmq.Types (parseQueueName, parseTopicPattern)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase)
+import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 
 tests :: TestTree
 tests =
@@ -20,7 +22,9 @@ tests =
     [ testGroup
         (if backend then "effectful" else "direct")
         [ testCase "single alias blocks every declared sub-resource, including repeat" (collision backend ["Billing_Events"]),
-          testCase "multiple aliases block every declared sub-resource, including repeat" (collision backend ["Billing_Events", "BILLING_EVENTS"])
+          testCase "multiple aliases block every declared sub-resource, including repeat" (collision backend ["Billing_Events", "BILLING_EVENTS"]),
+          testCase "exact row reports collision while reconciling sub-resources" (exactRow backend),
+          testCase "noncolliding foreign name leaves declared queues unaffected" (noncolliding backend)
         ]
     | backend <- backends
     ]
@@ -33,9 +37,44 @@ collision backend names = isolated $ \pool -> do
   pat <- right (parseTopicPattern "billing.*")
   let config = withTopicBinding pat (withFifoIndex (withNotifyInsert (Just 0) (standardQueue q)))
   forM_ [1 :: Int, 2] $ \_ -> do
-    _ <- right =<< reconcile backend pool [config, standardQueue other]
+    actions <- right =<< reconcile backend pool [config, standardQueue other]
+    case actions of
+      [DetectedQueueNameCollision actual colliding, next] -> do
+        actual @?= q
+        sort (toList colliding) @?= sort names
+        case next of
+          CreatedQueue n _ -> n @?= other
+          SkippedQueue n -> n @?= other
+          unexpected -> assertFailure (show unexpected)
+      unexpected -> assertFailure (show unexpected)
     sql pool ("DO $$ BEGIN IF (SELECT count(*) FROM pgmq.meta WHERE lower(queue_name)='billing_events') <> " <> (if length names == 1 then "1" else "2") <> " THEN RAISE EXCEPTION 'collision inserted metadata alias'; END IF; END $$")
     sql pool "DO $$ BEGIN IF EXISTS (SELECT FROM pgmq.notify_insert_throttle WHERE queue_name='billing_events') OR to_regclass('pgmq.q_billing_events_fifo_idx') IS NOT NULL OR EXISTS (SELECT FROM pgmq.topic_bindings WHERE queue_name='billing_events') THEN RAISE EXCEPTION 'collision mutated sub-resources'; END IF; IF NOT EXISTS (SELECT FROM pgmq.meta WHERE queue_name='other') THEN RAISE EXCEPTION 'unrelated queue blocked'; END IF; END $$"
 
 sql :: Pool.Pool -> Text -> IO ()
 sql pool command = session pool (Session.script command)
+
+exactRow :: Bool -> IO ()
+exactRow backend = isolated $ \pool -> do
+  sql pool "SELECT pgmq.create('Billing_Events'); SELECT pgmq.create('BILLING_EVENTS'); SELECT pgmq.create('billing_events')"
+  q <- right (parseQueueName "billing_events")
+  other <- right (parseQueueName "other")
+  pat <- right (parseTopicPattern "billing.*")
+  let config = withTopicBinding pat (withFifoIndex (withNotifyInsert (Just 0) (standardQueue q)))
+  actions <- right =<< reconcile backend pool [config, standardQueue other]
+  case actions of
+    [SkippedQueue n, DetectedQueueNameCollision c names, EnabledNotify e _, CreatedFifoIndex f, BoundTopic b _, CreatedQueue o _] -> do
+      [n, c, e, f, b] @?= replicate 5 q
+      o @?= other
+      sort (toList names) @?= ["BILLING_EVENTS", "Billing_Events"]
+    unexpected -> assertFailure (show unexpected)
+  sql pool "DO $$ BEGIN IF (SELECT count(*) FROM pgmq.meta WHERE lower(queue_name)='billing_events') <> 3 OR NOT EXISTS (SELECT FROM pgmq.notify_insert_throttle WHERE queue_name='billing_events') OR to_regclass('pgmq.q_billing_events_fifo_idx') IS NULL OR NOT EXISTS (SELECT FROM pgmq.topic_bindings WHERE queue_name='billing_events') THEN RAISE EXCEPTION 'exact row sub-resources missing'; END IF; END $$"
+
+noncolliding :: Bool -> IO ()
+noncolliding backend = isolated $ \pool -> do
+  sql pool "SELECT pgmq.create('ForeignQueue')"
+  q <- right (parseQueueName "billing_events")
+  other <- right (parseQueueName "other")
+  actions <- right =<< reconcile backend pool [standardQueue q, standardQueue other]
+  case actions of
+    [CreatedQueue n _, CreatedQueue o _] -> [n, o] @?= [q, other]
+    unexpected -> assertFailure (show unexpected)

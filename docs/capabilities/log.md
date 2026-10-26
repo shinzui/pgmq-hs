@@ -1,6 +1,7 @@
 # Capability catalog log
 
 ## 2026-10-26
+* **Update**: CAP-9: name collisions and partitioned notifications are reported, not repaired
 * **Update**: CAP-4: partitioned queues receive no insert notifications; post-crash duration stated
 
 ## 2026-10-20
